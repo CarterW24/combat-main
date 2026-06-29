@@ -55,6 +55,7 @@ public sealed class Player : ClientPcData, IEntity
 
     public new int TemporaryAppearance { get; set; }
     public DateTimeOffset? TemporaryAppearanceExpiresAt { get; set; }
+    private int _temporaryAppearanceEffectId;
 
     private record PendingCooldown(int ActionBarId, int SlotIndex, int IconId, int NameId, int Count, int CooldownMs, DateTimeOffset StartedAt);
     private readonly ConcurrentDictionary<(int, int), PendingCooldown> _pendingCooldowns = new();
@@ -632,22 +633,18 @@ public sealed class Player : ClientPcData, IEntity
     }
 
 
-    public void ApplyTemporaryAppearance(int modelId, int durationMs)
+    public void ApplyTemporaryAppearance(int modelId, int durationMs, int effectId = 0)
     {
         TemporaryAppearance = modelId;
+        _temporaryAppearanceEffectId = effectId;
 
         if (durationMs > 0)
-        {
             TemporaryAppearanceExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(durationMs);
-        }
 
-        var appearancePacket = new PlayerUpdatePacketUpdateTemporaryAppearance
-        {
-            Guid = Guid,
-            TemporaryAppearance = modelId
-        };
+        if (effectId != 0)
+            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = effectId, Clear = true }, true);
 
-        SendTunneledToVisible(appearancePacket, true);
+        SendTunneledToVisible(new PlayerUpdatePacketUpdateTemporaryAppearance { Guid = Guid, TemporaryAppearance = modelId }, true);
     }
 
     public void RemoveTemporaryAppearance()
@@ -655,12 +652,13 @@ public sealed class Player : ClientPcData, IEntity
         TemporaryAppearance = 0;
         TemporaryAppearanceExpiresAt = null;
 
-        var removePacket = new PlayerUpdatePacketRemoveTemporaryAppearance
+        if (_temporaryAppearanceEffectId != 0)
         {
-            Guid = Guid
-        };
+            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = _temporaryAppearanceEffectId, Clear = true }, true);
+            _temporaryAppearanceEffectId = 0;
+        }
 
-        SendTunneledToVisible(removePacket, true);
+        SendTunneledToVisible(new PlayerUpdatePacketRemoveTemporaryAppearance { Guid = Guid }, true);
     }
 
     #region Equatable

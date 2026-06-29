@@ -46,8 +46,7 @@ public class ResourceManager : IResourceManager
     public static readonly string NpcSpawnsFile = Path.Combine(BaseDirectory, "NpcSpawns.txt");
     public static readonly string NpcVendorsFile = Path.Combine(BaseDirectory, "NpcVendors.json");
 
-
-    public static readonly string ConsumablesFile = Path.Combine(BaseDirectory, "Consumables.json");
+    public static readonly string ConsumablesFile = Path.Combine(BaseDirectory, "Consumables.jsonc");
 
     public IdToStringLookup HairMappings { get; }
     public IdToStringLookup HeadMappings { get; }

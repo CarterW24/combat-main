@@ -39,6 +39,7 @@ public class ConsumableCollection
             var jsonSerializerOptions = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
+                ReadCommentHandling = JsonCommentHandling.Skip,
                 Converters = { new JsonStringEnumConverter() }
             };
 
