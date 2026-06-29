@@ -309,10 +309,6 @@ public class PlayerUpdatePacketAddNpc : BasePlayerUpdatePacket, ISerializablePac
 
         writer.Write(NameplateImageId);
 
-        writer.Write(NotificationImageSetId);
-
-        NotificationData?.Serialize(writer);
-
         return writer.Buffer;
     }
 }
