@@ -8,20 +8,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Sanctuary.Game.Resources;
 
-public class VendorNotification
-{
-    public int Type { get; set; }
-    public int ImageId { get; set; }
-    public int DescriptionId { get; set; }
-    public int NameId { get; set; }
-    public int SubTextId { get; set; }
-    public int Unknown3 { get; set; }
-    public bool Unknown8 { get; set; }
-    public int CompositeEffectId { get; set; }
-    public bool Combat { get; set; }
-    public bool Unknown10 { get; set; }
-}
-
 public class NpcVendorDefinition
 {
     public List<int> Items { get; set; } = [];
@@ -32,7 +18,6 @@ public class NpcVendorDefinition
     public int NameplateImageId { get; set; }
     public int ImageSetId { get; set; }
     public int NotificationImageSetId { get; set; }
-    public VendorNotification? Notification { get; set; }
 }
 
 public class NpcVendorCollection : ConcurrentDictionary<ulong, NpcVendorDefinition>

@@ -55,15 +55,49 @@ public sealed class StartingZone : BaseZone
                 npc.VendorBundles = vendorDef.Bundles;
                 npc.ResourceManager = _resourceManager;
                 npc.CursorId = 5;
-                npc.NotificationData = vendorDef.Notification;
                 npc.NameplateImageId = vendorDef.NameplateImageId;
                 npc.ImageSetId = vendorDef.ImageSetId;
                 npc.NotificationImageSetId = vendorDef.NotificationImageSetId;
-                npc.Unknown67 = 294;
                 if (vendorDef.ActiveProfile != 0)
                     npc.ActiveProfile = vendorDef.ActiveProfile;
                 if (vendorDef.SubTextNameId != 0)
                     npc.SubTextNameId = vendorDef.SubTextNameId;
+                var capturedNpc = npc;
+                npc.InteractAction = (interactingPlayer) =>
+                {
+                    var itemListPacket = new CoinStoreItemListPacket();
+                    foreach (var itemDefId in capturedNpc.VendorItems)
+                    {
+                        if (_resourceManager.CoinStoreItems.TryGetValue(itemDefId, out var meta))
+                            itemListPacket.StaticItems[itemDefId] = meta;
+                        else if (_resourceManager.ClientItemDefinitions.TryGetValue(itemDefId, out var def))
+                            itemListPacket.StaticItems[itemDefId] = new ItemDefinitionMetaData { Id = itemDefId, CategoryId = def.CategoryId };
+                    }
+                    interactingPlayer.SendTunneled(itemListPacket);
+
+                    var merchantPacket = new CoinStoreMerchantListPacket();
+                    merchantPacket.MerchantList.PlayerGuid = (long)interactingPlayer.Guid;
+                    merchantPacket.MerchantList.NpcGuid = capturedNpc.Guid;
+                    merchantPacket.MerchantList.NameId = capturedNpc.NameId;
+                    foreach (var itemDefId in capturedNpc.VendorItems)
+                    {
+                        if (!_resourceManager.ClientItemDefinitions.TryGetValue(itemDefId, out var def))
+                            continue;
+                        merchantPacket.MerchantList.Entries.Add(new MerchantList.Entry
+                        {
+                            ItemDefinitionId = itemDefId,
+                            IconId = def.Icon.Id,
+                            TintId = def.Icon.TintId,
+                            NameId = def.NameId,
+                            DescriptionId = def.DescriptionId,
+                            PurchasableQty = -1,
+                            MembersOnly = def.MembersOnly,
+                            CanBuy = true
+                        });
+                    }
+                    interactingPlayer.ActiveMerchantGuid = capturedNpc.Guid;
+                    interactingPlayer.SendTunneled(merchantPacket);
+                };
             }
 
             npc.UpdatePosition(npcSpawn.Position, npcSpawn.Rotation);

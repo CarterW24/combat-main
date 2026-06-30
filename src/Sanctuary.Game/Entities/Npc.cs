@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 
-using Sanctuary.Game.Resources;
 using Sanctuary.Game.Zones;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common;
@@ -63,15 +62,11 @@ public class Npc : IEntity
 
     public byte CursorId { get; set; }
 
-    public NotificationInfo? Notification { get; set; }
-
     public List<int> VendorItems { get; set; } = [];
     public List<int> VendorCosts { get; set; } = [];
     public List<int> VendorBundles { get; set; } = [];
     public IResourceManager? ResourceManager { get; set; }
-    public VendorNotification? NotificationData { get; set; }
     public int NotificationImageSetId { get; set; }
-    public int Unknown67 { get; set; }
     public int Unknown68 { get; set; }
     public float NameScale { get; set; }
     public int ActiveProfile { get; set; }
@@ -271,29 +266,12 @@ public class Npc : IEntity
 
             ActiveProfile = ActiveProfile,
 
-            Unknown67 = Unknown67,
+            NotificationImageSetId = NotificationImageSetId,
             Unknown68 = Unknown68,
 
             NameScale = NameScale,
 
             NameplateImageId = NameplateImageId,
-
-            NotificationImageSetId = NotificationImageSetId != 0 ? NotificationImageSetId : (Notification?.ImageId ?? 0),
-            NotificationData = NotificationData != null
-                ? new NotificationInfo
-                {
-                    Type = NotificationData.Type,
-                    ImageId = NotificationData.ImageId,
-                    DescriptionId = NotificationData.DescriptionId,
-                    NameId = NotificationData.NameId,
-                    SubTextId = NotificationData.SubTextId,
-                    Unknown3 = NotificationData.Unknown3,
-                    Unknown8 = NotificationData.Unknown8,
-                    CompositeEffectId = NotificationData.CompositeEffectId,
-                    Combat = NotificationData.Combat,
-                    Unknown10 = NotificationData.Unknown10
-                }
-                : Notification
         };
 
         return packet;

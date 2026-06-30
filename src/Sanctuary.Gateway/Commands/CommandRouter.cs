@@ -866,9 +866,9 @@ public static class CommandRouter
             return true;
         }
 
-        if (!float.TryParse(parts[1], out var x) ||
-            !float.TryParse(parts[2], out var y) ||
-            !float.TryParse(parts[3], out var z))
+        if (!float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ||
+            !float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var y) ||
+            !float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var z))
         {
             SendSystem(conn, "Usage: /goto <x> <y> <z>");
             return true;
@@ -2113,7 +2113,7 @@ public static class CommandRouter
             case "nameplate": npc.NameplateImageId = value; break;
             case "imageset":  npc.ImageSetId = value; break;
             case "profile":   npc.ActiveProfile = value; break;
-            case "u67":       npc.Unknown67 = value; break;
+            case "u67":       npc.NotificationImageSetId = value; break;
             case "u68":       npc.Unknown68 = value; break;
             case "effect":    npc.CompositeEffectId = value; break;
             case "notif":     npc.NotificationImageSetId = value; break;

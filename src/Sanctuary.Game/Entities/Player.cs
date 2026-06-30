@@ -264,7 +264,35 @@ public sealed class Player : ClientPcData, IEntity
     public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation)
     {
         if (Zone == zone)
+        {
+            // Same-zone teleport: skip zone membership changes, just reset visibility and reposition.
+            foreach (var visiblePlayer in VisiblePlayers)
+                visiblePlayer.Value.OnRemoveVisiblePlayers([this]);
+
+            OnRemoveVisibleNpcs(VisibleNpcs.Values);
+            OnRemoveVisiblePlayers(VisiblePlayers.Values);
+
+            ZoneTile.Entities.Remove(Guid, out _);
+            ZoneTile = ZoneTile.Empty;
+
+            Visible = false;
+
+            UpdatePosition(position, rotation);
+
+            var sameZonePacket = new PacketClientBeginZoning
+            {
+                Name = Zone.Name,
+                Position = position,
+                Rotation = rotation,
+                Sky = "sky_deep_mines.xml",
+                Id = Zone.Id,
+                GeometryId = 214,
+                OverrideUpdateRadius = true
+            };
+
+            SendTunneled(sameZonePacket);
             return;
+        }
 
         if (Zone is StartingZone)
         {
@@ -385,25 +413,12 @@ public sealed class Player : ClientPcData, IEntity
                 Guid = npc.Guid,
                 Unknown = true,
                 CursorId = npc.CursorId,
-                HasCursor = false
+                HasCursor = npc.NotificationImageSetId != 0
             });
         }
 
         if (playerUpdatePacketNpcRelevance.Entries.Count > 0)
             SendTunneled(playerUpdatePacketNpcRelevance);
-
-        var playerUpdatePacketAddNotifications = new PlayerUpdatePacketAddNotifications();
-
-        foreach (var npc in npcs)
-        {
-            if (npc.Notification is null)
-                continue;
-
-            playerUpdatePacketAddNotifications.Notifications.Add(npc.Notification);
-        }
-
-        if (playerUpdatePacketAddNotifications.Notifications.Count > 0)
-            SendTunneled(playerUpdatePacketAddNotifications);
 
         foreach (var npc in npcs)
             VisibleNpcs.TryAdd(npc.Guid, npc);

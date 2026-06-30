@@ -1,3 +1,38 @@
 {
-    "100000001915": [53, 54, 55]
+    "100000002021": {
+        "SubTextNameId": 2922,
+        "ActiveProfile": 200,
+        "NameplateImageId": 0,
+        "ImageSetId": 0,
+        "NotificationImageSetId": 294,
+        "Items": [
+            76219,
+            76218,
+            76217,
+            76216,
+            76215,
+            76214,
+            75428,
+            75420,
+            75386,
+            75376,
+            75095,
+            75092
+        ],
+        "Bundles": [2976, 2978, 2980, 2985]
+    },
+    "100000001358": {
+        "SubTextNameId": 2922,
+        "ActiveProfile": 200,
+        "ImageSetId": 0,
+        "NameplateImageId": 0,
+        "NotificationImageSetId": 294,
+        "Items": [53, 54, 55, 56, 57],
+        "ItemCosts": [100, 200, 300, 150, 250],
+        "Bundles": [2976, 2978, 2980, 2985]
+    },
+    "100000001915": {
+        "NotificationImageSetId": 294,
+        "Items": [53, 54, 55]
+    }
 }
