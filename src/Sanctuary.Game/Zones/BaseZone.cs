@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -22,7 +22,7 @@ namespace Sanctuary.Game.Zones;
 [DebuggerDisplay("{Name} ({Id})")]
 public abstract class BaseZone : IZone, IDisposable
 {
-    private readonly ILogger _logger;
+    protected readonly ILogger _logger;
     private readonly IResourceManager _resourceManager;
     private readonly BaseZoneDefinition _zoneDefinition;
     private readonly CancellationTokenSource _cancellationTokenSource = new();

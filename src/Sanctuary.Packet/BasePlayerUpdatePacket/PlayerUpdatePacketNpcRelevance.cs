@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 using Sanctuary.Core.IO;
 
@@ -19,17 +19,15 @@ public class PlayerUpdatePacketNpcRelevance : BasePlayerUpdatePacket, ISerializa
         /// </summary>
         public byte CursorId;
 
-        public bool HasCursor;
+        public bool Unknown2;
 
         public void Serialize(PacketWriter writer)
         {
             writer.Write(Guid);
 
             writer.Write(Unknown);
-
             writer.Write(CursorId);
-
-            writer.Write(HasCursor);
+            writer.Write(Unknown2);
         }
     }
 

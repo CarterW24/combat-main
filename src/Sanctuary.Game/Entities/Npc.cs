@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
@@ -46,7 +46,42 @@ public class Npc : IEntity
     /// </summary>
     public int Disposition { get; set; } = 1;
 
+    // COMBAT WIP: server-side health so abilities can damage/kill this NPC.
+    // MaxHealth == 0 means "not damageable" (no health bar). See docs/STATUS.md.
+    public int MaxHealth { get; set; }
+    public int Health { get; set; }
+
+    /// <summary>Render a nameplate health bar (maps to AddNpc.Unknown41).</summary>
+    public bool ShowHealthBar { get; set; }
+
+    public bool IsHostile => Disposition == 0;
+    public bool IsDamageable => MaxHealth > 0;
+    public bool IsAlive => !IsDamageable || Health > 0;
+
+    /// <summary>Apply damage; returns true if this hit killed the NPC.</summary>
+    public bool ApplyDamage(int amount)
+    {
+        if (!IsAlive)
+            return false;
+
+        Health -= amount;
+
+        if (Health <= 0)
+        {
+            Health = 0;
+            return true;
+        }
+
+        return false;
+    }
+
     public int Animation { get; set; } = 1;
+
+    // Locomotion animation group ids (0 = none). Let a moving NPC play walk/run/idle clips (loc_walk=2,
+    // loc_run=3, loc_stand=1). Used by AI-driven NPCs like the Shadow Army clones.
+    public int WalkAnimId { get; set; }
+    public int RunAnimId { get; set; }
+    public int StandAnimId { get; set; }
 
     public int CompositeEffectId { get; set; }
 
@@ -195,9 +230,9 @@ public class Npc : IEntity
 
             InteractRange = InteractRange,
 
-            WalkAnimId = default, // Walk GroupAnimId
-            RunAnimId = default, // Sprint GroupAnimId
-            StandAnimId = default, // Idle GroupAnimId
+            WalkAnimId = WalkAnimId, // Walk GroupAnimId
+            RunAnimId = RunAnimId, // Sprint GroupAnimId
+            StandAnimId = StandAnimId, // Idle GroupAnimId
 
             Unknown33 = default,
             Unknown34 = default,
@@ -212,7 +247,7 @@ public class Npc : IEntity
             Unknown38 = default,
             Unknown39 = default,
             Unknown40 = default,
-            Unknown41 = default,
+            Unknown41 = ShowHealthBar, // Health bar
             Unknown42 = default,
 
             HasTilt = default,

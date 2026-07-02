@@ -1,12 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Numerics;
 
-using Sanctuary.Core.Collections;
 using Sanctuary.Core.IO;
 using Sanctuary.Game.Interactions;
 using Sanctuary.Game.Zones;
@@ -43,14 +43,10 @@ public sealed class Player : ClientPcData, IEntity
     public List<FriendData> Friends { get; set; } = [];
     public List<IgnoreData> Ignores { get; set; } = [];
 
-    public ConcurrentSet<ulong> IncomingFriendRequests { get; } = [];
-
     public ConcurrentDictionary<ChatChannel, bool> ChatChannelStatus { get; set; } = [];
 
     public int StationCash { get; set; }
     public List<CoinStoreTransactionRecord> CoinStoreTransactions { get; set; } = [];
-
-    public int TimezoneOffset { get; set; }
 
     public Vector4 StartingZonePosition { get; set; }
     public Quaternion StartingZoneRotation { get; set; }
@@ -427,6 +423,18 @@ public sealed class Player : ClientPcData, IEntity
         return list;
     }
 
+    // COMBAT WIP: the item-definition id of the weapon currently equipped in the weapon slot (7), or 0 if
+    // none. Used to drive the ability toolbar off the equipped weapon (see Combat/NinjaWeaponAbilities).
+    public int GetEquippedWeaponDefinitionId()
+    {
+        if (!ActiveProfile.Items.TryGetValue(7, out var profileItem))
+            return 0;
+
+        var clientItem = Items.FirstOrDefault(x => x.Id == profileItem.Id);
+
+        return clientItem?.Definition ?? 0;
+    }
+
     public CharacterAttachmentData? GetAttachment(int slot)
     {
         if (!ActiveProfile.Items.TryGetValue(slot, out var profileItem))
@@ -517,6 +525,8 @@ public sealed class Player : ClientPcData, IEntity
             packet.MountQueuePosition = Mount.QueuePosition;
 
             packet.NameVerticalOffset = Mount.Definition.NameVerticalOffset;
+
+            Debug.WriteLine($"AddPc: {Name} {Guid} | {Mount.Guid} {Mount.Seat} {Mount.QueuePosition}");
         }
 
         return packet;
@@ -556,11 +566,16 @@ public sealed class Player : ClientPcData, IEntity
 
     public void Dispose()
     {
-        Mount?.Dispose();
-        Mount = null;
-
         foreach (var visiblePlayer in VisiblePlayers)
             visiblePlayer.Value.OnRemoveVisiblePlayers([this]);
+
+        if (Mount is not null)
+        {
+            Mount.ZoneTile.Entities.Remove(Mount.Guid, out _);
+
+            Zone.TryRemoveNpc(Mount.Guid);
+            Mount = null;
+        }
 
         ZoneTile.Entities.Remove(Guid, out _);
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -40,6 +40,12 @@ public static class PacketTunneledClientWorldPacketHandler
         var handled = opCode switch
         {
             BaseCommandPacket.OpCode => BaseCommandPacketHandler.HandlePacket(connection, reader),
+            // INSTANCE WIP (Frostfang Fury): the GO! button's EncounterParticipantRequestEntrancePacket
+            // (op41/sub108, IDA sub_8B6E70) is sent on THIS world tunnel — not the client tunnel. It was
+            // being dropped invisibly here (op41 was never routed + unhandled drops were DEBUG-only).
+            // Route the encounter + minigame families exactly like the client tunnel does.
+            BaseEncounterPacket.OpCode => BaseEncounterPacketHandler.HandlePacket(connection, reader),
+            BaseMiniGamePacket.OpCode => BaseMiniGamePacketHandler.HandlePacket(connection, reader),
             PacketWorldTeleportRequest.OpCode => PacketWorldTeleportRequestHandler.HandlePacket(connection, packet.Payload),
             PacketBaseInGamePurchase.OpCode => PacketBaseInGamePurchaseHandler.HandlePacket(connection, reader),
             PacketSetLocale.OpCode => PacketSetLocaleHandler.HandlePacket(connection, packet.Payload),
@@ -50,13 +56,12 @@ public static class PacketTunneledClientWorldPacketHandler
             _ => false
         };
 
-#if DEBUG
+        // OBSERVE: same Release-visible log as the client tunnel — never drop a packet invisibly again.
         if (!handled)
         {
-            reader.Reset();
-            System.Diagnostics.Debug.WriteLine(reader.ReadTunneledPacketName(), "TunneledClientWorld");
+            _logger.LogInformation("UNHANDLED tunneled WORLD opcode={op} | payload={hex}",
+                opCode, Convert.ToHexString(packet.Payload));
         }
-#endif
 
         return handled;
     }

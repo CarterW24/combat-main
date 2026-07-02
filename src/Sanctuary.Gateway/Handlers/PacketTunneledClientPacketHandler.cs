@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -45,6 +45,8 @@ public static class PacketTunneledClientPacketHandler
             BaseCommandPacket.OpCode => BaseCommandPacketHandler.HandlePacket(connection, reader),
             BasePlayerUpdatePacket.OpCode => BasePlayerUpdatePacketHandler.HandlePacket(connection, reader),
             BaseAbilityPacket.OpCode => BaseAbilityPacketHandler.HandlePacket(connection, reader),
+            BaseEncounterPacket.OpCode => BaseEncounterPacketHandler.HandlePacket(connection, reader),
+            BaseMiniGamePacket.OpCode => BaseMiniGamePacketHandler.HandlePacket(connection, reader),
             BaseInventoryPacket.OpCode => BaseInventoryPacketHandler.HandlePacket(connection, reader),
             PacketGameTimeSync.OpCode => PacketGameTimeSyncHandler.HandlePacket(connection, packet.Payload),
             PacketBaseInGamePurchase.OpCode => PacketBaseInGamePurchaseHandler.HandlePacket(connection, reader),
@@ -66,13 +68,14 @@ public static class PacketTunneledClientPacketHandler
             _ => false
         };
 
-#if DEBUG
+        // OBSERVE: unhandled tunneled opcodes used to be visible only in DEBUG builds (Debug.WriteLine) —
+        // which is how the GO! button's real packet got dropped invisibly in Release (LIVE TEST 1, 2026-07-01).
+        // Log them at INFO so no client packet ever disappears silently again.
         if (!handled)
         {
-            reader.Reset();
-            System.Diagnostics.Debug.WriteLine(reader.ReadTunneledPacketName(), "TunneledClient");
+            _logger.LogInformation("UNHANDLED tunneled opcode={op} | payload={hex}",
+                opCode, Convert.ToHexString(packet.Payload));
         }
-#endif
 
         return handled;
     }

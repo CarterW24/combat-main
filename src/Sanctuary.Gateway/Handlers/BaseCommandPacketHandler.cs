@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -42,7 +42,16 @@ public static class BaseCommandPacketHandler
             CommandPacketIgnoreRequest.OpCode => CommandPacketIgnoreRequestHandler.HandlePacket(connection, reader.Span),
             CommandPacketChatChannelOn.OpCode => CommandPacketChatChannelOnHandler.HandlePacket(connection, reader.Span),
             CommandPacketChatChannelOff.OpCode => CommandPacketChatChannelOffHandler.HandlePacket(connection, reader.Span),
-            _ => false
+            _ => LogUnhandled(opCode, reader)
         };
+    }
+
+    // INSTANCE WIP: observe-log unmapped command sub-opcodes so we can see what the offer popup requests when it
+    // opens — e.g. CommandPacketRequestRewardPreviewUpdate (sub37, the "Prizes" loader the spinner waits on).
+    private static bool LogUnhandled(short subOpCode, PacketReader reader)
+    {
+        _logger.LogInformation("BaseCommandPacket UNHANDLED sub-opcode={sub} | remaining bytes={hex}",
+            subOpCode, Convert.ToHexString(reader.Span));
+        return true;
     }
 }
