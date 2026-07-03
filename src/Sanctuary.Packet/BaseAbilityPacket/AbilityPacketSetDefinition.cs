@@ -4,7 +4,7 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// COMBAT WIP: BaseAbilityPacket (op36) sub-opcode 5 = AbilityPacketSetDefinition â€” populates a profile's
+// COMBAT WIP: BaseAbilityPacket (op36) sub-opcode 5 = AbilityPacketSetDefinition — populates a profile's
 // ability toolbar. Parameterized reconstruction (replaces the raw capture replay) so WE define the slots.
 //
 // Wire format CONFIRMED from IDA (AbilitySet::SerializeForClient + Ability::sub_8E6760):

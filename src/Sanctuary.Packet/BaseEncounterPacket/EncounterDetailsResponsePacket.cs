@@ -3,7 +3,7 @@ using Sanctuary.Core.IO;
 namespace Sanctuary.Packet;
 
 // INSTANCE WIP (Frostfang Fury): BaseEncounterPacket (op 41) sub-opcode 114 = "EncounterDetailsResponsePacket"
-// â€” the S2C adventure OFFER POPUP (title / difficulty / description / prizes + GO! button).
+// — the S2C adventure OFFER POPUP (title / difficulty / description / prizes + GO! button).
 //
 // Wire format reverse-engineered from the client's Unserialize functions (IDA, 2026-06-24), top-down:
 //   EncounterDetailsResponsePacket::Unserialize (sub_AA32D0):
@@ -13,28 +13,28 @@ namespace Sanctuary.Packet;
 //     int32 Unknown
 //     Set<StoreBundleId> = prizes-at-packet-level           (sub_9B0700; int32 count + ids)
 //   EncounterDetailsCommon (sub_A29120):
-//     int32 Unknown Â· int32 Unknown2
+//     int32 Unknown · int32 Unknown2
 //     collection (sub_A27610; int32 count + elems)          [GAP_ member]
 //     List<EncounterTeamData> (sub_A24660; int32 count + elems)
-//     int32 Unknown3 Â· int32 TeleportEffectId
-//     byte Unknown5 Â· byte Unknown6 Â· byte Tutorial
-//     int32 Unknown8 Â· int32 RespawnTime
+//     int32 Unknown3 · int32 TeleportEffectId
+//     byte Unknown5 · byte Unknown6 · byte Tutorial
+//     int32 Unknown8 · int32 RespawnTime
 //     MiniGameInfo                                          (sub_9BDD70)
-//     byte UNK0 Â· byte UNK1
+//     byte UNK0 · byte UNK1
 //   MiniGameInfo (sub_9BDD70):
-//     int32 NameId(title) Â· int32 IconId Â· int32 DescriptionId Â· int32 Difficulty Â· int32 ProfileType Â·
-//     int32 Type Â· byte MembersOnly Â·
-//     RewardBundleBase Ã—3 (reward / member / preview)       (sub_8E7930)
-//     ObjectiveData[] (sub_9BC380; int32 count + elems) Â·
-//     byte Ã—5 (U8..U12) Â· string U13 Â· int32 U14 Â· byte U15 Â· int32 PreselectedGameId Â·
-//     byte Ã—4 (U16..U19) Â· int32 U20
+//     int32 NameId(title) · int32 IconId · int32 DescriptionId · int32 Difficulty · int32 ProfileType ·
+//     int32 Type · byte MembersOnly ·
+//     RewardBundleBase ×3 (reward / member / preview)       (sub_8E7930)
+//     ObjectiveData[] (sub_9BC380; int32 count + elems) ·
+//     byte ×5 (U8..U12) · string U13 · int32 U14 · byte U15 · int32 PreselectedGameId ·
+//     byte ×4 (U16..U19) · int32 U20
 //   RewardBundleBase (sub_8E7930):
-//     byte Unknown Â· int32 Ã—9 (U2..U10) Â· int32 Ã—2 pairA Â· int32 Ã—2 pairB Â·
-//     int32 U13 Â· int32 U14 Â· int32 entryCount Â· entryCountÃ—{int32 type + polymorphic entry} Â· int32 U15
+//     byte Unknown · int32 ×9 (U2..U10) · int32 ×2 pairA · int32 ×2 pairB ·
+//     int32 U13 · int32 U14 · int32 entryCount · entryCount×{int32 type + polymorphic entry} · int32 U15
 //     (empty bundle = 69 fixed bytes, entryCount 0)
 //
 // This first cut sends the popup with the visible fields (NameId/Difficulty/DescriptionId/IconId) populated and
-// every collection EMPTY (no teams/objectives/prizes/reward-entries) â€” enough to make the panel render. Prizes
+// every collection EMPTY (no teams/objectives/prizes/reward-entries) — enough to make the panel render. Prizes
 // + objectives get layered in once the panel is confirmed.
 public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializablePacket
 {
@@ -54,6 +54,14 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
     public int RespawnTime;
     public bool Tutorial;
 
+    // LAUNCH selector (client case 114 @0xaa3dcf, RE'd 2026-07-02): the trailing packet flag byte picks
+    // the path — false = OFFER popup (ClientMiniGameManager::sub_9BEB70), true = LAUNCH
+    // (sub_9BB2D0: replaces/creates THE MiniGameState from this packet's MiniGameInfo).
+    // The MiniGameState is the master gate for the whole minigame UI: every op45 objective packet
+    // (goals panel) is dropped while m_MiniGameStates is empty, and IsInMiniGame() stays false.
+    // So the encounter entry flow must send this packet AGAIN with Launch=true at GO!.
+    public bool Launch;
+
     public EncounterDetailsResponsePacket() : base(OpCode)
     {
     }
@@ -71,7 +79,7 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         writer.Write(0);                 // EncounterTeamData list count = 0 (empty)
         writer.Write(0);                 // Unknown3
         writer.Write(TeleportEffectId);  // TeleportEffectId
-        writer.Write(true);              // Unknown5 (byte) â€” ctor default 1; passed into the offer display
+        writer.Write(true);              // Unknown5 (byte) — ctor default 1; passed into the offer display
         writer.Write(false);             // Unknown6 (byte)
         writer.Write(Tutorial);          // Tutorial (byte)
         writer.Write(0);                 // Unknown8
@@ -106,18 +114,18 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         // ----- end MiniGameInfo -----
 
         writer.Write(false);             // EncounterDetailsCommon UNK0 (byte)
-        writer.Write(true);              // EncounterDetailsCommon UNK1 (byte) â€” â˜… REQUIRED: client case 114
+        writer.Write(true);              // EncounterDetailsCommon UNK1 (byte) — ★ REQUIRED: client case 114
                                          // gates the whole popup on this (if(!UNK1) -> do nothing). ctor default 1.
         // ===== end EncounterDetailsCommon =====
 
-        writer.Write(false);             // packet flag (byte)
+        writer.Write(Launch);            // packet flag (byte): false = offer popup, true = launch (create MiniGameState)
         writer.Write(0);                 // packet Unknown (int32)
         writer.Write(0);                 // Set<StoreBundleId> count = 0 (no prizes yet)
 
         return writer.Buffer;
     }
 
-    // RewardBundleBase with no entries â€” 69 fixed bytes (see header). All-zero is a valid empty bundle.
+    // RewardBundleBase with no entries — 69 fixed bytes (see header). All-zero is a valid empty bundle.
     private static void WriteEmptyRewardBundle(PacketWriter writer)
     {
         writer.Write(false);                              // byte Unknown

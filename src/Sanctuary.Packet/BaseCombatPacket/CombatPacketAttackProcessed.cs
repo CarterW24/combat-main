@@ -2,7 +2,7 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// COMBAT WIP: BaseCombatPacket (op 32) sub-opcode 7 = "AttackProcessed" â€” the ALL-IN-ONE combat
+// COMBAT WIP: BaseCombatPacket (op 32) sub-opcode 7 = "AttackProcessed" — the ALL-IN-ONE combat
 // feedback packet. From a single message the client (CombatProcessor::sub_A2BA40) produces: the
 // floating damage NUMBER (PlayerHitpointDeltaEvent, delta = -Damage), the target HEALTH BAR
 // (PlayerHitpointEvent, % = newHp/MaxHealth), the hit COMPOSITE EFFECT, and the recoil ANIMATION.

@@ -8,7 +8,7 @@ namespace Sanctuary.Packet;
 //
 // WIRE FORMAT CONFIRMED from IDA (client UnserializePacket sub_8D6F10): reads an 8-byte Guid (two
 // dwords) then THREE int32s = 20 bytes total. A short packet trips m_bReachedEnd and the client
-// REJECTS the whole packet (this was the original bug â€” only 2 ints were sent). The meaning of the
+// REJECTS the whole packet (this was the original bug — only 2 ints were sent). The meaning of the
 // three ints is still provisional; current/max first is the working hypothesis, Unknown=0.
 public class PlayerUpdatePacketUpdateHitpoints : BasePlayerUpdatePacket, ISerializablePacket
 {

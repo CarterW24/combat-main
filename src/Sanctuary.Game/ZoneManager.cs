@@ -23,6 +23,10 @@ public class ZoneManager : IZoneManager
     private const int StartingZoneDefinitionId = 1;
     public StartingZone StartingZone { get; private set; } = null!;
 
+    // INSTANCE (Frostfang Fury): lazily-created shared arena zone (per-party instancing later).
+    private FrostfangArenaZone? _frostfangArena;
+    private readonly object _frostfangArenaLock = new();
+
     public ZoneManager(
         ILoggerFactory loggerFactory,
         IResourceManager resourceManager,
@@ -74,6 +78,26 @@ public class ZoneManager : IZoneManager
         }
 
         return false;
+    }
+
+    public FrostfangArenaZone GetOrCreateFrostfangArena()
+    {
+        lock (_frostfangArenaLock)
+        {
+            if (_frostfangArena is null)
+            {
+                _frostfangArena = new FrostfangArenaZone(_serviceProvider)
+                {
+                    Id = _uniqueId++
+                };
+
+                _zones.TryAdd(_frostfangArena.Id, _frostfangArena);
+
+                _logger.LogInformation("Created Frostfang arena zone {name} ({id}).", _frostfangArena.Name, _frostfangArena.Id);
+            }
+
+            return _frostfangArena;
+        }
     }
 
     private bool TryCreateStartingZone(int definitionId, [MaybeNullWhen(false)] out StartingZone zone)

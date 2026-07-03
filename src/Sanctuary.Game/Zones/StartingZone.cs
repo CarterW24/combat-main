@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -88,11 +88,6 @@ public sealed class StartingZone : BaseZone
         SpawnTrainingDummy(player);
 
         SpawnGrowlerWolf(player);
-
-        // INSTANCE WIP (Frostfang Fury): if this ClientIsReady is the arrival AFTER the GO! re-zone
-        // (BeginFrostfangEncounter marked the player pending), start the encounter: spawn the wolf pack.
-        if (_frostfangPending.Remove(player.Guid))
-            SpawnFrostfangPack(player);
 
         // COMBAT WIP: populate the left ability toolbar on zone load (so we don't have to swap jobs to
         // trigger it). Replays the captured Ninja SetDefinition. Combat/"fighting" state is NOT set here —
@@ -194,7 +189,11 @@ public sealed class StartingZone : BaseZone
                                             // — that's why the dummy showed no cursor. 11 is the real swords one.)
                                             // ⚠️ VERIFY ON TEST: if the fight cursor turns the wolf into an attack
                                             // target and breaks click-to-open, fall back to 5 (talk) + the marker.
-            npc.NameplateImageId = 10;      // icon_UI_minigame_combat — the crossed-swords combat-encounter marker
+            // The purple crossed-swords encounter badge ABOVE the head is NOT a nameplate field at
+            // all — it's a NOTIFICATION (op35/sub10 AddNotifications -> OverHeadBitmapElement at
+            // offset (0,-0.9,0)); see the badge push after OnAddVisibleNpcs below.
+            npc.NameplateImageId = 0;
+            npc.ImageSetId = 0;
             npc.ShowHealthBar = false;      // MaxHealth stays 0 => not damageable
 
             // Next to the home spawn (the training dummy sits at X+5; put the wolf on the other side at X-6).
@@ -209,6 +208,27 @@ public sealed class StartingZone : BaseZone
 
         // Same recipe the training dummy uses to be clickable: tell the client it has a cursor (relevance).
         SendNpcRelevance(player, _growlerWolf);
+
+        SendGrowlerBadge(player);
+    }
+
+    // The reference video's crossed-swords badge floating ABOVE the Growler's head. RE'd 2026-07-02:
+    // op35/sub10 AddNotifications (byte-exact vs live 2014 pcap) -> client attaches an
+    // OverHeadBitmapElement above the character. ImageId 24 in NotificationImages.txt =
+    // tint-circle + circle + crossed-swords icon 1345 (the combat-encounter badge art).
+    private void SendGrowlerBadge(Player player)
+    {
+        if (_growlerWolf is null)
+            return;
+
+        var badge = new PlayerUpdatePacketAddNotifications();
+        badge.Notifications.Add(new NotificationData
+        {
+            Guid = _growlerWolf.Guid,
+            ImageId = 24,
+        });
+
+        player.SendTunneled(badge);
     }
 
     /// <summary>INSTANCE WIP: the Frostfang Growler adventure-giver wolf.</summary>
@@ -218,49 +238,13 @@ public sealed class StartingZone : BaseZone
     public void ShowGrowlerWolf(Player player)
     {
         if (_growlerWolf is not null)
+        {
             player.OnAddVisibleNpcs(_growlerWolf);
+            SendGrowlerBadge(player);
+        }
     }
 
-    // COMBAT WIP: tell the client this NPC is an attackable combat target (drives the attack cursor +
-    // lets it be selected as a target so ability presses carry its guid). See Cursors.txt for ids.
-    public void SendNpcRelevance(Player player, Npc npc)
-    {
-        if (npc.CursorId == 0)
-            return;
-
-        var relevance = new PlayerUpdatePacketNpcRelevance();
-
-        relevance.Entries.Add(new PlayerUpdatePacketNpcRelevance.Entry
-        {
-            Guid = npc.Guid,
-            Unknown = true,        // "has cursor" (provisional)
-            CursorId = npc.CursorId,
-            Unknown2 = false,
-        });
-
-        player.SendTunneled(relevance);
-    }
-
-    // COMBAT WIP: push an NPC's current/max health to a player so its nameplate health bar renders.
-    // Sends MaxHealth via UpdateStat (backup, in case the bar reads max from stats) plus the per-entity
-    // UpdateHitpoints (provisional reconstruction). See docs/STATUS.md.
-    public void SendNpcHealth(Player player, Npc npc)
-    {
-        if (!npc.IsDamageable)
-            return;
-
-        var updateStat = new ClientUpdatePacketUpdateStat { Guid = npc.Guid };
-        updateStat.Stats.Add(new CharacterStat(CharacterStatId.MaxHealth, npc.MaxHealth));
-        player.SendTunneled(updateStat);
-
-        var updateHitpoints = new PlayerUpdatePacketUpdateHitpoints
-        {
-            Guid = npc.Guid,
-            Hitpoints = npc.Health,
-            MaxHitpoints = npc.MaxHealth
-        };
-        player.SendTunneled(updateHitpoints);
-    }
+    // (SendNpcRelevance / SendNpcHealth moved to BaseZone — shared with the Frostfang arena zone.)
 
     /// <summary>COMBAT WIP: the live combat target (training dummy).</summary>
     public Npc? TrainingDummy => _trainingDummy;
@@ -278,6 +262,14 @@ public sealed class StartingZone : BaseZone
 
         foreach (var zonePlayer in Players)
             SendNpcHealth(zonePlayer, dummy);
+    }
+
+    // COMBAT: kill routing for this zone — the only killable NPC here is the eternal training dummy.
+    // (The Frostfang encounter wolves live in FrostfangArenaZone, which has its own override.)
+    public override void OnNpcKilled(Player killer, Npc npc)
+    {
+        if (ReferenceEquals(npc, _trainingDummy))
+            ResetTrainingDummy();
     }
 
     // COMBAT WIP: Shadow Army special — spawn temporary "shadow clone" NPCs around the caster, each using the
@@ -449,322 +441,6 @@ public sealed class StartingZone : BaseZone
         });
     }
 
-    #region Frostfang Fury arena
-
-    // INSTANCE WIP (Frostfang Fury): the GO!->ENTER encounter, modeled on the Sunrise reference video
-    // (youtube MB2zn8Um8g8): GO! -> loading screen -> a grassy clearing -> waves of wolves -> the
-    // "Frostfang Alpha" boss -> victory -> return. Phase 1 = one wave (4 wolves) + the Alpha, then an
-    // auto-return home.
-    // ARENA (2026-07-01, from client data — NOT guessed): the Frostfang Growler encounter zones into the real
-    // world sg_random_encounter_clearing (green grass clearing matching the Sunrise video). Playable center
-    // (136,0,165) r100 from its Areas.xml. We enter with a moderately-high Y so the client drops the player onto
-    // real ground (valid X/Z inside the r100 area -> no fall-through). Wolves then spawn AROUND wherever the
-    // player actually landed (see SpawnFrostfangPack), which sidesteps needing the exact ground Y.
-    public const string FrostfangArenaWorldName = "sg_random_encounter_clearing";
-    public const int FrostfangArenaZoneId = 174; // activity id, as a traceable instance zone id
-
-    private Vector4? _arenaCenterOverride;
-
-    private Vector4 ArenaCenter =>
-        _arenaCenterOverride ?? new(136f, 60f, 165f, 1f);
-
-    /// <summary>Pin the arena spawn to an exact position (from the "!arena set" chat command).</summary>
-    public void SetArenaCenter(Vector4 position) => _arenaCenterOverride = position;
-
-    private const int ArenaWolfModelId = 176;      // wolf.adr — same model as the Growler giver
-    private const int ArenaWolfHealth = 1500;
-    private const int ArenaAlphaHealth = 6000;
-    private const float ArenaAlphaScale = 1.6f;    // visibly bigger than the pack
-    private const int ArenaWolfCount = 4;
-    private const int ArenaSmokePoof = 21;         // PFX_smoke_black_explosion (spawn/death poof)
-    // Wolf AI (mirrors the proven shadow-clone chase loop, but the target is the PLAYER):
-    private const int WolfTickMs = 300;
-    private const float WolfMoveSpeed = 7f;
-    private const float WolfBiteRange = 2.4f;
-    private const int WolfBiteCooldownMs = 2200;
-    private const int WolfBiteDamage = 60;         // cosmetic vs the 2500-HP player; no player death yet
-    private const int WolfRunAnim = 3;             // loc_run (locomotion groups are model-generic)
-
-    // Players who pressed GO! and are re-zoning into the arena; consumed by OnClientIsReady.
-    private readonly HashSet<ulong> _frostfangPending = [];
-
-    // Live encounter state (single shared arena for now — one tester).
-    private readonly List<Npc> _arenaWolves = [];
-    private Npc? _arenaAlpha;
-
-    /// <summary>Marks the player as entering the Frostfang encounter (called by the GO! sub108 handler
-    /// BEFORE it sends the arena BeginZoning). The wolf pack spawns on their ClientIsReady.</summary>
-    public void BeginFrostfangEncounter(Player player)
-    {
-        _frostfangPending.Add(player.Guid);
-    }
-
-    /// <summary>The arena spawn point the GO! handler zones the player to.</summary>
-    public Vector4 FrostfangArenaSpawn => ArenaCenter;
-
-    // The player's actual landed position in the arena world — the ring center for wolf spawns. Sampled a
-    // couple seconds AFTER entry so the client has loaded, dropped the player to real ground, and reported the
-    // true position back. Avoids having to know the exact ground Y at (136,165) up front.
-    private Vector4 _arenaLandedCenter;
-
-    private void SpawnFrostfangPack(Player player)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                // let the client finish loading sg_random_encounter_clearing and settle on the ground
-                await Task.Delay(2500);
-
-                if (player.Zone != this)
-                    return;
-
-                // center the fight on where the player actually landed (real ground coords)
-                _arenaLandedCenter = player.Position;
-
-                // ring of wolves around the player, facing in
-                (float dx, float dz)[] ring = [(9f, 0f), (-9f, 2f), (4f, 9f), (-4f, -9f)];
-
-                lock (_arenaWolves)
-                {
-                    foreach (var old in _arenaWolves)
-                        old.Dispose();
-                    _arenaWolves.Clear();
-                    _arenaAlpha?.Dispose();
-                    _arenaAlpha = null;
-
-                    for (var i = 0; i < ArenaWolfCount; i++)
-                    {
-                        var wolf = CreateArenaWolf(player, "Frostfang Snarler", ArenaWolfHealth, 1f, ring[i % ring.Length]);
-                        if (wolf is not null)
-                            _arenaWolves.Add(wolf);
-                    }
-                }
-
-                _logger.LogInformation("Frostfang arena: spawned {n} wolves around ({x},{y},{z}) for {name}.",
-                    _arenaWolves.Count, _arenaLandedCenter.X, _arenaLandedCenter.Y, _arenaLandedCenter.Z, player.Name);
-
-                StartArenaWolfAi(player);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Frostfang pack spawn failed.");
-            }
-        });
-    }
-
-    private Npc? CreateArenaWolf(Player player, string name, int health, float scale, (float dx, float dz) offset)
-    {
-        if (!TryCreateNpc(out var npc))
-            return null;
-
-        npc.ModelId = ArenaWolfModelId;
-        npc.Name = name;
-        npc.NameId = 0;
-        npc.Disposition = 0;            // hostile — a combat target
-        npc.Scale = scale;
-        npc.IsInteractable = false;
-        npc.Visible = true;
-        npc.CursorId = 11;              // crossed-swords attack cursor
-        npc.MaxHealth = health;
-        npc.Health = health;
-        npc.ShowHealthBar = true;
-        npc.RunAnimId = WolfRunAnim;
-        npc.WalkAnimId = 2;
-        npc.StandAnimId = 1;
-
-        // ring around where the player actually landed (real ground); +0.6 lifts the wolf model off the floor
-        var pos = new Vector4(_arenaLandedCenter.X + offset.dx, _arenaLandedCenter.Y + 0.6f, _arenaLandedCenter.Z + offset.dz, 1f);
-        npc.UpdatePosition(pos, Quaternion.Identity);
-
-        player.OnAddVisibleNpcs(npc);
-        npc.OnAddVisiblePlayers(player);
-        SendNpcRelevance(player, npc);
-        SendNpcHealth(player, npc);
-
-        // spawn poof
-        player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
-        {
-            Guid = npc.Guid,
-            CompositeEffectId = ArenaSmokePoof,
-            Position = pos,
-        });
-
-        return npc;
-    }
-
-    // Chase-the-player AI: same loop shape as the shadow clones (position tick + client interpolation),
-    // but the target is the player and the bite lands an AttackProcessed ON the player (recoil + number;
-    // damage is cosmetic for now — the player HP pool isn't server-tracked yet).
-    private void StartArenaWolfAi(Player player)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var nextBiteMs = new Dictionary<ulong, int>();
-
-                for (var elapsed = 0; elapsed < 10 * 60 * 1000; elapsed += WolfTickMs)
-                {
-                    await Task.Delay(WolfTickMs);
-
-                    // stop if the player left the arena/zone (e.g. !home escape)
-                    if (player.Zone != this)
-                        break;
-
-                    Npc[] pack;
-                    lock (_arenaWolves)
-                        pack = _arenaAlpha is { } alpha ? [.. _arenaWolves, alpha] : [.. _arenaWolves];
-
-                    if (pack.Length == 0)
-                        break;
-
-                    var target = new Vector3(player.Position.X, player.Position.Y, player.Position.Z);
-
-                    foreach (var wolf in pack)
-                    {
-                        if (!wolf.IsAlive)
-                            continue;
-
-                        var here = new Vector3(wolf.Position.X, wolf.Position.Y, wolf.Position.Z);
-                        var toTarget = target - here;
-                        var dist = toTarget.Length();
-
-                        var yaw = (float)Math.Atan2(toTarget.X, toTarget.Z);
-                        var rot = Quaternion.CreateFromYawPitchRoll(yaw, 0f, 0f);
-
-                        if (dist > WolfBiteRange)
-                        {
-                            var step = Math.Min(WolfMoveSpeed * (WolfTickMs / 1000f), dist - WolfBiteRange);
-                            var dir = toTarget / dist;
-                            var np = here + dir * step;
-                            var newPos = new Vector4(np.X, np.Y, np.Z, wolf.Position.W);
-
-                            wolf.UpdatePosition(newPos, rot);
-                            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
-                            {
-                                Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
-                            });
-                        }
-                        else
-                        {
-                            wolf.UpdatePosition(wolf.Position, rot);
-                            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
-                            {
-                                Guid = wolf.Guid, Position = wolf.Position, Rotation = rot, State = 0, Unknown = 0,
-                            });
-
-                            var next = nextBiteMs.GetValueOrDefault(wolf.Guid);
-                            if (elapsed >= next)
-                            {
-                                nextBiteMs[wolf.Guid] = elapsed + WolfBiteCooldownMs;
-
-                                // LIVE TEST 5 lesson: AttackProcessed with the player in the target guids made
-                                // the PLAYER swing + put slot 1 on cooldown (the client's melee-interval handler
-                                // reads it as the player attacking). NPC->player damage uses HitPointModification
-                                // instead: Guid=source, Guid2=victim, Unknown2=NEGATIVE amount -> floating damage
-                                // number over the player, no swing, no cooldown. Plus a hit flash for feedback.
-                                player.SendTunneled(new PlayerUpdatePacketHitPointModification
-                                {
-                                    Guid = wolf.Guid,
-                                    Guid2 = player.Guid,
-                                    Unknown2 = -WolfBiteDamage,
-                                });
-
-                                player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
-                                {
-                                    Guid = player.Guid,
-                                    CompositeEffectId = 7, // PFX_Hit_Flash
-                                    Position = player.Position,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Frostfang arena wolf AI failed.");
-            }
-        });
-    }
-
-    /// <summary>COMBAT: routes an NPC kill to the right consequence — training dummy resets; arena
-    /// wolves die/despawn and drive the encounter (pack cleared -> Alpha; Alpha dead -> victory).</summary>
-    public void OnNpcKilled(Player player, Npc npc)
-    {
-        if (ReferenceEquals(npc, _trainingDummy))
-        {
-            ResetTrainingDummy();
-            return;
-        }
-
-        var packCleared = false;
-        var alphaDown = false;
-
-        lock (_arenaWolves)
-        {
-            if (_arenaWolves.Remove(npc))
-                packCleared = _arenaWolves.Count == 0 && _arenaAlpha is null;
-            else if (ReferenceEquals(npc, _arenaAlpha))
-            {
-                _arenaAlpha = null;
-                alphaDown = true;
-            }
-            else
-                return; // not an arena NPC
-        }
-
-        // death poof + remove
-        player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
-        {
-            Guid = npc.Guid,
-            CompositeEffectId = ArenaSmokePoof,
-            Position = npc.Position,
-        });
-        npc.Dispose();
-
-        if (packCleared)
-        {
-            _logger.LogInformation("Frostfang arena: pack cleared -> spawning the Frostfang Alpha.");
-
-            lock (_arenaWolves)
-                _arenaAlpha = CreateArenaWolf(player, "Frostfang Alpha", ArenaAlphaHealth, ArenaAlphaScale, (10f, 0f));
-        }
-        else if (alphaDown)
-        {
-            _logger.LogInformation("Frostfang arena: ALPHA DOWN -> victory; returning {name} home in 6s.", player.Name);
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(6000);
-
-                    if (player.Zone != this)
-                        return;
-
-                    // back to the home spawn (same recipe as !home)
-                    player.UpdatePosition(SpawnPosition, SpawnRotation);
-                    player.SendTunneled(new PacketClientBeginZoning
-                    {
-                        Name = Name,
-                        Sky = null,
-                        Position = SpawnPosition,
-                        Rotation = SpawnRotation,
-                        Id = Id,
-                        WaitForZoneReadyPacket = false,
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Frostfang arena victory return failed.");
-                }
-            });
-        }
-    }
-
-    #endregion
 
     private void SendQuickChatData(Player player)
     {

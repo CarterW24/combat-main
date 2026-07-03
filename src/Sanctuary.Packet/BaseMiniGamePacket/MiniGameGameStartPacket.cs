@@ -2,7 +2,7 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// INSTANCE WIP (Frostfang Fury): S2C ack for a client MiniGameStartGame (sub 5) request â€” tells the client
+// INSTANCE WIP (Frostfang Fury): S2C ack for a client MiniGameStartGame (sub 5) request — tells the client
 // the game is starting. Ported verbatim from the team's `minigame` branch (their MiniGameStartGamePacketHandler
 // replies with this, echoing StateId/GroupId/GameId).
 public class MiniGameGameStartPacket : BaseMiniGamePacket, ISerializablePacket

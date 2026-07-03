@@ -10,9 +10,9 @@ using Sanctuary.Packet.Common.Attributes;
 
 namespace Sanctuary.Gateway.Handlers;
 
-// INSTANCE WIP (Frostfang Fury): C2S dispatcher for BaseMiniGamePacket (op39) â€” ported from the team's
+// INSTANCE WIP (Frostfang Fury): C2S dispatcher for BaseMiniGamePacket (op39) — ported from the team's
 // `minigame` branch. LIVE TEST 1 (2026-07-01) taught us the GO! button does NOT send op41/sub108
-// (EncounterParticipantRequestEntrance) as assumed â€” the only thing we logged was CommandPacket sub42
+// (EncounterParticipantRequestEntrance) as assumed — the only thing we logged was CommandPacket sub42
 // ClosedMinigameEndScreen (the panel closing). The branch's flow says starting a minigame sends
 // op39/sub5 MiniGameStartGame -> server acks with sub17 GameStart. This handler observe-logs EVERY op39
 // sub-opcode and treats sub5 as the GO! press: ack + enter the Frostfang arena.
@@ -20,7 +20,7 @@ namespace Sanctuary.Gateway.Handlers;
 public static class BaseMiniGamePacketHandler
 {
     // op39 sub-opcodes (byte-sized!) from the minigame branch.
-    private const byte MiniGameStartGame = 5; // C2S â€” pressing GO!/start on a minigame offer panel
+    private const byte MiniGameStartGame = 5; // C2S — pressing GO!/start on a minigame offer panel
 
     private static ILogger _logger = null!;
 
@@ -54,27 +54,16 @@ public static class BaseMiniGamePacketHandler
         // body: [int StateId][int GroupId][int GameId]
         if (!reader.TryRead(out int stateId) || !reader.TryRead(out int groupId) || !reader.TryRead(out int gameId))
         {
-            _logger.LogWarning("MiniGameStartGame: short body ( {hex} ) â€” acking anyway.", Convert.ToHexString(reader.Span));
+            _logger.LogWarning("MiniGameStartGame: short body ( {hex} ) — acking anyway.", Convert.ToHexString(reader.Span));
             stateId = 0; groupId = -1; gameId = -1;
         }
 
         _logger.LogInformation("MiniGameStartGame (GO! pressed): StateId={state} GroupId={group} GameId={game}",
             stateId, groupId, gameId);
 
-        // ack: the game is starting (echo ids, as the minigame branch does)
-        connection.SendTunneled(new MiniGameGameStartPacket(stateId, groupId, gameId));
-
-        // GO! -> ENTER (per the Sunrise reference video): loading-screen re-zone into the arena clearing,
-        // where the pending flag makes OnClientIsReady spawn the wolf pack.
-        if (connection.Player.Zone is StartingZone startingZone)
-        {
-            startingZone.BeginFrostfangEncounter(connection.Player);
-
-            EncounterParticipantRequestEntranceHandler.EnterWorld(connection,
-                StartingZone.FrostfangArenaWorldName,
-                startingZone.FrostfangArenaSpawn,
-                StartingZone.FrostfangArenaZoneId);
-        }
+        // Same entry as the sub108 GO! path: proper server-side zone transfer into the arena
+        // (also sends the GameStart ack).
+        EncounterParticipantRequestEntranceHandler.EnterFrostfangArena(connection);
 
         return true;
     }

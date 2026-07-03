@@ -1,88 +1,66 @@
 using System;
-using System.Numerics;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using Sanctuary.Core.IO;
+using Sanctuary.Game;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common.Attributes;
 
 namespace Sanctuary.Gateway.Handlers;
 
-// INSTANCE WIP (Frostfang Fury): handles EncounterParticipantRequestEntrancePacket (op41/sub108, C2S) â€” what the
-// GO! / "Press to Teleport" button on the adventure offer popup sends.
+// INSTANCE (Frostfang Fury): handles EncounterParticipantRequestEntrancePacket (op41/sub108, C2S) — the GO!
+// button on the adventure offer popup. Wire format (client ctor sub_8B6E70):
+//   [op41][sub108][int encounterId][int unk2][ulong playerGuid]
+// NOTE it arrives on the WORLD tunnel (PacketTunneledClientWorldPacket), not the client tunnel.
 //
-// âš ï¸ OBSERVE-ONLY FOR NOW. Two open questions resolved this BEFORE we teleport anywhere:
-//   1) DESTINATION WORLD is NOT the ice cavern. "Frostfang Growler!" is a WANDERING COMBAT ENCOUNTER in the
-//      Snowhill woods (locale: "Defeat Frostfang Growlers in Snowhill", "...wandering combat encounter"; the
-//      offer text says the wolves "are in the woods"). sh_frostfang_cavern (POI 59) is the separate ice dungeon.
-//      So the fight is likely an OVERWORLD encounter (EncounterOverworldCombatPacket op41/sub132) or a forest
-//      arena â€” TBD. Don't hardcode the cavern.
-//   2) LOADING-SPINNER GATE (tip from another dev): the client calls AddIdToActivityDatasource(name, id) to fill
-//      the minigame detail/category datasource. Sending only the id (no datasource NAME) leaves the category
-//      empty and the spinner hangs forever. So the GO!->enter path needs an Activity/MiniGame packet that
-//      populates that datasource with BOTH name+id (IDA target).
-// This handler logs the exact GO! bytes so we can reconstruct the C2S format + see what the client expects next.
+// GO! -> ENTER: a REAL server-side zone transfer (Player.TeleportToZone) into the FrostfangArenaZone —
+// world sg_random_encounter_clearing, identified from the client's own pack data (see the zone class +
+// docs/STATUS.md). The proper transfer rebuilds tiles/visibility and sets OverrideUpdateRadius=true, which
+// is what makes arena NPCs actually render (the earlier client-only fake zoning left them invisible).
 [PacketHandler]
 public static class EncounterParticipantRequestEntranceHandler
 {
     private static ILogger _logger = null!;
+    private static IZoneManager _zoneManager = null!;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
     {
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         _logger = loggerFactory.CreateLogger(nameof(EncounterParticipantRequestEntranceHandler));
+
+        _zoneManager = serviceProvider.GetRequiredService<IZoneManager>();
     }
 
     public static bool HandlePacket(GatewayConnection connection, PacketReader reader)
     {
-        // Keep logging the raw GO! bytes (C2S format still not formally decoded â€” the transition works
-        // without parsing it, but the body likely carries the encounter id for multi-encounter routing).
+        // Keep logging the raw GO! bytes (the body carries the encounter id — useful once there are
+        // multiple encounters to route).
         _logger.LogInformation("EncounterParticipantRequestEntrance (GO! pressed) | body={hex}",
             Convert.ToHexString(reader.Span));
 
-        // GO! -> ENTER: a REAL cross-world zone into the actual Frostfang Growler arena world, identified from
-        // the client's own packs (2026-07-01): sg_random_encounter_clearing â€” the green grass clearing matching
-        // the Sunrise video (its .gzne uses sg_grass/sg_stone/mv_grass, no snow). Real playable center (136,0,165)
-        // r100 from sg_random_encounter_clearingAreas.xml. A cross-world load (unlike the earlier same-world hack)
-        // applies the position + drops the player on real ground with WaitForZoneReadyPacket=false, the proven
-        // !home pattern. BeginFrostfangEncounter marks the player so post-load ClientIsReady spawns the pack.
-        if (connection.Player.Zone is Sanctuary.Game.Zones.StartingZone startingZone)
-        {
-            startingZone.BeginFrostfangEncounter(connection.Player);
-
-            EnterWorld(connection,
-                Sanctuary.Game.Zones.StartingZone.FrostfangArenaWorldName,
-                startingZone.FrostfangArenaSpawn,
-                Sanctuary.Game.Zones.StartingZone.FrostfangArenaZoneId);
-        }
+        EnterFrostfangArena(connection);
 
         return true;
     }
 
-    // Reusable re-zone helper. For a CROSS-WORLD load (e.g. FabledRealms -> sg_random_encounter_clearing) the
-    // client does a full geometry load and applies the position + drops the player on real ground; the earlier
-    // fall-through happened only because the coords were outside the target world's terrain.
-    public static void EnterWorld(GatewayConnection connection, string worldName, Vector4 spawn, int zoneId)
+    /// <summary>The one true GO!-&gt;arena entry: proper server-side zone transfer + the minigame
+    /// GameStart ack (op39/sub17) that drives the client's minigame state machine.</summary>
+    public static void EnterFrostfangArena(GatewayConnection connection)
     {
-        connection.Player.UpdatePosition(spawn, Quaternion.Identity); // keep server & client position in sync
+        var arena = _zoneManager.GetOrCreateFrostfangArena();
 
-        connection.SendTunneled(new PacketClientBeginZoning
-        {
-            Name = worldName,
-            Sky = null,                      // let the world define its own sky (a bad sky string was rejected)
-            Position = spawn,
-            Rotation = Quaternion.Identity,
-            Id = zoneId,
-            // LIVE TEST 5 lesson: for a SAME-WORLD re-zone, WaitForZoneReadyPacket=true + instant GameStart
-            // short-circuits the reload and the client NEVER APPLIES Position (player stays put while the
-            // server thinks they moved â€” wolves then cluster at the phantom spot). !home proves false works:
-            // the client teleports immediately. Re-introduce true + the GameStart gate when the arena becomes
-            // a real separate world (geometry load is what makes the wait path apply the position).
-            WaitForZoneReadyPacket = false,
-        });
+        // Reference video: the whole encounter runs under a dark fog ("gloam") that lifts only after
+        // victory. The arena world is an sg_ (Shrouded Glade) world, and the client ships a matching
+        // mood sky: sky_shrouded_gloam.xml (always-night, heavy fog 10..600).
+        connection.Player.TeleportToZone(arena, arena.EffectiveSpawn, arena.SpawnRotation,
+            sky: "sky_shrouded_gloam.xml", geometryId: 0);
 
-        _logger.LogInformation("ClientBeginZoning -> {world} at {pos} (WaitForZoneReady=true).", worldName, spawn);
+        // MiniGame lifecycle: the game has started (StateId<=0 targets the client's current MiniGameState —
+        // the one our offer popup created). Also the packet that clears m_bWaitForZoneReadyPacket if set.
+        connection.SendTunneled(new MiniGameGameStartPacket(0, -1, -1));
+
+        _logger.LogInformation("GO! -> TeleportToZone {zone} ({id}) at {pos}.", arena.Name, arena.Id, arena.EffectiveSpawn);
     }
 }

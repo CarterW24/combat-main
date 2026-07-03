@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -55,11 +55,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         var player = connection.Player;
         var zone = player.Zone;
-
-        // COMBAT WIP: combat/"fighting" state is what opens the client gate for floating damage numbers,
-        // but it also LOCKS job/equipment changes. Auto-entering it on attack is disabled for now so we can
-        // freely swap gear/jobs while building the ability system. Use "!fight 1" to turn numbers on,
-        // "!fight 0" to unlock changes again. (Re-enable here later once cooldowns/combat flow are in.)
 
         // Resolve the ability's target. When the player has the dummy selected the client sends its
         // guid; with nothing selected it sends the player's own guid. Fall back to the nearest live
@@ -124,6 +119,52 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         return true;
     }
 
+    // World-combat state tracker: first hit sends the enter pair (sub132 + sub133 true); 6 seconds
+    // after the LAST hit the decay loop sends the exit pair (false) — job/equipment changes unlock.
+    private const int OutOfCombatSeconds = 6;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, DateTime> _lastCombatHit = new();
+
+    private static void EnterWorldCombat(Player player)
+    {
+        var alreadyFighting = _lastCombatHit.ContainsKey(player.Guid);
+        _lastCombatHit[player.Guid] = DateTime.UtcNow;
+
+        if (alreadyFighting)
+            return;
+
+        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
+        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (_lastCombatHit.TryGetValue(player.Guid, out var last))
+                {
+                    var remaining = TimeSpan.FromSeconds(OutOfCombatSeconds) - (DateTime.UtcNow - last);
+                    if (remaining <= TimeSpan.Zero)
+                        break;
+
+                    await Task.Delay(remaining);
+                }
+
+                _lastCombatHit.TryRemove(player.Guid, out _);
+
+                // The Frostfang arena owns its combat state for the whole encounter (its exit sequence
+                // releases it) — don't let an overworld decay stomp it mid-fight.
+                if (player.Zone is FrostfangArenaZone)
+                    return;
+
+                player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+                player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "World-combat decay loop failed.");
+            }
+        });
+    }
+
     // COMBAT WIP: after the cast bar completes, apply damage to the target, play a hit effect, push its
     // updated health bar, and kill/respawn it at 0 HP. Runs off-thread so the cast time elapses first.
     private static void ResolveDamageAfterCast(Player player, Npc target, int damage, int effectId,
@@ -134,6 +175,13 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             try
             {
                 await Task.Delay((int)(CastSeconds * 1000));
+
+                // Real-game behavior: landing a hit puts you in world-combat (sub132 SetInWorldCombat →
+                // m_bIsFighting + NPC hp-bar mode, sub133 SetIsFighting → m_bInCombatArea). This is what
+                // opens the client's floating-damage-number gate (BaseClient::sub_8BB0B0: CanUseAbilities
+                // || IsFighting || ...). It also job-locks while fighting — released by the 6s decay below,
+                // exactly like live FR's combat indicator.
+                EnterWorldCombat(player);
 
                 var killed = target.ApplyDamage(damage);
 
@@ -161,22 +209,23 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     });
                 }
 
-                // The real combat packet: one message drives the target's health bar, the hit composite
-                // effect, and the recoil animation (CONFIRMED live). The floating damage NUMBER it also
-                // contains is gated client-side behind combat/"fighting" state (sub_8BB0B0) — TODO: set
-                // that state so numbers show. Bar/effect/recoil work without it.
+                // The real combat packet — field mapping LOCKED to the live 2014 dump
+                // (Packet-Protocol_Dump/CombatPacketAttackProcessed.json, 9 samples): the real server
+                // sends Guid1 = Guid2 = TARGET, Guid3 = ATTACKER, and Int5 = the target's CURRENT HP
+                // AFTER the hit (samples step 400 -> 379 -> 356 -> 333 — that IS the moving health bar).
+                // Our old attacker-first order + constant Int5=max froze the bar.
                 var attackProcessed = new CombatPacketAttackProcessed
                 {
-                    Guid1 = player.Guid,            // attacker
-                    Guid2 = target.Guid,            // target
-                    Guid3 = target.Guid,
-                    Int1 = damage,
+                    Guid1 = target.Guid,            // target
+                    Guid2 = target.Guid,            // target (the delta/number event posts here)
+                    Guid3 = player.Guid,            // attacker
+                    Int1 = damage,                  // the floating number (client renders -Int1)
                     Int2 = target.MaxHealth,        // max HP (bar %)
                     Int3 = effectId,                // per-ability hit composite effect
                     Bool1 = false,
                     Bool2 = false,
                     Int4 = 0,
-                    Int5 = target.MaxHealth,        // fallback start HP (used when client HP unknown)
+                    Int5 = target.Health,           // current HP after the hit -> bar position
                 };
 
                 player.SendTunneled(attackProcessed);
@@ -185,10 +234,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     "Ability hit {name} ({guid}) for {dmg} -> {hp}/{max} HP (killed={killed})",
                     target.Name, target.Guid, damage, target.Health, target.MaxHealth, killed);
 
-                // Route the kill to the zone: training dummy resets; Frostfang arena wolves die/despawn
-                // and drive the encounter (pack cleared -> Alpha spawns; Alpha dead -> victory + return).
-                if (killed && player.Zone is StartingZone startingZone)
-                    startingZone.OnNpcKilled(player, target);
+                // Route the kill to the zone (IZone.OnNpcKilled): the starting zone resets its training
+                // dummy; the Frostfang arena advances the encounter (pack -> Alpha -> victory + return).
+                if (killed)
+                    player.Zone.OnNpcKilled(player, target);
             }
             catch (Exception ex)
             {

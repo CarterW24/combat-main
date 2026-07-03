@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
@@ -25,6 +25,10 @@ public class Npc : IEntity
 
     public int NameId { get; set; }
     public string? Name { get; set; }
+
+    /// <summary>Nameplate text color (AddNpc.NameColor; 0 = client default). Bosses in the reference
+    /// video render RED names — first candidate mechanism alongside op32/sub9 EnableBossDisplay.</summary>
+    public int NameColor { get; set; }
     public int SubTextNameId { get; set; }
     public bool HideNamePlate { get; set; }
     public int NameplateImageId { get; set; }
@@ -77,18 +81,37 @@ public class Npc : IEntity
 
     public int Animation { get; set; } = 1;
 
-    // Locomotion animation group ids (0 = none). Let a moving NPC play walk/run/idle clips (loc_walk=2,
-    // loc_run=3, loc_stand=1). Used by AI-driven NPCs like the Shadow Army clones.
-    public int WalkAnimId { get; set; }
-    public int RunAnimId { get; set; }
-    public int StandAnimId { get; set; }
+    // Locomotion animation group ids. -1 = "use the model's own clips" — the live 2014 server sends
+    // -1 on EVERY NPC (370/370 AddNpc packets in the 2014-03-25 capture). 0 or a guessed id replaces
+    // the model's run clip with an invalid one and the actor slides un-animated.
+    public int WalkAnimId { get; set; } = -1;
+    public int RunAnimId { get; set; } = -1;
+    public int StandAnimId { get; set; } = -1;
 
     public int CompositeEffectId { get; set; }
 
     public int InteractRange { get; set; } = 100;
     public bool IsInteractable { get; set; } = true;
 
+    // MOVEMENT (client OnPlayerUpdatePosition @0x90DE90, RE'd 2026-07-02): the client applies op125
+    // position updates ONLY when the actor's MovementType is 1 (CONTROLLER: ClientMovementManager
+    // interpolates to the sent position at ExpectedSpeed) or 2 (PHYSICS: network-player style with
+    // gravity/fall states). Type 0 = static scenery — updates are parsed then silently DROPPED
+    // (that was the "wolves frozen at spawn in the treetops" bug).
     public int MovementType { get; set; }
+
+    /// <summary>Movement speed baked into AddNpc (feeds the client's ExpectedSpeed for this actor —
+    /// at 0 a CONTROLLER/PHYSICS actor has no speed to move with).</summary>
+    public float Speed { get; set; }
+
+    /// <summary>Rider gate: OnPlayerUpdatePosition ignores actors whose rider != the invalid-guid
+    /// sentinel (0xFFFFFFFFFFFFFFFF). Send the sentinel for AI NPCs ("no rider").</summary>
+    public ulong RiderGuid { get; set; }
+
+    // AddNpc bool #38. GROUND TRUTH (2014-03-25 capture): set to 1 on every red-name attackable camp
+    // hostile (nameId 440711/440712, disp 0, nameColor FFFF0000) and 0 on every friendly — the
+    // "render as enemy" status flag that goes with the red name.
+    public bool EnemyStatus { get; set; }
 
     public int AreaDefinitionId { get; set; }
 
@@ -224,7 +247,7 @@ public class Npc : IEntity
 
             TerrainObjectId = TerrainObjectId,
 
-            Speed = default,
+            Speed = Speed,
 
             Unknown28 = default,
 
@@ -244,7 +267,7 @@ public class Npc : IEntity
 
             // playerUpdatePacketAddNpc.EffectTags = TODO
 
-            Unknown38 = default,
+            Unknown38 = EnemyStatus,
             Unknown39 = default,
             Unknown40 = default,
             Unknown41 = ShowHealthBar, // Health bar
@@ -256,7 +279,7 @@ public class Npc : IEntity
 
             Tilt = default,
 
-            NameColor = default,
+            NameColor = NameColor,
 
             AreaDefinitionId = AreaDefinitionId,
 
@@ -264,7 +287,7 @@ public class Npc : IEntity
 
             IsInteractable = IsInteractable,
 
-            RiderGuid = default,
+            RiderGuid = RiderGuid,
 
             MovementType = MovementType,
 

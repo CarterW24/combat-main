@@ -2,10 +2,10 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// INSTANCE WIP (Frostfang Fury): BaseMiniGamePacket (op 39) â€” the minigame lifecycle family. Ported from the
+// INSTANCE WIP (Frostfang Fury): BaseMiniGamePacket (op 39) — the minigame lifecycle family. Ported from the
 // team's `minigame` branch (github Open-Source-Free-Realms/Sanctuary, branch minigame). Wire format:
 // [short op39][byte subOpCode][int StateId][int GroupId][int GameId]. NOTE the sub-opcode is a BYTE here
-// (unlike op41's short sub-opcode). Known subs (branch): 5=StartGame (C2S â€” pressing GO!/start on a minigame
+// (unlike op41's short sub-opcode). Known subs (branch): 5=StartGame (C2S — pressing GO!/start on a minigame
 // panel), 17=GameStart (S2C ack), End, Leave, Payload, Info(=MiniGameInfoPacket, bigger body).
 public class BaseMiniGamePacket
 {

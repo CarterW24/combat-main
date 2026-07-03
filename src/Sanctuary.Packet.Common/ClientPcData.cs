@@ -477,7 +477,6 @@ public class ClientPcData
 
         writer.Write(Birthday);
         writer.Write(Age);
-
         writer.Write(PlayTime);
 
         writer.Write(IsUnderage);

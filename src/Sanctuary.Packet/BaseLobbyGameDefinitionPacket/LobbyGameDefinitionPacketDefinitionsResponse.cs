@@ -18,7 +18,7 @@ public class LobbyGameDefinitionPacketDefinitionsResponse : BaseLobbyGameDefinit
     {
         using var writer = new PacketWriter();
 
-        Write(writer);
+        writer.Write(OpCode);
 
         writer.WritePayload(Payload);
 

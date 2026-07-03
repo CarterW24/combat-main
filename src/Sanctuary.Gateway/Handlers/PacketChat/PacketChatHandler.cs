@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Numerics;
 
@@ -178,26 +178,22 @@ public static class PacketChatHandler
             return true;
         }
 
-        // INSTANCE WIP (Frostfang Fury): "!arena" shows your current position + the arena center;
-        // "!arena set" pins the arena center to EXACTLY where you're standing (this server run). Scout the
-        // perfect clearing in-game, stand in its middle, "!arena set", then click the wolf -> GO!.
+        // INSTANCE (Frostfang Fury): "!arena" logs your current position (coordinate scouting);
+        // "!arena set" pins the arena SPAWN to exactly where you're standing (do it while standing in the
+        // arena world to fine-tune where GO! drops players this server run).
         if (packet.Message is { } arenaMsg && arenaMsg.StartsWith("!arena"))
         {
-            if (connection.Player.Zone is Sanctuary.Game.Zones.StartingZone arenaZone)
-            {
-                var pos = connection.Player.Position;
+            var pos = connection.Player.Position;
 
-                if (arenaMsg.Contains("set"))
-                {
-                    arenaZone.SetArenaCenter(pos);
-                    _logger.LogInformation("!arena set -> arena center pinned at ({x}, {y}, {z}).", pos.X, pos.Y, pos.Z);
-                }
-                else
-                {
-                    _logger.LogInformation("!arena -> player at ({x}, {y}, {z}); arena center = ({ax}, {ay}, {az}).",
-                        pos.X, pos.Y, pos.Z,
-                        arenaZone.FrostfangArenaSpawn.X, arenaZone.FrostfangArenaSpawn.Y, arenaZone.FrostfangArenaSpawn.Z);
-                }
+            if (arenaMsg.Contains("set"))
+            {
+                Sanctuary.Game.Zones.FrostfangArenaZone.SpawnOverride = pos;
+                _logger.LogInformation("!arena set -> arena spawn pinned at ({x}, {y}, {z}).", pos.X, pos.Y, pos.Z);
+            }
+            else
+            {
+                _logger.LogInformation("!arena -> player at ({x}, {y}, {z}) in zone {zone}.",
+                    pos.X, pos.Y, pos.Z, connection.Player.Zone.Name);
             }
             return true;
         }
@@ -599,6 +595,23 @@ public static class PacketChatHandler
     {
         var zone = _zoneManager.StartingZone;
 
+        if (connection.Player.Zone != zone)
+        {
+            // Leaving the arena mid-encounter: release the client's minigame/combat state FIRST
+            // (op39/sub19 + op62 defaults), or it stays InCombat forever (stuck job changes).
+            if (connection.Player.Zone is Sanctuary.Game.Zones.FrostfangArenaZone arena)
+                arena.EndEncounterForPlayer(connection.Player);
+
+            // In another zone (e.g. the Frostfang arena): do the PROPER server-side transfer so
+            // tiles/visibility/zone registration all move with the player (a raw BeginZoning here
+            // would desync client world vs server zone — the "invisible NPCs" class of bug).
+            connection.Player.TeleportToZone(zone, zone.SpawnPosition, zone.SpawnRotation, sky: null, geometryId: 0);
+
+            _logger.LogInformation("!home -> TeleportToZone back to {name} ({id}).", zone.Name, zone.Id);
+            return;
+        }
+
+        // Already in the starting zone: just reposition + re-zone the client to the spawn.
         connection.Player.UpdatePosition(zone.SpawnPosition, zone.SpawnRotation);
 
         connection.SendTunneled(new PacketClientBeginZoning

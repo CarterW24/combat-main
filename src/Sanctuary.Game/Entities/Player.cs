@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -150,6 +150,17 @@ public sealed class Player : ClientPcData, IEntity
 
     public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation)
     {
+        // Preserve the original hardcoded values for existing (deep-mines test) callers.
+        TeleportToZone(zone, position, rotation, "sky_deep_mines.xml", 214);
+    }
+
+    // INSTANCE (Frostfang Fury): overload with explicit sky/geometry so real zone transfers (e.g. the
+    // sg_random_encounter_clearing arena) can use the destination world's own sky (null) instead of the
+    // deep-mines test values. This is the PROPER server-side zone handoff — tiles/visibility rebuilt,
+    // OverrideUpdateRadius=true (the client's case-31 handler feeds this to ActorManager::SetOverrideUpdateRadius;
+    // without it NPCs in the new world get distance-culled -> the "invisible wolves" bug).
+    public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation, string? sky, int geometryId)
+    {
         if (Zone == zone)
             return;
 
@@ -192,9 +203,9 @@ public sealed class Player : ClientPcData, IEntity
             Name = Zone.Name,
             Position = position,
             Rotation = rotation,
-            Sky = "sky_deep_mines.xml",
+            Sky = sky,
             Id = Zone.Id,
-            GeometryId = 214,
+            GeometryId = geometryId,
             OverrideUpdateRadius = true
         };
 

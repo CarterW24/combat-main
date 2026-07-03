@@ -10,7 +10,7 @@ using Sanctuary.Packet.Common.Attributes;
 namespace Sanctuary.Gateway.Handlers;
 
 // INSTANCE WIP (Frostfang Fury): the C2S dispatcher for BaseEncounterPacket (op41). Previously NOTHING routed
-// op41 inbound â€” clicking GO! on the adventure offer popup fell through unhandled. This reads the sub-opcode and
+// op41 inbound — clicking GO! on the adventure offer popup fell through unhandled. This reads the sub-opcode and
 // dispatches. It also OBSERVE-LOGS every sub-opcode (like BaseAbilityPacketHandler) so we can see exactly what
 // the offer popup's buttons send (sub108 EncounterParticipantRequestEntrance = GO!; sub109 RequestExit; etc.)
 // and reconstruct their wire formats from the live bytes.

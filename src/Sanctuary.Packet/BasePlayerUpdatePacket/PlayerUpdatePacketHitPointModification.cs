@@ -2,10 +2,10 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// COMBAT WIP: BasePlayerUpdatePacket (op 35) sub-opcode 35 = "HitPointModification" â€” the floating
+// COMBAT WIP: BasePlayerUpdatePacket (op 35) sub-opcode 35 = "HitPointModification" — the floating
 // combat damage/heal number shown over an entity.
 //
-// WIRE FORMAT CONFIRMED from IDA (client UnserializePacket sub_8D6C50): 30 bytes total â€”
+// WIRE FORMAT CONFIRMED from IDA (client UnserializePacket sub_8D6C50): 30 bytes total —
 //   ulong Guid   (m_llGuid)   target
 //   ulong Guid2  (m_llGuid2)  source / attacker
 //   bool  Unknown  (m_bUnknown)

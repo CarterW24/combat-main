@@ -103,7 +103,9 @@ public class PlayerUpdatePacketAddNpc : BasePlayerUpdatePacket, ISerializablePac
     [JsonConverter(typeof(Vector4JsonConverter))]
     public Vector4 Tilt;
 
-    public float NameColor;
+    // ARGB int (client reads m_nNameColor as int32; live hostiles send 0xFFFF0000 = opaque red).
+    // Was declared float here — an int color assigned through a float conversion mangles the bits.
+    public int NameColor;
 
     public int AreaDefinitionId;
 

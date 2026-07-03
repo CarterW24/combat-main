@@ -30,7 +30,7 @@ public class AbilityPacketStartCasting : BaseAbilityPacket, ISerializablePacket
 
         base.Write(writer);          // [BaseAbilityPacket.OpCode=36][SubOpCode=3]
 
-        // PROVISIONAL ORDER â€” being verified live via the !cast command.
+        // PROVISIONAL ORDER — being verified live via the !cast command.
         writer.Write(Unknown);
         writer.Write(Unknown2);
         writer.Write(CompositeEffectId);

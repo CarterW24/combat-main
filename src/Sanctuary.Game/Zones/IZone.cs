@@ -18,6 +18,10 @@ public interface IZone
     void OnClientIsReady(Player entity);
     void OnClientFinishedLoading(Player entity);
 
+    /// <summary>COMBAT: called when an NPC in this zone is killed, so the zone decides the consequence
+    /// (training dummy resets; encounter wolves despawn and advance the encounter; etc.).</summary>
+    void OnNpcKilled(Player killer, Npc npc);
+
     #endregion
 
     #region Entities
