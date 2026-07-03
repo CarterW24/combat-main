@@ -398,16 +398,15 @@ public static class PacketChatHandler
 
         var p = new CombatPacketAttackProcessed
         {
-            Guid1 = connection.Player.Guid, // attacker
-            Guid2 = npc.Guid,               // target
-            Guid3 = npc.Guid,
-            Int1 = dmg,
-            Int2 = maxHp,
-            Int3 = fx,
+            AttackerGuid = connection.Player.Guid,
+            TargetGuid = npc.Guid,
+            Damage = dmg,
+            MaxHealth = maxHp,
+            CompositeEffectId = fx,
             Bool1 = b1,
             Bool2 = b2,
             Int4 = i4,
-            Int5 = i5,
+            CurrentHealth = i5,
         };
 
         _logger.LogInformation("!atk -> AttackProcessed npc={guid} dmg={dmg} maxHp={max} fx={fx} b1={b1} b2={b2} i4={i4} i5={i5}",

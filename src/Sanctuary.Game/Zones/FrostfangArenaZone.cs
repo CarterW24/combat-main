@@ -427,17 +427,18 @@ public sealed class FrostfangArenaZone : BaseZone
                             {
                                 nextBiteMs[wolf.Guid] = elapsed + BiteCooldownMs;
 
-                                // The REAL per-hit packet (op32/sub7), field order locked to the live 2014
-                                // dump: Guid1 = Guid2 = TARGET, Guid3 = ATTACKER, Int5 = HP after the hit.
+                                // The REAL per-hit packet (op32/sub7): wolf = attacker (plays the bite
+                                // swing), player = target (incoming number/recoil). Mapping proven from
+                                // the client struct reader — the earlier target-first guess made the
+                                // PLAYER swing and go on melee cooldown from every bite.
                                 player.SendTunneled(new CombatPacketAttackProcessed
                                 {
-                                    Guid1 = player.Guid,    // target (numbers render when target == me)
-                                    Guid2 = player.Guid,
-                                    Guid3 = wolf.Guid,      // attacker
-                                    Int1 = BiteDamage,
-                                    Int2 = 2500,            // player max HP (bar %; real HP pool is a TODO)
-                                    Int3 = 7,               // PFX_Hit_Flash on the target
-                                    Int5 = 2500,            // current HP after hit (player pool TODO)
+                                    AttackerGuid = wolf.Guid,
+                                    TargetGuid = player.Guid,
+                                    Damage = BiteDamage,
+                                    MaxHealth = 2500,        // player max HP (real player pool is a TODO)
+                                    CompositeEffectId = 7,   // PFX_Hit_Flash on the target
+                                    CurrentHealth = 2500,    // player pool TODO; client tracks HP - Damage itself
                                 });
                             }
                         }

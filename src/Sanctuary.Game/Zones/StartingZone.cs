@@ -407,9 +407,12 @@ public sealed class StartingZone : BaseZone
                                 var killed = dummy.ApplyDamage(CloneAttackDamage);
                                 summoner.SendTunneled(new CombatPacketAttackProcessed
                                 {
-                                    Guid1 = clone.Guid, Guid2 = dummy.Guid, Guid3 = dummy.Guid,
-                                    Int1 = CloneAttackDamage, Int2 = dummy.MaxHealth, Int3 = CloneHitFx,
-                                    Bool1 = false, Bool2 = false, Int4 = 0, Int5 = dummy.MaxHealth,
+                                    AttackerGuid = clone.Guid,
+                                    TargetGuid = dummy.Guid,
+                                    Damage = CloneAttackDamage,
+                                    MaxHealth = dummy.MaxHealth,
+                                    CompositeEffectId = CloneHitFx,
+                                    CurrentHealth = dummy.Health,
                                 });
 
                                 if (killed)

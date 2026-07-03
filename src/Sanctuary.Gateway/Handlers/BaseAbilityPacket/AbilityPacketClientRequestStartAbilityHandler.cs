@@ -209,23 +209,17 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     });
                 }
 
-                // The real combat packet — field mapping LOCKED to the live 2014 dump
-                // (Packet-Protocol_Dump/CombatPacketAttackProcessed.json, 9 samples): the real server
-                // sends Guid1 = Guid2 = TARGET, Guid3 = ATTACKER, and Int5 = the target's CURRENT HP
-                // AFTER the hit (samples step 400 -> 379 -> 356 -> 333 — that IS the moving health bar).
-                // Our old attacker-first order + constant Int5=max froze the bar.
+                // The real combat packet — semantics PROVEN from the client struct reader (the first
+                // two wire guids are one duplicated ATTACKER field; the third is the TARGET, who gets
+                // the number/bar/recoil). See CombatPacketAttackProcessed header comment.
                 var attackProcessed = new CombatPacketAttackProcessed
                 {
-                    Guid1 = target.Guid,            // target
-                    Guid2 = target.Guid,            // target (the delta/number event posts here)
-                    Guid3 = player.Guid,            // attacker
-                    Int1 = damage,                  // the floating number (client renders -Int1)
-                    Int2 = target.MaxHealth,        // max HP (bar %)
-                    Int3 = effectId,                // per-ability hit composite effect
-                    Bool1 = false,
-                    Bool2 = false,
-                    Int4 = 0,
-                    Int5 = target.Health,           // current HP after the hit -> bar position
+                    AttackerGuid = player.Guid,
+                    TargetGuid = target.Guid,
+                    Damage = damage,
+                    MaxHealth = target.MaxHealth,
+                    CompositeEffectId = effectId,   // per-ability hit composite effect
+                    CurrentHealth = target.Health,  // HP after the hit -> bar position
                 };
 
                 player.SendTunneled(attackProcessed);

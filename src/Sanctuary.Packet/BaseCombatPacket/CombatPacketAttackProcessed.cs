@@ -2,34 +2,50 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// COMBAT WIP: BaseCombatPacket (op 32) sub-opcode 7 = "AttackProcessed" — the ALL-IN-ONE combat
-// feedback packet. From a single message the client (CombatProcessor::sub_A2BA40) produces: the
-// floating damage NUMBER (PlayerHitpointDeltaEvent, delta = -Damage), the target HEALTH BAR
-// (PlayerHitpointEvent, % = newHp/MaxHealth), the hit COMPOSITE EFFECT, and the recoil ANIMATION.
+// BaseCombatPacket (op 32) sub-opcode 7 = "AttackProcessed" — the per-hit combat feedback packet.
 //
-// WIRE FORMAT CONFIRMED from IDA (UnserializePacket sub_A2A910): after the op/sub header it reads
-//   ulong, ulong, ulong, int, int, int, bool, bool, int, int   = 46 bytes.
-// Field SEMANTICS are best-guess (verify live via the "!atk" chat tool, then lock in):
-//   Guid1 = attacker, Guid2 = target, Guid3 = ? ; Int1 = damage, Int2 = maxHP, Int3 = compositeEffectId;
-//   Bool1/Bool2 = flags (crit/death?) ; Int4/Int5 = trailing (Int5 looked like a fallback max).
+// SEMANTICS PROVEN 2026-07-02 from the client struct reader (sub_A2A910) + handler
+// (CombatProcessor::sub_A2BA40) + live 2014 samples (Packet-Protocol_Dump):
+//
+//   wire: [op16][sub16] ulong ulong ulong int int int bool bool int int   (50 bytes total)
+//
+//   The FIRST TWO ulongs land in the SAME struct field (+16, second overwrites first) — a duplicated
+//   ATTACKER guid; the real server always sends them equal. The THIRD ulong (+24) is the TARGET.
+//     ATTACKER (guid1=guid2): plays the attack-contact event; if it's the local player, resets the
+//                             action-bar melee cooldown timer.
+//     TARGET   (guid3):       floating damage number (-Damage), health bar (CurrentHealth/MaxHealth,
+//                             falls back to client-tracked HP - Damage), recoil, hit composite effect.
+//   Live sample series (bandit biting a 400-max-HP player): Damage=25, Max=400, Current 400→379→356→333.
+//
+// Getting attacker/target swapped makes the VICTIM swing and go on cooldown while the attacker takes
+// the damage — exactly the bug seen live when this was mapped the other way around.
 public class CombatPacketAttackProcessed : ISerializablePacket
 {
     public const short OpCode = 32;
     public const short SubOpCode = 7;
 
-    public ulong Guid1;   // attacker
-    public ulong Guid2;   // target
-    public ulong Guid3;
+    /// <summary>Who swings (written twice on the wire; both copies land in one client field).</summary>
+    public ulong AttackerGuid;
 
-    public int Int1;      // damage
-    public int Int2;      // max health
-    public int Int3;      // composite effect id
+    /// <summary>Who takes the number / bar / recoil / hit FX.</summary>
+    public ulong TargetGuid;
+
+    /// <summary>Damage dealt — the client renders the floating number as -Damage.</summary>
+    public int Damage;
+
+    /// <summary>Target's max HP (health-bar denominator).</summary>
+    public int MaxHealth;
+
+    /// <summary>Hit composite effect id played on the target.</summary>
+    public int CompositeEffectId;
 
     public bool Bool1;
     public bool Bool2;
 
     public int Int4;
-    public int Int5;
+
+    /// <summary>Target's CURRENT HP after this hit (bar position; live samples count down per hit).</summary>
+    public int CurrentHealth;
 
     public byte[] Serialize()
     {
@@ -38,19 +54,19 @@ public class CombatPacketAttackProcessed : ISerializablePacket
         writer.Write(OpCode);
         writer.Write(SubOpCode);
 
-        writer.Write(Guid1);
-        writer.Write(Guid2);
-        writer.Write(Guid3);
+        writer.Write(AttackerGuid);
+        writer.Write(AttackerGuid); // duplicated on the wire — client stores both into one field
+        writer.Write(TargetGuid);
 
-        writer.Write(Int1);
-        writer.Write(Int2);
-        writer.Write(Int3);
+        writer.Write(Damage);
+        writer.Write(MaxHealth);
+        writer.Write(CompositeEffectId);
 
         writer.Write(Bool1);
         writer.Write(Bool2);
 
         writer.Write(Int4);
-        writer.Write(Int5);
+        writer.Write(CurrentHealth);
 
         return writer.Buffer;
     }
