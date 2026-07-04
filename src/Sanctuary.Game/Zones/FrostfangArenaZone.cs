@@ -38,19 +38,40 @@ public sealed class FrostfangArenaZone : BaseZone
     // across the clearing. (The old "y≈14" reading was wrong and left wolves hovering at canopy height.)
     private const float GroundY = 0.5f;
 
+    // Encounter identity, shared by the details header ints + EncounterStatePacket + PlayerEnter
+    // (the live server uses one [encounterId][instanceId] pair across all of them). 174 = the
+    // Frostfang Growler activity id (ClientActivityDefinitions).
+    public const int EncounterId = 174;
+    public const int EncounterInstanceId = 1;
+
+    // Client enum MINI_GAME_TYPE_COMBAT = 4 (IDA). The minigame status handler only shows the objective
+    // (goals) pane for a COMBAT-type minigame — see the details packet below.
+    private const int CombatMiniGameType = 4;
+
     private const int WolfModelId = 176;       // wolf.adr
-    // HP pools sized against the ninja's ~8300-damage hits so fights read like the video (pack wolves
-    // take a few hits, the Alpha is a real slugfest). One-shot kills removed the actor the same instant
-    // as the hit, killing the floating damage number / recoil / bar movement with it.
-    private const int WolfHealth = 30000;      // ~4 hits
-    private const int AlphaHealth = 120000;    // ~15 hits
+    // Pack wolves are a low-HP SWARM (reference video: lots of wolves, each dies fast). ~5000 HP is a
+    // basic hit or two — the special (~8300) one-shots, which is fine for trash. (We keep it a touch
+    // above a single basic hit so the floating damage number / bar-drain still reads before it poofs.)
+    private const int WolfHealth = 5000;
+    // The Alpha does NOT die (video: he drops to very low HP then FLEES and the goal completes). Give him
+    // a real health bar to drain, and flee once a hit takes him at/below the threshold. The threshold is
+    // kept ABOVE a single max hit (~8300) so the triggering hit never also kills him.
+    private const int AlphaHealth = 80000;
+    private const int AlphaFleeThreshold = 12000;  // ~15% — "really low health" then runs away
     private const float AlphaScale = 1.6f;     // visibly bigger than the pack
     private const int SmokePoof = 21;          // PFX_smoke_black_explosion (death poof)
 
-    // Wave pacing (video: constant pressure, wolves replaced as they die, ~5-7 alive at once).
-    private const int TotalSnarlers = 12;      // phase-1 wolf budget before the Alpha appears
-    private const int InitialPack = 5;
-    private const int RespawnDelayMs = 1300;   // gap before a replacement runs in from the fog
+    // Wolf action animation-group ids — GROUND TRUTH from wolf.adr's anim table (extracted from
+    // AssetsW_001.pack 2026-07-03) x AnimationGroups.xml. wolf.adr slots: com_death_01 -> group 1151,
+    // com_death_static_01 -> 1152, com_h2h_attack_01 -> 1001, com_recoil_01 -> 1121, com_knock_down -> 1402
+    // (1402 also appears in the live 2014 sub8 samples — cross-validates the table). Sent via op35/sub8.
+    private const int WolfDeathAnimId = 1151;      // com_death_01 (falls over)
+    private const int WolfDeathHoldMs = 1400;      // let the death clip play before the poof+despawn
+
+    // Wave pacing (video: a constant swarm — many wolves alive at once, replaced as they die).
+    private const int TotalSnarlers = 36;      // phase-1 wolf budget before the Alpha appears
+    private const int InitialPack = 12;        // how many are alive/charging at once
+    private const int RespawnDelayMs = 900;    // gap before a replacement runs in from the fog
     private const float EdgeRadiusMin = 16f;   // replacements spawn out in the fog and run in
     private const float EdgeRadiusMax = 24f;
 
@@ -80,6 +101,20 @@ public sealed class FrostfangArenaZone : BaseZone
     private readonly IResourceManager _resourceManager;
     private readonly Random _rng = new();
 
+    // Heart pickups (video: wolves drop pink hearts that heal +125 when the player walks over them).
+    // Model 736 = powerup_health_buff.adr (Models.txt) — the COMBAT powerup family (damage/defense/health
+    // buffs), i.e. the real encounter drop. LIVE TEST 2026-07-03 disproved the earlier guess 469
+    // (sg_icon_health_pickup_anim_bbe = the DERBY track pickup — rendered as a flat ring decal, not a heart).
+    private const int HeartModelId = 736;
+    private const int HeartHeal = 125;            // the green "+125" the video shows
+    private const float HeartPickupRange = 2.6f;  // walk-over radius
+    private const int HeartDropPercent = 35;      // chance a scared-off wolf leaves a heart
+    // Pickup FX 16324 = PFX_heal_health_red_sm_short_head (small short heal blip at the head — the pickup
+    // pop). LIVE TEST 2026-07-03 disproved the earlier guess 51 (= PFX_poison_purple_hand-r_trail_LOOP —
+    // wrong effect AND a loop that never ends; it drew a huge red/white cross over the player).
+    private const int HeartHealFxId = 16324;
+    private readonly List<Npc> _hearts = [];
+
     private readonly object _stateLock = new();
     private readonly List<Npc> _wolves = [];
     private readonly Dictionary<ulong, float> _engageAngle = [];
@@ -87,15 +122,38 @@ public sealed class FrostfangArenaZone : BaseZone
     private int _spawnedSnarlers;
     private int _killedSnarlers;
     private bool _alphaPhaseStarted;
+    private bool _alphaFleeing;    // set once the Alpha hits the flee threshold (he runs, never dies)
     private int _encounterRun; // bumped every StartEncounter; stops stale AI loops
 
-    // Goals tracker (op45 BaseObjectivePacket, RE'd — drafts/objective-goals-packets.md).
-    // NameId 5698 is the only string id confirmed to resolve client-side (server-fed table caveat);
-    // on the admin client an unknown id falls back to "<OBJECTIVE n>" — still proves the panel.
-    private const int GoalWolves = 1;
-    private const int GoalAlpha = 2;
-    private const int GoalNameId = 5698;
+    // Goals tracker — GROUND TRUTH (2026-07-03, 04-01 capture): the real server DEFINES both objectives
+    // INLINE in the launch details packet's ObjectiveData[], then ACTIVATES each by id (op45/sub1). It
+    // NEVER uses op45/sub5 (ObjectiveAdd) — an activate for an id that isn't defined inline is dropped
+    // (the goals panel never renders), which was our bug. These are the REAL captured ids + string ids
+    // (12288/12642 with NameId/DescId from the Growler activity string family). Unknown string ids fall
+    // back to "<OBJECTIVE n>" on the admin client — still proves the panel.
+    // Knockout counter/limit — top-left combat HUD (op39/sub23 MiniGameKnockOut, Max=5 ground-truthed
+    // from the 2014-04-01 burst idx 28043/28060/28071). This is the "knockouts remaining" star the user
+    // wants top-left — it is NOT a Goals-window row. (Scales with party size on live; solo = 5.)
+    private const int KnockoutLimit = 5;
+
+    // THE Goals-window goal (video: the panel shows only this). id 12642 / NameId 104176 =
+    // "Scare away the wolves!" (confirmed live 2026-07-03). The survival objective ("Don't get knocked
+    // out 5 times!", NameId 2286) is NOT shown here — the knockout limit lives in the top-left counter.
+    private const int GoalScareWolves = 12642;
+    private const int GoalScareWolvesNameId = 104176;
+    private const int GoalScareWolvesDescId = 104177;
     private const int WolfKillTarget = TotalSnarlers + 2; // pack budget + the Alpha's 2 escorts
+
+    // The goal, defined inline in the launch details packet (Status=1 -> "InProgress"). Only the
+    // "Scare away the wolves!" objective is kept (the survival one was dropped per the user).
+    private static IEnumerable<EncounterObjective> EncounterObjectives =>
+    [
+        new EncounterObjective
+        {
+            ObjectiveId = GoalScareWolves, NameId = GoalScareWolvesNameId, DescriptionId = GoalScareWolvesDescId,
+            Status = 1, Count = 0, Total = WolfKillTarget, Unknown8 = 1,
+        },
+    ];
 
     public FrostfangArenaZone(IServiceProvider serviceProvider)
         : base(CreateDefinition(), serviceProvider)
@@ -159,8 +217,12 @@ public sealed class FrostfangArenaZone : BaseZone
                 old.Dispose();
             _wolves.Clear();
             _engageAngle.Clear();
+            foreach (var h in _hearts)
+                h.Dispose();
+            _hearts.Clear();
             _alpha?.Dispose();
             _alpha = null;
+            _alphaFleeing = false;
             _spawnedSnarlers = 0;
             _killedSnarlers = 0;
             _alphaPhaseStarted = false;
@@ -190,30 +252,107 @@ public sealed class FrostfangArenaZone : BaseZone
                 // While m_MiniGameStates is empty, EVERY op45 objective packet is silently dropped
                 // (goals panel never renders) and IsInMiniGame() stays false. The offer popup's state
                 // does not reliably survive the zone-in, so re-launch it here before the goal packets.
-                player.SendTunneled(new EncounterDetailsResponsePacket
+                // The LAUNCH details packet (op41/sub114, flag=1). Type MUST be COMBAT (4): the client's
+                // minigame status handler (minigamestatushandler.lua) only shows/populates the objective
+                // pane (wndMinigameStatusObjPane @ top-right, bound to the BaseClient.MiniGameGoals data
+                // source) when currentMiniGameType == COMBAT. Type 0 = TUTORIAL rendered the HUD frame but
+                // type-gated the goals pane OFF (RE'd 2026-07-03 via IDA enum MINI_GAME_TYPE). Objectives
+                // are DEFINED inline (Status=1 -> InProgress, real Totals baked) so the state carries them.
+                EncounterDetailsResponsePacket MakeLaunch() => new()
                 {
-                    NameId = 93276,        // "Frostfang Growler!" (ClientActivityDefinitions Id 174)
+                    Unknown = EncounterId,          // live header ints = [encounterId][instanceId]
+                    Unknown2 = EncounterInstanceId,
+                    NameId = 93276,                 // "Frostfang Growler!" (ClientActivityDefinitions Id 174)
                     DescriptionId = 104171,
                     Difficulty = 1,
                     IconId = 1345,
+                    MiniGameType = CombatMiniGameType,   // 4 = COMBAT — the goals-pane gate
+                    // ZoneContext deliberately left 0. The 2026-07-03 red-name arc ended here: 6 = ARENA
+                    // sets BaseClient.m_bIsInArena, which the ADD-PC apply uses to bake disposition
+                    // HOSTILE before its SetProfileId re-runs the name color resolver (sub_966460:
+                    // NameColor==0 + disposition 0 -> RED). LIVE TEST: Alpha name STAYED blue with 6 —
+                    // the AddNpc (case-2-adjacent) apply path evidently does NOT run that arena-
+                    // disposition branch (it was RE'd from the AddPc path). Reverted to 0 until the real
+                    // AddNpc APPLY is traced (its unserialize is only reachable via a thunk @0x925EB0 —
+                    // find its caller). Full notes: docs/STATUS.md "RED BOSS NAME".
                     Launch = true,
-                });
+                    Objectives = [.. EncounterObjectives],
+                };
 
-                player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules());
-                player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-                player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
-
-                // Goals panel: phase-1 objective ("Scare away the wolves!" in the reference video).
-                player.SendTunneled(new ObjectiveAddPacket
+                EncounterPacketPlayerEnter MakeEnter(ulong guid) => new()
                 {
-                    ObjectiveId = GoalWolves,
-                    NameId = GoalNameId,
-                    Status = 2,
-                    Count = 0,
+                    EncounterId = EncounterId,
+                    InstanceId = EncounterInstanceId,
+                    PlayerGuid = guid,
+                };
+
+                // ★ EXACT REAL-SERVER ENTRY SEQUENCE (2014-04-01 capture idx 28053-28224). The critical
+                // structure: the real server sends the LAUNCH details TWICE with a PlayerEnter BETWEEN them.
+                //   1) LAUNCH  -> creates the MiniGameState with the goals (sub_9BB2D0) + fires
+                //      "HandlerMiniGameStatus:...:Populate" — but the status UI handler isn't live yet.
+                //   2) PlayerEnter (op41/sub2) -> sub_9B9500 -> sub_9B6AA0 "HUD:showMinigame": brings the
+                //      minigame HUD / status handler up.
+                //   3) LAUNCH again -> re-fires "HandlerMiniGameStatus:...:Populate", and NOW the status
+                //      handler is live to catch it and populate the goals pane. (Our single-launch attempts
+                //      fired Populate into the void before the handler existed -> empty pane.)
+                //   4) op62 combat ruleset, then a second PlayerEnter with the real player guid.
+                var launchBytes = MakeLaunch().Serialize();
+                _logger.LogInformation("Frostfang arena: LAUNCH details ({len}B) = {hex}",
+                    launchBytes.Length, Convert.ToHexString(launchBytes));
+
+                // The ONLY visible goal (video: the Goals panel shows just "Scare away the wolves!").
+                // id 12642 / NameId 104176 = "Scare away the wolves!" (confirmed live 2026-07-03). The
+                // survival ("Don't get knocked out 5 times!") row + the knockout counter were dropped per
+                // the user — the video's Goals panel never shows them.
+                UiObjectiveAddPacket ScareWolvesRow() => new()
+                {
+                    ObjectiveId = GoalScareWolves,
+                    NameId = GoalScareWolvesNameId,
+                };
+
+                // ★ ORDER IS LOAD-BEARING (RE'd 2026-07-03 evening from the decompiled UI Lua). The
+                // top-right Goals window is Main.wndObjectives, fed by op47 into "BaseClient.ObjectiveHelper".
+                // PlayerEnter -> "HUD:showMinigame" -> HUD:ShowMiniGameNormal -> ObjectiveWindow:
+                // ObjectiveListPopulate(), which reads the CURRENT DS rows and HIDES the window if the DS
+                // is empty (`if numRows<=0 then self:Hide(); return`). Script events (the live row-changed
+                // callback) are only enabled once the window is shown. So the op47 row MUST already be in
+                // the DS before the PlayerEnter that triggers showMinigame — otherwise ObjectiveListPopulate
+                // hides the window and the later row lands unseen. This matches the real capture: op47
+                // TaskAdd (idx 28049) precedes the first PlayerEnter (28058) and repeats after the second launch.
+                // KNOCKOUT COUNTER (top-left HUD, NOT the Goals window). op39/sub23 MiniGameKnockOut,
+                // Current=0/Max=5 -> the combat HUD's "knockouts remaining" star shows 5. The real burst
+                // sent it 3x interleaved with the launches (idx 28043/28060/28071); showMinigame's
+                // GroupHandler:SetKO reads this, so it must be stored before the PlayerEnter. This is the
+                // knockout LIMIT/counter the user wants top-left — separate from the Goals objective rows.
+                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit)); // 28043
+                player.SendTunneled(new ObjectiveActivatePacket    // op45 activate (announce)
+                {
+                    ObjectiveId = GoalScareWolves,
                     Total = WolfKillTarget,
                 });
+                // The goal row into the Goals window BEFORE any PlayerEnter (so ObjectiveListPopulate
+                // sees it and shows the window instead of hiding it).
+                player.SendTunneled(ScareWolvesRow());   // 28049 — op47 "Scare away the wolves!"
+                player.SendTunneled(MakeLaunch());       // 28053 — create state + goals
+                player.SendTunneled(MakeEnter(0));       // 28058 — PlayerEnter: showMinigame -> ObjectiveListPopulate (now sees the row)
+                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit)); // 28060
+                player.SendTunneled(MakeLaunch());       // 28065 — LAUNCH again: re-fire Populate (handler now live)
+                player.SendTunneled(ScareWolvesRow());   // 28069 — op47 row again (real server repeats here)
+                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit)); // 28071
+                player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules()); // 28122 — op62
+                player.SendTunneled(MakeEnter(player.Guid)); // 28224 — PlayerEnter (player guid)
 
-                _logger.LogInformation("Frostfang arena: combat ruleset + goal delivered (post-load, run {run}).", run);
+                // Our world-combat toggles + the running encounter state (kept from our combat wiring).
+                player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
+                player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+                player.SendTunneled(new EncounterStatePacket
+                {
+                    EncounterId = EncounterId,
+                    InstanceId = EncounterInstanceId,
+                    State = 6,
+                });
+
+                _logger.LogInformation("Frostfang arena: real entry sequence delivered (goals row before PlayerEnter, post-load, run {run}).", run);
             }
             catch (Exception ex)
             {
@@ -257,13 +396,91 @@ public sealed class FrostfangArenaZone : BaseZone
         _engageAngle[wolf.Guid] = angle;
     }
 
+    /// <summary>Drop a heart pickup (model 469, animated health pickup) at a fallen wolf's spot.</summary>
+    private void SpawnHeart(Player player, Vector4 pos)
+    {
+        if (!TryCreateNpc(out var heart))
+            return;
+
+        heart.ModelId = HeartModelId;
+        heart.Name = null;            // no nameplate
+        heart.NameId = 0;
+        heart.Disposition = 1;        // neutral (not a combat target)
+        heart.Scale = 1f;
+        heart.IsInteractable = false; // auto-collected by walking over it, no click prompt
+        heart.InteractRange = 0;
+        heart.Visible = true;
+        heart.MaxHealth = 0;          // not damageable
+        heart.ShowHealthBar = false;
+        heart.WalkAnimId = -1;
+        heart.RunAnimId = -1;
+        heart.StandAnimId = -1;
+        heart.RiderGuid = ulong.MaxValue;
+        heart.UpdatePosition(pos, Quaternion.Identity);
+
+        player.OnAddVisibleNpcs(heart);
+        heart.OnAddVisiblePlayers(player);
+        SendNpcRelevance(player, heart);
+
+        lock (_stateLock)
+            _hearts.Add(heart);
+    }
+
+    /// <summary>Walk-over heart collection: within range → +125 heal number + green FX, remove the heart.</summary>
+    private void CollectHearts(Player player)
+    {
+        List<Npc>? collected = null;
+        lock (_stateLock)
+        {
+            for (var i = _hearts.Count - 1; i >= 0; i--)
+            {
+                var h = _hearts[i];
+                var dx = player.Position.X - h.Position.X;
+                var dz = player.Position.Z - h.Position.Z;
+                if (dx * dx + dz * dz > HeartPickupRange * HeartPickupRange)
+                    continue;
+                _hearts.RemoveAt(i);
+                (collected ??= []).Add(h);
+            }
+        }
+
+        if (collected is null)
+            return;
+
+        foreach (var h in collected)
+        {
+            // Green "+125" heal number over the player + a heal sparkle, then remove the heart.
+            player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+            {
+                Guid = player.Guid,
+                CompositeEffectId = HeartHealFxId,
+                Position = player.Position,
+            });
+            player.SendTunneled(new PlayerUpdatePacketHitPointModification
+            {
+                Guid = player.Guid,   // heal is self-sourced
+                Guid2 = player.Guid,  // ...on the player
+                Unknown = true,
+                Unknown2 = 2500,      // player max HP (real pool is a TODO)
+                Unknown3 = 2500,      // current after (cosmetic until HP is tracked)
+                Unknown4 = HeartHeal, // +125 delta -> the green heal number
+            });
+            h.Dispose();
+        }
+    }
+
     private Npc? CreateWolf(Player player, string? name, int health, float scale, Vector4 pos,
-        bool showHealthBar, string? textureAlias = null, int nameColor = 0)
+        bool showHealthBar, string? textureAlias = null, int nameColor = 0, float nameScale = 0f)
     {
         if (!TryCreateNpc(out var npc))
             return null;
 
-        npc.NameColor = nameColor;
+       // npc.NameColor = nameColor;  // static color DISABLED (test: disposition recolor may only run
+                                      // when no NameColor is set — user theory 2026-07-03; the client's
+                                      // color resolver sub_966460 CONFIRMS: NameColor==0 + hostile
+                                      // disposition -> RED 0xFFFF0000 via SetOverHeadTextElementColor)
+        npc.NameScale = nameScale; // >1 = bigger name letters (the video's boss); 0 = client default
+        // HideNamePlate stays default FALSE — live-proven (builds 12 vs 13): sending true HIDES the plate.
 
         npc.ModelId = WolfModelId;
         npc.TextureAlias = textureAlias; // wolf material variant (wolf_black/wolf_evil/... or null=default)
@@ -302,6 +519,19 @@ public sealed class FrostfangArenaZone : BaseZone
         npc.OnAddVisiblePlayers(player);
         SendNpcRelevance(player, npc);
         SendNpcHealth(player, npc);
+
+        // Make the client treat it as a HOSTILE (op35/sub28 — the AddNpc Disposition int is ignored;
+        // ctor default = ally). Named hostiles (the Alpha) get the RED name via the color resolver
+        // (sub_966460: NameColor==0 + disposition 0 -> Display.NameColorHostileNpc 0xFFFF0000).
+        // Mark it hostile client-side (op35/sub28 UpdateDisposition — real packet, case 28; the AddNpc
+        // Disposition int is ignored by the client and the character ctor defaults to ALLY). NOTE this
+        // does NOT recolor the nameplate (color resolves once at spawn) — it's here for the client's
+        // other disposition-driven logic. Red-name work is PAUSED; see docs/STATUS.md "RED BOSS NAME".
+        player.SendTunneled(new PlayerUpdatePacketUpdateDisposition
+        {
+            Guid = npc.Guid,
+            Disposition = 0,
+        });
 
         // Belt-and-suspenders: also set the actor's expected speed explicitly (sub23 packet works live).
         player.SendTunneled(new PlayerUpdatePacketExpectedSpeed
@@ -342,6 +572,9 @@ public sealed class FrostfangArenaZone : BaseZone
                         return;
                     }
 
+                    // Heart pickups: walk-over collection heals +125 (video).
+                    CollectHearts(player);
+
                     Npc[] pack;
                     lock (_stateLock)
                         pack = _alpha is { } alpha ? [.. _wolves, alpha] : [.. _wolves];
@@ -368,6 +601,25 @@ public sealed class FrostfangArenaZone : BaseZone
                             continue;
 
                         var here = new Vector3(wolf.Position.X, wolf.Position.Y, wolf.Position.Z);
+
+                        // FLEEING ALPHA (video: at very low HP he turns and RUNS away, then the goal
+                        // completes). Sprint directly away from the player and face that way; no biting.
+                        if (_alphaFleeing && ReferenceEquals(wolf, _alpha))
+                        {
+                            var awayH = new Vector2(here.X - target.X, here.Z - target.Z);
+                            var awayLen = awayH.Length();
+                            var awayDir = awayLen > 0.01f ? awayH / awayLen : new Vector2(0f, 1f);
+                            var fleeStep = MoveSpeed * 2.4f * (TickMs / 1000f); // sprint
+                            var fleePos = new Vector4(
+                                here.X + awayDir.X * fleeStep, here.Y, here.Z + awayDir.Y * fleeStep, wolf.Position.W);
+                            var fleeRot = new Quaternion(awayDir.X, 0f, awayDir.Y, 0f);
+                            wolf.UpdatePosition(fleePos, fleeRot);
+                            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+                            {
+                                Guid = wolf.Guid, Position = fleePos, Rotation = fleeRot, State = 0, Unknown = 0,
+                            });
+                            continue;
+                        }
 
                         // Each wolf converges on ITS OWN slot around the player, so the pack surrounds
                         // rather than stacking on one point.
@@ -498,19 +750,41 @@ public sealed class FrostfangArenaZone : BaseZone
             }
         }
 
-        killer.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+        // Death animation (wolf.adr com_death_01 = group 1151): the wolf falls over, holds a beat,
+        // THEN the poof + despawn. Before this it vanished into the smoke on the kill tick.
+        killer.SendTunneled(new PlayerUpdatePacketSetAnimation
         {
             Guid = npc.Guid,
-            CompositeEffectId = SmokePoof,
-            Position = npc.Position,
+            AnimationId = WolfDeathAnimId,
         });
-        npc.Dispose();
+        var deathPos = npc.Position;
+        var dying = npc;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(WolfDeathHoldMs);
+                killer.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+                {
+                    Guid = dying.Guid,
+                    CompositeEffectId = SmokePoof,
+                    Position = deathPos,
+                });
+                dying.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Frostfang arena: wolf death-anim despawn failed.");
+            }
+        });
 
-        // Tick the Goals panel (wolf kills advance goal 1; the Alpha completes goal 2).
+        // Video: scared-off wolves sometimes leave a heart (+125) on the ground where they fell.
+        if (killedCount > 0 && _rng.Next(100) < HeartDropPercent)
+            SpawnHeart(killer, deathPos);
+
+        // Tick the goal progress as wolves are scared off.
         if (killedCount > 0)
-            killer.SendTunneled(new ObjectiveUpdatePacket { ObjectiveId = GoalWolves, Count = killedCount });
-        else if (victory)
-            killer.SendTunneled(new ObjectiveUpdatePacket { ObjectiveId = GoalAlpha, Count = 1 });
+            killer.SendTunneled(new ObjectiveUpdatePacket { ObjectiveId = GoalScareWolves, Count = killedCount });
 
         if (startAlpha)
         {
@@ -529,13 +803,27 @@ public sealed class FrostfangArenaZone : BaseZone
                 // RED boss name: live hostiles carry NameColor 0xFFFF0000 (int ARGB) in their FIRST
                 // AddNpc — set it before CreateWolf pushes the packet (the old re-push-after was too late,
                 // and the packet field was a float that mangled the bits until 2026-07-02).
+                // A/B TEST (2026-07-03 night): NameScale REVERTED 1.5 -> 0. The overhead plate (name+bar)
+                // vanished starting with the deploy that introduced NameScale=1.5 and stayed gone after
+                // IsBoss was removed — NameScale is the only remaining delta vs the last build where the
+                // plate rendered. Client RE says m_fNameScale only feeds Display_EliteNameScale (size), so
+                // if the plate returns at 0 the interaction is deeper (elite-path w/o elite bit 15?) —
+                // either way this isolates it. Elite bit15 = the REAL "big plate" lever (virtual SetElite,
+                // ProxiedCharacter vtbl slot 4) — its driving packet still untraced.
                 _alpha = CreateWolf(killer, "Frostfang Alpha", AlphaHealth, AlphaScale, pos, showHealthBar: true,
-                    nameColor: unchecked((int)0xFFFF0000));
+                    nameColor: unchecked((int)0xFFFF0000), nameScale: 0f);
                 if (_alpha is not null)
                 {
                     _engageAngle[_alpha.Guid] = angle;
 
-                    // Boss plate: boss health display (op32/sub9 -> AddBoss, RE'd).
+                    // NOTE: do NOT send UpdateCharacterState IsBoss here. LIVE TEST 2026-07-03: flagging
+                    // the actor IsBoss (op35/sub20, bit 15) makes the client SUPPRESS the overhead
+                    // nameplate entirely (name + overhead HP bar both vanished; only the top-center boss
+                    // bar remained). The video wants the overhead RED name + green bar VISIBLE, so the
+                    // Alpha must stay un-flagged. (Packet class kept — it's the vehicle for stun/frozen
+                    // combat states later.)
+
+                    // Boss plate: top-center boss health-bar data source (op32/sub9 -> AddBoss, RE'd).
                     killer.SendTunneled(new CombatPacketEnableBossDisplay { Guid = _alpha.Guid, Enable = true });
                 }
 
@@ -545,33 +833,79 @@ public sealed class FrostfangArenaZone : BaseZone
                 SpawnSnarler(killer);
             }
 
-            // Second objective appears with the boss (video: the Goals panel grows per phase).
-            killer.SendTunneled(new ObjectiveAddPacket
-            {
-                ObjectiveId = GoalAlpha,
-                NameId = GoalNameId,
-                Status = 2,
-                Count = 0,
-                Total = 1,
-            });
+            // The Alpha's health bar drains as the player fights him; at AlphaFleeThreshold he FLEES
+            // (OnNpcDamaged) rather than dying — matching the video. No goal row change here.
         }
         else if (victory)
         {
-            _logger.LogInformation("Frostfang arena: ALPHA DOWN -> victory; returning {name} home in 6s.", killer.Name);
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(6000);
-                    ReturnHome(killer);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Frostfang arena victory return failed.");
-                }
-            });
+            // Fallback only: the Alpha normally FLEES (never dies), but if a hit somehow kills him,
+            // still finish the encounter cleanly.
+            WinEncounter(killer);
         }
+    }
+
+    /// <summary>The player has beaten the encounter (Alpha fled or, as a fallback, died): complete the
+    /// goal and send everyone home after a beat.</summary>
+    private void WinEncounter(Player player)
+    {
+        player.SendTunneled(new UiObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
+
+        _logger.LogInformation("Frostfang arena: encounter won -> returning {name} home in 6s.", player.Name);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(6000);
+                ReturnHome(player);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Frostfang arena victory return failed.");
+            }
+        });
+    }
+
+    /// <summary>Per-hit hook (IZone.OnNpcDamaged): once a hit drops the Alpha to the flee threshold he
+    /// turns and runs (the AI loop sprints him outward), his boss plate clears, the goal completes, and
+    /// after he reaches the fog he despawns and the player heads home — exactly like the reference video
+    /// where the Alpha never actually dies.</summary>
+    public override void OnNpcDamaged(Player player, Npc npc)
+    {
+        if (_alphaFleeing || !ReferenceEquals(npc, _alpha) || npc.Health > AlphaFleeThreshold)
+            return;
+
+        _alphaFleeing = true;
+        _logger.LogInformation("Frostfang arena: Alpha at {hp} HP (<= {t}) -> FLEES; goal complete.",
+            npc.Health, AlphaFleeThreshold);
+
+        // Clear the boss health plate and complete the goal the instant he breaks.
+        player.SendTunneled(new CombatPacketEnableBossDisplay { Guid = npc.Guid, Enable = false });
+
+        var fleeing = _alpha;
+        WinEncounter(player); // completes the goal + schedules the return home
+
+        // Let him sprint to the fog (the AI loop drives the run), then remove him.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(3500);
+                if (fleeing is not null && ReferenceEquals(fleeing, _alpha))
+                {
+                    lock (_stateLock)
+                    {
+                        _alpha = null;
+                        _engageAngle.Remove(fleeing.Guid);
+                    }
+                    fleeing.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Frostfang arena: Alpha flee-despawn failed.");
+            }
+        });
     }
 
     private void ScheduleSnarlerRespawn(Player player, int run)
@@ -599,12 +933,25 @@ public sealed class FrostfangArenaZone : BaseZone
     /// state (op39/sub19 — full client-side teardown incl. combat exit for combat-type games) and
     /// restore the default combat ruleset (op62) + clear the transient fighting state. Without this
     /// the client stays InCombat forever (can't change jobs after leaving — LIVE TEST 11 bug).</summary>
-    public void EndEncounterForPlayer(Player player)
+    public void EndEncounterForPlayer(Player player) => EndEncounterForPlayer(player, won: false);
+
+    public void EndEncounterForPlayer(Player player, bool won)
     {
+        // On a WIN, mark the run won (op39/sub18 GameOver, Won=true -> MiniGameState byte+99) IMMEDIATELY
+        // before the state remove, so the end card the teardown triggers reads Won=true (win presentation,
+        // not "TRY AGAIN!"). Sending it earlier (at the victory moment) made the card flash for ~0.5s —
+        // live test 2026-07-03. A mid-run bail (!home) keeps won=false. NOTE the REAL server didn't use
+        // GameOver at all: its end flow is MiniGameLootWheelSetItemToLandOn + MiniGameGameEndScore (named
+        // score rows: scoreEnemiesDefeated, scorePlayerKnockouts) -> client shows scores + reward wheel ->
+        // C2S LootWheelOnRotationStopped (~20s later) -> exit. (04-01 capture idx 37834/37838/38115.)
+        // That full flow is the proper future implementation; GameOver-before-remove is the interim fix.
+        if (won)
+            player.SendTunneled(new MiniGameGameOverPacket(won: true));
         player.SendTunneled(new MiniGameStateRemovePacket());
         player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
         player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        player.SendTunneled(new UiObjectiveClearPacket()); // empty + hide the Goals window (op47/sub5)
 
         _logger.LogInformation("Frostfang arena: encounter released for {name} (state remove + default rules).",
             player.Name);
@@ -615,7 +962,7 @@ public sealed class FrostfangArenaZone : BaseZone
         if (player.Zone != this)
             return; // already left
 
-        EndEncounterForPlayer(player);
+        EndEncounterForPlayer(player, won: true); // ReturnHome only runs on victory
 
         var home = _zoneManager.StartingZone;
 

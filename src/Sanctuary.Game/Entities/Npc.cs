@@ -30,9 +30,16 @@ public class Npc : IEntity
     /// video render RED names — first candidate mechanism alongside op32/sub9 EnableBossDisplay.</summary>
     public int NameColor { get; set; }
     public int SubTextNameId { get; set; }
+    /// <summary>HIDE the overhead nameplate. LIVE-PROVEN 2026-07-03 (builds 12 vs 13): true hides,
+    /// false shows — upstream's name is correct; the IDA "m_bShowNamePlate" annotation is wrong.</summary>
     public bool HideNamePlate { get; set; }
     public int NameplateImageId { get; set; }
     public float VerticalOffset { get; set; }
+
+    /// <summary>Overhead name text SCALE. RE'd 2026-07-03: ProxiedCharacter::Process @0x973200 does
+    /// `if (m_fNameScale != 0) Display_EliteNameScale = m_fNameScale` — so this AddNpc field directly
+    /// sets the name text size. 0 = client default (~normal); &gt;1 = bigger letters (the video's boss).</summary>
+    public float NameScale { get; set; }
 
     public int ModelId { get; set; }
     public int TerrainObjectId { get; set; }
@@ -321,7 +328,7 @@ public class Npc : IEntity
             Unknown67 = default,
             Unknown68 = default,
 
-            NameScale = default,
+            NameScale = NameScale,
 
             NameplateImageId = NameplateImageId
         };

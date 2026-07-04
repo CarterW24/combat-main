@@ -45,8 +45,24 @@ public static class CommandPacketInteractRequestHandler
             _logger.LogInformation("InteractRequest: Frostfang Growler ({guid}) clicked -> sending offer popup.",
                 packet.Guid);
 
+            // Encounter state machine (op41/sub106, mirrored from the live 2014-04-01 capture): the
+            // real server steps 2 -> 3 -> 4 BEFORE the offer details, 5 with the ready ack, 6 in-zone.
+            foreach (var state in new[] { 2, 3, 4 })
+            {
+                connection.SendTunneled(new EncounterStatePacket
+                {
+                    EncounterId = FrostfangArenaZone.EncounterId,
+                    InstanceId = FrostfangArenaZone.EncounterInstanceId,
+                    State = state,
+                });
+            }
+
             connection.SendTunneled(new EncounterDetailsResponsePacket
             {
+                // Header ints = [EncounterId][InstanceId] on the live wire (details + state + PlayerEnter
+                // all share them).
+                Unknown = FrostfangArenaZone.EncounterId,
+                Unknown2 = FrostfangArenaZone.EncounterInstanceId,
                 // REAL ids from the team's minigame branch: Resources/ClientActivityDefinitions.json, activity
                 // Id 174 "Frostfang Growler!" (Category 99 = wandering combat encounter, ServerType 1 = world/arena
                 // launch). These are the ACTIVITY string ids (NameId/DescriptionId), a different id-space than the
@@ -67,6 +83,13 @@ public static class CommandPacketInteractRequestHandler
             {
                 await Task.Delay(600);
                 connection.SendTunneled(new EncounterZoneIsReadyPacket());
+                // Live order: state 5 lands right after the ready ack (04-01 seq 27148 -> 27150).
+                connection.SendTunneled(new EncounterStatePacket
+                {
+                    EncounterId = FrostfangArenaZone.EncounterId,
+                    InstanceId = FrostfangArenaZone.EncounterInstanceId,
+                    State = 5,
+                });
             });
 
             return true;

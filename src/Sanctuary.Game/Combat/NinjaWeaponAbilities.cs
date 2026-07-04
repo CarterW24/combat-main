@@ -31,7 +31,10 @@ namespace Sanctuary.Game.Combat;
 //   whose FX should land on the caster's feet when the move finishes (Dragonstrike).
 // EnemyExtraEffectId > 0 => play this ADDITIONAL composite effect on the TARGET (on top of EffectId) at the
 //   end of the cast — e.g. a ring overlaid on the enemy (Soul Power's purple ring). 0 = none.
-public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0);
+// AoeRadius > 0 => the special is an AREA attack: it hits EVERY live hostile within this radius of the
+//   CASTER (not just the selected target). Matches the real server, whose AoE specials land as a sub-0.1s
+//   burst of one HitPointModification per victim in the 04-01 capture.
+public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0, float AoeRadius = 0f);
 
 public sealed record NinjaWeapon(WeaponAbility Melee, WeaponAbility Special);
 
@@ -92,7 +95,7 @@ public static class NinjaWeaponAbilities
         // 75111 — 1000 Storms
         [75111] = new(
             new("Lightning Strike", MeleeIcon, 2372, MeleeAnimation, MeleeHitFx),
-            new("1000 Storms",          22992, 8302, 1033, 0, 16088)), // anim 1033 air_throw (jump-up + air-slam motion; same clip as Deception — user-chosen); cast 16088 PFX_lightning_blue_root_ninja-special on caster; enemy impact REMOVED (user: stop casting on target; FX at my sword at end of anim — sword placement TODO)
+            new("1000 Storms",          22992, 8302, 1033, 0, 16088, AoeRadius: 12f)), // anim 1033 air_throw (jump-up + air-slam motion; same clip as Deception — user-chosen); cast 16088 PFX_lightning_blue_root_ninja-special on caster; enemy impact REMOVED (user: stop casting on target; FX at my sword at end of anim — sword placement TODO). AOE (user request 2026-07-03): hits the whole pack within 12u of the caster
 
         // 75114 — Shadow Armies
         [75114] = new(
@@ -159,17 +162,24 @@ public static class NinjaWeaponAbilities
 
         var def = new AbilityPacketSetDefinition { ProfileId = NinjaProfileId, SlotCount = 8 };
 
-        def.Slots.Add(MakeSlot(MeleeSlotDefId, DebugMeleeIcon ?? weapon.Melee.IconImageId, nameId));
-        def.Slots.Add(MakeSlot(SpecialSlotDefId, DebugSpecialIcon ?? weapon.Special.IconImageId, nameId));
+        def.Slots.Add(MakeSlot(MeleeSlotDefId, DebugMeleeIcon ?? weapon.Melee.IconImageId, nameId, manaCost: 0));
+        // ENERGY (2026-07-03): the special costs the full 100 bar (ground-truthed from the 04-01 capture;
+        // server gate lives in AbilityPacketClientRequestStartAbilityHandler). The slot's ManaCost is what
+        // makes the CLIENT grey the button out while current energy (op38/sub13) is below the cost — with
+        // 0 the client thinks it's free and the blocked presses just look dead.
+        def.Slots.Add(MakeSlot(SpecialSlotDefId, DebugSpecialIcon ?? weapon.Special.IconImageId, nameId, manaCost: SpecialEnergyCost));
 
         return def;
     }
 
-    private static AbilityPacketSetDefinition.Slot MakeSlot(int abilityDefId, int iconId, int nameId) => new()
+    /// <summary>Energy cost of every slot-1 weapon special (the full bar — see the ability handler's gate).</summary>
+    public const int SpecialEnergyCost = 100;
+
+    private static AbilityPacketSetDefinition.Slot MakeSlot(int abilityDefId, int iconId, int nameId, int manaCost) => new()
     {
         Type = 3,
         Unknown2 = abilityDefId,
-        ManaCost = 0,
+        ManaCost = manaCost,
         IconId = iconId,
         NameId = nameId,
         AbilityDefinitionId = abilityDefId,

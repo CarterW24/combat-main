@@ -5,16 +5,18 @@ namespace Sanctuary.Packet;
 // COMBAT WIP: BasePlayerUpdatePacket (op 35) sub-opcode 35 = "HitPointModification" — the floating
 // combat damage/heal number shown over an entity.
 //
-// WIRE FORMAT CONFIRMED from IDA (client UnserializePacket sub_8D6C50): 30 bytes total —
-//   ulong Guid   (m_llGuid)   target
-//   ulong Guid2  (m_llGuid2)  source / attacker
-//   bool  Unknown  (m_bUnknown)
-//   int   Unknown2 (m_nUnknown2)   <-- damage amount (best hypothesis)
-//   int   Unknown3 (m_nUnknown3)
-//   int   Unknown4 (m_nUnknown4)
+// WIRE FORMAT CONFIRMED from IDA (client UnserializePacket sub_8D6C50) + the 2014-04-01 capture:
+//   ulong Guid   (m_llGuid)   SOURCE / attacker      ← (was mislabeled "target"; real order proven 2026-07-03)
+//   ulong Guid2  (m_llGuid2)  VICTIM                 ← (was mislabeled "source")
+//   bool  Unknown  (m_bUnknown)   player->NPC samples carry 01
+//   int   Unknown2 (m_nUnknown2)  MAX hp    (health-bar denominator)
+//   int   Unknown3 (m_nUnknown3)  CURRENT hp after the hit (bar position)
+//   int   Unknown4 (m_nUnknown4)  DELTA = -damage  ← the floating number (was wrongly put in Unknown2)
 //   bool  Unknown5 (m_bUnknown5)
-// A short packet trips m_bReachedEnd and the client rejects it (the previous bug). The semantics of the
-// bools + which int holds the amount are still being pinned down live; Unknown2 = amount is the first try.
+// Real NPC->player sample: Guid=NPC, Guid2=player, i2=7828(max), i3=7823(cur-after), i4=-5(delta).
+// A short packet trips m_bReachedEnd and the client rejects it (the previous bug).
+// NOTE: this packet does NOT reset the action-bar melee timer, so it's the correct vehicle for the
+// PLAYER's own hits — AttackProcessed(attacker=player) would trip the [1] cooldown.
 public class PlayerUpdatePacketHitPointModification : BasePlayerUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 35;

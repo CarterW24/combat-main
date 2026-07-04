@@ -160,6 +160,13 @@ public sealed class StartingZone : BaseZone
         // Mark it attackable (combat cursor) so the client lets the player select it as a target.
         SendNpcRelevance(player, _trainingDummy);
 
+        // RED-NAME TEST (2026-07-03): the AddNpc Disposition int is IGNORED client-side (the apply uses
+        // the global arena flag; ctor default = 2 ALLY -> bluish name). op35/sub28 UpdateDisposition is
+        // the real per-NPC lever: Disposition 0 HOSTILE -> the color resolver (sub_966460) paints the
+        // overhead name RED (0xFFFF0000) as long as no static NameColor is set.
+        // (2026-07-03 red-name experiments removed — the dummy's blue name is correct client behavior
+        // for a non-arena zone; the nameplate color is resolved once at spawn. See docs/STATUS.md.)
+
         // Initialize its health bar on the client.
         SendNpcHealth(player, _trainingDummy);
     }

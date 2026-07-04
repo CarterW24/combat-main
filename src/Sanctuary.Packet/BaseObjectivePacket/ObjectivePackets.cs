@@ -45,7 +45,10 @@ public static class ObjectivePacketWriter
     }
 }
 
-/// <summary>Sub 5 — add/announce a goal in the Goals panel (carries a full ObjectiveData).</summary>
+/// <summary>Sub 5 — add/announce a goal. DEPRECATED / DO NOT USE: GROUND TRUTH (2026-07-03, 04-01
+/// capture) shows the real server NEVER sends sub5. Goals are DEFINED inline in the launch details
+/// packet's ObjectiveData[] and ACTIVATED by id (sub1). Sending sub5 for an id the MiniGameState doesn't
+/// already know is dropped -> no panel. Kept only for reference; define goals via EncounterObjective.</summary>
 public class ObjectiveAddPacket : ISerializablePacket
 {
     public const byte SubOpCode = 5;

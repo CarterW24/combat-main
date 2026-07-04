@@ -89,6 +89,11 @@ public abstract class BaseZone : IZone, IDisposable
     {
     }
 
+    /// <summary>COMBAT: an NPC took a non-fatal hit — zones override to react to HP thresholds.</summary>
+    public virtual void OnNpcDamaged(Player attacker, Npc npc)
+    {
+    }
+
     #endregion
 
     #region Combat helpers

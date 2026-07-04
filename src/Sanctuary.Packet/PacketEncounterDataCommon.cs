@@ -45,7 +45,9 @@ public class PacketEncounterDataCommon : ISerializablePacket
     public int KnockoutRewardValue;
     public int KnockoutPenalty;
 
-    /// <summary>The arena/combat-encounter ruleset (everything on).</summary>
+    /// <summary>The arena/combat-encounter ruleset — byte-for-byte the packet the real 2014 server
+    /// sent inside a live encounter (Packet-Protocol_Dump 04-01 seq 28121): all 11 bools true,
+    /// ObjectiveMultiplier 500, QCT 1, QCV 100000, QCL 500, NpcKO 300, KO reward 25000, penalty 5000.</summary>
     public static PacketEncounterDataCommon CreateCombatRules() => new()
     {
         CombatStance = true,
@@ -59,6 +61,14 @@ public class PacketEncounterDataCommon : ISerializablePacket
         ShowCombatUi = true,
         UseCombatCamera = true,
         CombatType = true,
+
+        ObjectiveMultiplier = 500f,
+        QuickCompletionTime = 1,
+        QuickCompletionValue = 100_000,
+        QuickCompletionLoss = 500,
+        NpcKOValue = 300,
+        KnockoutRewardValue = 25_000,
+        KnockoutPenalty = 5_000,
     };
 
     /// <summary>The out-of-encounter defaults (matches the client ctor) — releases combat mode.</summary>

@@ -1,6 +1,26 @@
+using System.Collections.Generic;
+
 using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
+
+// One inline objective inside MiniGameInfo.ObjectiveData[] (client reader ObjectiveData::sub_8FD770,
+// 103 B/record). GROUND TRUTH (2026-07-03, 04-01 capture): the real server DEFINES the encounter's goals
+// HERE, inline in the launch details packet, then ACTIVATES them by id with op45/sub1 — it never uses
+// op45/sub5 (ObjectiveAdd). The client's op45 dispatch requires the goal id to already exist in the
+// MiniGameState, so goals that aren't defined inline can never be activated -> no panel.
+public sealed class EncounterObjective
+{
+    public int ObjectiveId;
+    public int NameId;          // goal text (server-fed string id; unknown ids -> "<OBJECTIVE n>")
+    public int DescriptionId;
+    public int Status;          // real inline defs use 0; ObjectiveActivate flips it to 2 (announce)
+    public int Count;
+    public int Total;           // 0 inline; the follow-up ObjectiveActivate sets the real total
+    public int Unknown8;        // real obj0 carried 1 here
+    public bool MemberOnly;
+    public int Unknown10;
+}
 
 // INSTANCE WIP (Frostfang Fury): BaseEncounterPacket (op 41) sub-opcode 114 = "EncounterDetailsResponsePacket"
 // — the S2C adventure OFFER POPUP (title / difficulty / description / prizes + GO! button).
@@ -54,6 +74,15 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
     public int RespawnTime;
     public bool Tutorial;
 
+    // EncounterDetailsCommon "Unknown3" — the ZONE-CONTEXT selector (client apply sub_AA36C0, raw value
+    // stored at BaseClient+0x78C): ==6 sets the ARENA flag (+0x958), ==8 hub (m_bIsInHub +0x781),
+    // ==9 snowball (+0x782), ==12 (+0x783). THE ARENA FLAG IS THE RED-NAME MECHANISM (RE'd 2026-07-03):
+    // while it's set, every AddNpc apply forces the character's disposition to 0 HOSTILE before its own
+    // SetProfileId call re-runs the nameplate color resolver -> hostile NPCs get the RED name
+    // (Display.NameColorHostileNpc) at spawn. No per-NPC recolor packet exists — this flag, sent BEFORE
+    // the NPC adds, is how the live server made encounter mobs red.
+    public int ZoneContext;
+
     // LAUNCH selector (client case 114 @0xaa3dcf, RE'd 2026-07-02): the trailing packet flag byte picks
     // the path — false = OFFER popup (ClientMiniGameManager::sub_9BEB70), true = LAUNCH
     // (sub_9BB2D0: replaces/creates THE MiniGameState from this packet's MiniGameInfo).
@@ -61,6 +90,9 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
     // (goals panel) is dropped while m_MiniGameStates is empty, and IsInMiniGame() stays false.
     // So the encounter entry flow must send this packet AGAIN with Launch=true at GO!.
     public bool Launch;
+
+    // Objectives DEFINED inline (real server flow — see EncounterObjective). Empty = count-0 (offer popup).
+    public List<EncounterObjective> Objectives = [];
 
     public EncounterDetailsResponsePacket() : base(OpCode)
     {
@@ -77,7 +109,7 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         writer.Write(0);                 // Unknown2
         writer.Write(0);                 // GAP_ collection count = 0 (empty)
         writer.Write(0);                 // EncounterTeamData list count = 0 (empty)
-        writer.Write(0);                 // Unknown3
+        writer.Write(ZoneContext);       // Unknown3/ZoneContext: 6 = ARENA (red hostile NPCs), 8 = hub
         writer.Write(TeleportEffectId);  // TeleportEffectId
         writer.Write(true);              // Unknown5 (byte) — ctor default 1; passed into the offer display
         writer.Write(false);             // Unknown6 (byte)
@@ -96,7 +128,9 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         WriteEmptyRewardBundle(writer);  // m_RewardBundleBase
         WriteEmptyRewardBundle(writer);  // m_RewardBundleBase_Member
         WriteEmptyRewardBundle(writer);  // m_RewardBundleBase_Preview
-        writer.Write(0);                 // ObjectiveData array count = 0 (empty)
+        writer.Write(Objectives.Count);  // ObjectiveData array — goals defined inline (real server flow)
+        foreach (var obj in Objectives)
+            WriteObjective(writer, obj);
         writer.Write(true);              // U8  (ctor default 1)
         writer.Write(true);              // U9  (ctor default 1)
         writer.Write(true);              // U10 (ctor default 1)
@@ -123,6 +157,23 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         writer.Write(0);                 // Set<StoreBundleId> count = 0 (no prizes yet)
 
         return writer.Buffer;
+    }
+
+    // One ObjectiveData record (103 B): matches the client reader ObjectiveData::sub_8FD770 and the
+    // op45 ObjectiveData layout — kept byte-identical so an inline-defined goal can be activated by id.
+    private static void WriteObjective(PacketWriter writer, EncounterObjective obj)
+    {
+        writer.Write(obj.ObjectiveId);
+        writer.Write(obj.NameId);
+        writer.Write(obj.DescriptionId);
+        writer.Write(false);              // byte Unknown4
+        WriteEmptyRewardBundle(writer);   // RewardBundleBase (69-byte empty)
+        writer.Write(obj.Status);
+        writer.Write(obj.Count);
+        writer.Write(obj.Total);
+        writer.Write(obj.Unknown8);
+        writer.Write(obj.MemberOnly);     // byte MemberOnly
+        writer.Write(obj.Unknown10);
     }
 
     // RewardBundleBase with no entries — 69 fixed bytes (see header). All-zero is a valid empty bundle.

@@ -51,11 +51,13 @@ public static class EncounterParticipantRequestEntranceHandler
     {
         var arena = _zoneManager.GetOrCreateFrostfangArena();
 
-        // Reference video: the whole encounter runs under a dark fog ("gloam") that lifts only after
-        // victory. The arena world is an sg_ (Shrouded Glade) world, and the client ships a matching
-        // mood sky: sky_shrouded_gloam.xml (always-night, heavy fog 10..600).
+        // VIDEO GROUND TRUTH (frame audit 2026-07-03, youtu.be/MB2zn8Um8g8): the arena is a BRIGHT GREEN
+        // daytime clearing — NOT the dark "gloam" fog we were forcing. Edges are just the tree canopy +
+        // a mild vignette; the ground/lighting is normal daytime. Use the world's natural sky (null) so
+        // the sg_random_encounter_clearing default renders — matching the video. (The old
+        // sky_shrouded_gloam.xml made it always-night, way too dark vs the reference.)
         connection.Player.TeleportToZone(arena, arena.EffectiveSpawn, arena.SpawnRotation,
-            sky: "sky_shrouded_gloam.xml", geometryId: 0);
+            sky: null, geometryId: 0);
 
         // MiniGame lifecycle: the game has started (StateId<=0 targets the client's current MiniGameState —
         // the one our offer popup created). Also the packet that clears m_bWaitForZoneReadyPacket if set.
