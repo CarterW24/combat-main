@@ -33,6 +33,12 @@ public class Npc : IEntity
     /// <summary>HIDE the overhead nameplate. LIVE-PROVEN 2026-07-03 (builds 12 vs 13): true hides,
     /// false shows — upstream's name is correct; the IDA "m_bShowNamePlate" annotation is wrong.</summary>
     public bool HideNamePlate { get; set; }
+
+    /// <summary>AddNpc ActiveProfile. MUST be non-default (we use 1) for the nameplate color to
+    /// resolve from disposition (red hostiles) — see the notes on <see cref="Disposition"/> and in
+    /// GetAddNpcPacket. 0 = client keeps the ctor-baked ally blue. LIVE-CONFIRMED 2026-07-03.
+    /// POLICY: leave 0 (default) on normal NPCs; set non-zero ONLY on mobs/bosses (hostiles).</summary>
+    public int ActiveProfile { get; set; }
     public int NameplateImageId { get; set; }
     public float VerticalOffset { get; set; }
 
@@ -54,6 +60,17 @@ public class Npc : IEntity
     /// 0 - Hostile
     /// 1 - Neutral
     /// 2 - Ally
+    ///
+    /// HOW DISPOSITION DRIVES THE NAMEPLATE COLOR (RE'd + live-proven 2026-07-03):
+    /// the client colors overhead names in ONE place, the resolver ProxiedCharacter::sub_966460.
+    /// When NameColor == 0 it picks the color from disposition: 0 (hostile) = RED (0xFFFF0000),
+    /// anything else = the bluish NPC default (0xFF6699CC). BUT the resolver only runs from the
+    /// ProxiedCharacter ctor / SetProfileId / SetIsMember — and the ctor runs BEFORE the packet's
+    /// disposition is applied (ctor default = 2 Ally = blue). There is no post-spawn recolor packet
+    /// (op35/sub28 sets disposition but never repaints), so a hostile only renders red if the
+    /// resolver RE-runs after the AddNpc apply writes disposition — which is what a non-default
+    /// <see cref="ActiveProfile"/> triggers. In short: red name = Disposition 0 + NameColor 0
+    /// + ActiveProfile != 0, all at spawn time.
     /// </summary>
     public int Disposition { get; set; } = 1;
 
@@ -323,7 +340,14 @@ public class Npc : IEntity
 
             FlyByEffectId = default,
 
-            ActiveProfile = default,
+            // ★ THE RED-NAME KEY (user-found, 2026-07-03): ActiveProfile must be NON-DEFAULT. The
+            // client's AddNpc apply calls SetProfileId(packet.ActiveProfile) AFTER writing the NPC's
+            // disposition — and SetProfileId is what re-runs the nameplate COLOR RESOLVER (sub_966460).
+            // But SetProfileId guards on change: ActiveProfile == the ctor default means it short-
+            // circuits, the resolver never re-runs, and the name keeps the ctor-baked ALLY blue.
+            // A non-default profile makes the resolver run with the REAL disposition -> hostile
+            // (Disposition 0) + NameColor 0 = RED name. Order of operations, nothing more.
+            ActiveProfile = ActiveProfile,
 
             Unknown67 = default,
             Unknown68 = default,

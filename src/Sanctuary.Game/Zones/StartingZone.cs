@@ -136,6 +136,9 @@ public sealed class StartingZone : BaseZone
             npc.Name = "Training Dummy";
             npc.NameId = 0;
             npc.Disposition = 0;            // 0 = Hostile
+            npc.ActiveProfile = 1;          // ★ non-default -> AddNpc apply runs SetProfileId -> color
+                                            // resolver re-runs post-disposition -> hostile = RED name
+                                            // (user-found 2026-07-03; default 0 skips the resolve)
             npc.Scale = 1f;
             npc.IsInteractable = false;     // no "Press X to talk" prompt — it's a combat target, not an NPC
             npc.Visible = true;

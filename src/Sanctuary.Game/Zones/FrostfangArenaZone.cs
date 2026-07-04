@@ -482,6 +482,12 @@ public sealed class FrostfangArenaZone : BaseZone
         npc.NameScale = nameScale; // >1 = bigger name letters (the video's boss); 0 = client default
         // HideNamePlate stays default FALSE — live-proven (builds 12 vs 13): sending true HIDES the plate.
 
+        // ★ RED NAME (user-found 2026-07-03): a NON-DEFAULT ActiveProfile makes the client's AddNpc
+        // apply actually call SetProfileId -> re-runs the color resolver AFTER disposition is set ->
+        // hostile (disp 0) + NameColor unset = RED overhead name. Default(0) short-circuits the guard
+        // and the name stays ctor-baked ally blue.
+        npc.ActiveProfile = 1;
+
         npc.ModelId = WolfModelId;
         npc.TextureAlias = textureAlias; // wolf material variant (wolf_black/wolf_evil/... or null=default)
         npc.Name = name;                // null => no nameplate (pack wolves); bosses carry their name
