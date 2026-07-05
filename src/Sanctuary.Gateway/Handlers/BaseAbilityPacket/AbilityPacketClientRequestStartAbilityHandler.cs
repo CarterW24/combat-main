@@ -49,10 +49,11 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // The basic attack (slot 0) costs no energy; only slot-1 specials are gated.
     private const int MaxEnergy = 100;
     private const int SpecialEnergyCost = NinjaWeaponAbilities.SpecialEnergyCost; // 100 — shared with the toolbar's slot ManaCost (client grey-out)
-    // ★ TESTING BOOST (user request 2026-07-05): the AUTHENTIC live value is 4 (25s full refill,
-    // measured from the 04-01 capture — preserved in the comment block above). Cranked to 50 (~2s
-    // refill) so repeated encounter test runs aren't a slog. RESTORE TO 4 for authenticity.
-    private const int EnergyRegenPerSec = 50;
+    // AUTHENTIC live value = 4 (25s full refill, measured from the 04-01 capture — see the comment
+    // block above). During testing this was temporarily cranked to 50 (~2s refill) so repeated
+    // encounter runs weren't a slog; restored to 4 for the committed branch. Bump it back up locally
+    // if you want faster energy while iterating.
+    private const int EnergyRegenPerSec = 4;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, int> _energy = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, bool> _regenRunning = new();
 
@@ -127,15 +128,52 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         var player = connection.Player;
         var zone = player.Zone;
 
-        // Resolve the ability's target. When the player has the dummy selected the client sends its
-        // guid; with nothing selected it sends the player's own guid. Fall back to the nearest live
-        // hostile damageable NPC so testing works even without an explicit target selection.
+        // Resolve the ability's target. When the player has an enemy SELECTED the client sends its
+        // guid — always honor that. With nothing selected, swing at what the player is actually
+        // FACING: the nearest live hostile within melee reach inside a forward cone. Nothing there =
+        // the swing whiffs (StartCasting still plays, no damage) — real-game feel. (The old fallback
+        // was zone.Npcs.FirstOrDefault(...): literally the first hostile in the zone LIST, anywhere —
+        // the "I swing and a random wolf across the arena takes the hit" bug.)
         Npc? targetNpc = null;
 
         if (packet.Guid != 0 && zone.TryGetNpc(packet.Guid, out var selected) && selected.IsDamageable && selected.IsAlive)
+        {
             targetNpc = selected;
+        }
         else
-            targetNpc = zone.Npcs.FirstOrDefault(n => n.IsHostile && n.IsDamageable && n.IsAlive);
+        {
+            // AUTO-TARGET for an unselected swing = the NEAREST live hostile within melee range. This
+            // reconstructs what the real SOE server did: the client attacked with NO enemy selected
+            // (04-01 capture: Target=0, Guid=self) and the SERVER chose the target — that logic is lost,
+            // and "nearest in range" is the natural, predictable reconstruction. The range cap is what
+            // stops the old "swing → a random wolf across the arena gets hit" bug; picking the closest
+            // (not the first-in-list) makes it hit the wolf that's actually on you. No facing cone: the
+            // client only sends the player's facing while MOVING, so a cone whiffs when you stand still
+            // to fight the swarm (that was the "spotty" hit detection).
+            // Horizontal (X/Z) radius, height ignored. 7 units ≈ a few body-lengths (player capsule
+            // ~1.9 tall; wolves bite from ~2.6). GROUND-CHECK (04-01 capture, 37 player->enemy hits):
+            // real hit distances ran 0.6–9.2, median 2.3, mean 2.7 — the bulk ≤ ~4 (basic swings), the
+            // 5–9 tail almost certainly the AoE special. 7 sits inside SOE's envelope: forgiving of the
+            // 300ms tick lag without grabbing far wolves. Tune toward ~5 if it feels grabby.
+            const float meleeReach = 7f;
+            var reach2 = meleeReach * meleeReach;
+            var best2 = reach2;
+
+            foreach (var n in zone.Npcs)
+            {
+                if (!n.IsHostile || !n.IsDamageable || !n.IsAlive)
+                    continue;
+
+                var dx = n.Position.X - player.Position.X;
+                var dz = n.Position.Z - player.Position.Z;
+                var d2 = dx * dx + dz * dz;
+                if (d2 >= best2)
+                    continue;
+
+                best2 = d2;
+                targetNpc = n;
+            }
+        }
 
         var targetGuid = targetNpc?.Guid ?? (packet.Guid != 0 ? packet.Guid : player.Guid);
 

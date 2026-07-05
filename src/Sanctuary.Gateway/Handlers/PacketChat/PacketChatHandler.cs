@@ -147,6 +147,19 @@ public static class PacketChatHandler
             return true;
         }
 
+        // LOOT TEST: "!pack [count]" opens 1..25 Battle Item Mystery Packs on the spot — same code path
+        // as the loot-wheel payout (random sphere table, real inventory grant, contents banner). Each
+        // roll logs "Mystery Pack -> 3x sphere def NNNN" — spam it to sample the distribution without
+        // replaying the encounter.
+        if (packet.Message is { } packMsg && packMsg.StartsWith("!pack"))
+        {
+            var parts = packMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var count = parts.Length > 1 && int.TryParse(parts[1], out var n) ? Math.Clamp(n, 1, 25) : 1;
+            for (var i = 0; i < count; i++)
+                BaseMiniGamePacketHandler.OpenMysteryPack(connection);
+            return true;
+        }
+
         // INSTANCE WIP (Frostfang Fury): "!offer" sends the EncounterDetailsResponsePacket (op41/sub114) — the
         // adventure OFFER POPUP (title/difficulty/description + GO!). Wire format RE'd from the client's
         // Unserialize fns. Tests whether the panel renders before we wire it to the wolf interaction.

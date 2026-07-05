@@ -34,6 +34,15 @@ public static class CommandPacketInteractRequestHandler
         if (!connection.Player.Zone.TryGetEntity(packet.Guid, out var entity))
             return true;
 
+        // INSTANCE (Frostfang Fury): the victory EXIT DOOR (846 sg_exit_door_01, live-decoded) —
+        // clicking it releases the encounter and sends the player home. This replaced the old
+        // 6-second auto-kick; the player spins the loot wheel and leaves on their own time.
+        if (connection.Player.Zone is FrostfangArenaZone arena && arena.IsExitDoor(packet.Guid))
+        {
+            arena.UseExitDoor(connection.Player);
+            return true;
+        }
+
         // INSTANCE WIP (Frostfang Fury): clicking the Frostfang Growler wolf opens the adventure offer popup
         // (EncounterDetailsResponsePacket). The interaction provides the encounter context the cold "!offer"
         // test lacked. If the client still doesn't render it on click, it likely needs the NPC flagged as an
@@ -76,9 +85,9 @@ public static class CommandPacketInteractRequestHandler
                 MiniGameType = 4,                     // COMBAT (matches the real packet; the launch copy already sends it)
                 // ★ PRIZES on the talk popup (2026-07-04): the popup's reward list renders from the
                 // PREVIEW reward bundle ("BaseClient.MiniGame.RewardPreview.Entries", up to 4 non-hidden
-                // rows). This is the REAL ninja prize set decoded from the 04-01 capture — job-matched
-                // server-side (ProfileType = the job category, 2 = combat jobs).
-                PreviewRewards = FrostfangArenaZone.NinjaPrizePreview(),
+                // rows). Set picked for the player's ACTIVE JOB server-side — live behavior; the packet
+                // carries only the job CATEGORY (ProfileType 2 = combat jobs).
+                PreviewRewards = FrostfangArenaZone.GetPrizePreviewFor(connection.Player),
                 PreviewCoins = FrostfangArenaZone.PrizeCoins,
                 PreviewXp = FrostfangArenaZone.PrizeXp,
                 ProfileType = FrostfangArenaZone.CombatProfileType,

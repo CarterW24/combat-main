@@ -83,8 +83,19 @@ public class Npc : IEntity
     public bool ShowHealthBar { get; set; }
 
     public bool IsHostile => Disposition == 0;
-    public bool IsDamageable => MaxHealth > 0;
-    public bool IsAlive => !IsDamageable || Health > 0;
+    public bool IsDamageable => MaxHealth > 0 && !Invulnerable;
+    public bool IsAlive => MaxHealth == 0 || Health > 0;
+
+    /// <summary>Damage immunity toggle (e.g. the defeated Frostfang Alpha while he runs off —
+    /// the reference video shows he can't be hit once he breaks).</summary>
+    public bool Invulnerable { get; set; }
+
+    /// <summary>When set, Dispose()'s remove packet is the GRACEFUL form with these live-wire params
+    /// (op35/sub3 RemovePlayerGracefully). GROUND TRUTH (04-01 capture): a dying pack wolf is removed
+    /// with (Animate=true, Delay=2000, fx 5017, Duration=1000) and NOTHING else — Animate makes the
+    /// client play the model's own death clip, then the composite effect + despawn after Delay ms.
+    /// The defeated Alpha uses Delay=10000 (he visibly runs off for 10s instead). Null = abrupt remove.</summary>
+    public (bool Animate, int Delay, int EffectDelay, int EffectId, int Duration)? GracefulRemoval { get; set; }
 
     /// <summary>Apply damage; returns true if this hit killed the NPC.</summary>
     public bool ApplyDamage(int amount)

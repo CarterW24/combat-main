@@ -352,6 +352,24 @@ public sealed class Player : ClientPcData, IEntity
 
                 SendTunneled(playerUpdatePacketRemovePlayerGracefully);
             }
+            else if (npc.GracefulRemoval is { } graceful)
+            {
+                // Live-server despawn (04-01 capture): the ONE graceful-remove packet carries the whole
+                // death presentation — Animate=true plays the model's own death clip client-side, the
+                // composite effect (5017 poof) fires and the actor despawns after Delay ms. No separate
+                // SetAnimation / PlayCompositeEffect packets are needed (the real server sends none).
+                var packet = new PlayerUpdatePacketRemovePlayerGracefully();
+
+                packet.Guid = npc.Guid;
+
+                packet.Animate = graceful.Animate;
+                packet.Delay = graceful.Delay;
+                packet.EffectDelay = graceful.EffectDelay;
+                packet.CompositeEffectId = graceful.EffectId;
+                packet.Duration = graceful.Duration;
+
+                SendTunneled(packet);
+            }
             else
             {
                 var playerUpdatePacketRemovePlayer = new PlayerUpdatePacketRemovePlayer();

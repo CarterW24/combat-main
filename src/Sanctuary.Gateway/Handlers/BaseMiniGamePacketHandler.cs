@@ -31,10 +31,18 @@ public static class BaseMiniGamePacketHandler
     private const byte LootWheelOnRotationStopped = 46;    // C2S — the victory wheel finished spinning (04-01 idx 38115)
 
     // The Battle Item Mystery Pack wheel prize: on live (04-01 idx 38142) it opened INSTANTLY into
-    // battle items — 3x Flabbergast Sphere. We mirror the net effect (grant the contents, not the pack).
+    // battle items. Client locale (DescriptionId 6667): "This prize grants the winner 3 battle items!".
+    // The real loot TABLE was server-side and is lost — the pack def's Param1 = 636 is its table id
+    // (the same 636 echoes as the trailing int of the live contents banner). RECONSTRUCTED pool: the
+    // six Cost-50 combat SPHERES — the family the one captured opening drew from (3x Flabbergast) and
+    // the same set duplicated as grant-copies right next to the pack's id block (10516-10520):
+    //   Sleep 3011 · Unmoving 3013 · Flabbergast 3015 · Frag 3025 · Blast 3074 · Confusion 3089.
+    // One random sphere type x3 (the live grant was a single 3x stack). Weights unknown -> uniform.
     private const int MysteryPackDefId = 10482;
-    private const int FlabbergastSphereDefId = 3015;
     private const int MysteryPackContentsCount = 3;
+    private const int MysteryPackTableId = 636;
+    private static readonly int[] MysteryPackSpherePool = [3011, 3013, 3015, 3025, 3074, 3089];
+    private static readonly Random _rng = new();
 
     private static ILogger _logger = null!;
     private static IResourceManager _resourceManager = null!;
@@ -99,31 +107,9 @@ public static class BaseMiniGamePacketHandler
 
         if (prize.ItemDefId == MysteryPackDefId)
         {
-            // Live behavior: the pack opens instantly — grant the CONTENTS (3x Flabbergast Sphere),
-            // then the two grant banners (contents with the inventory-guid tail, then the pack banner).
-            var contents = GrantItem(connection, FlabbergastSphereDefId, MysteryPackContentsCount);
-            if (contents is not null)
-            {
-                connection.SendTunneled(new RewardBundlePacket
-                {
-                    Entries =
-                    [
-                        new RewardEntry
-                        {
-                            IconId = contents.Definition?.Icon.Id ?? 1899,
-                            TintId = contents.Definition?.Icon.TintId ?? 0,
-                            NameId = contents.Definition?.NameId ?? 0,
-                            Quantity = MysteryPackContentsCount,
-                            ItemDefId = FlabbergastSphereDefId,
-                            TailItemGuid = contents.ItemGuid,
-                        }
-                    ],
-                    Unknown15 = 636, // live value (38142); meaning unknown
-                });
-            }
+            OpenMysteryPack(connection);
+            // The wheel-prize banner itself (pack icon/name — live sent it AFTER the contents banner).
             connection.SendTunneled(new RewardBundlePacket { IconId = prize.IconId, NameId = prize.NameId, Unknown15 = 957 });
-            _logger.LogInformation("Loot wheel payout: Mystery Pack -> {n}x Flabbergast Sphere for {name}.",
-                MysteryPackContentsCount, player.Name);
             return true;
         }
 
@@ -136,6 +122,39 @@ public static class BaseMiniGamePacketHandler
             prize.ItemDefId, prize.Quantity, player.Name, granted is not null ? "granted" : "FAILED");
 
         return true;
+    }
+
+    /// <summary>Open one Battle Item Mystery Pack: roll a sphere from the reconstructed loot table,
+    /// grant 3 to inventory, send the contents banner. Public so the "!pack" test command can sample
+    /// the distribution without replaying the encounter — each roll logs "Mystery Pack -> 3x ...".</summary>
+    public static void OpenMysteryPack(GatewayConnection connection)
+    {
+        var sphereDefId = MysteryPackSpherePool[_rng.Next(MysteryPackSpherePool.Length)];
+        var contents = GrantItem(connection, sphereDefId, MysteryPackContentsCount);
+        if (contents is not null)
+        {
+            connection.SendTunneled(new RewardBundlePacket
+            {
+                Entries =
+                [
+                    new RewardEntry
+                    {
+                        IconId = contents.Definition?.Icon.Id ?? 0,
+                        TintId = contents.Definition?.Icon.TintId ?? 0,
+                        NameId = contents.Definition?.NameId ?? 0,
+                        Quantity = MysteryPackContentsCount,
+                        ItemDefId = sphereDefId,
+                        TailItemGuid = contents.ItemGuid,
+                    }
+                ],
+                Unknown15 = MysteryPackTableId, // live banner carried the pack's loot-table id (Param1)
+            });
+        }
+
+        // Sphere names for the log (defs don't carry the comment string):
+        // 3011 Sleep · 3013 Unmoving · 3015 Flabbergast · 3025 Frag · 3074 Blast · 3089 Confusion.
+        _logger.LogInformation("Mystery Pack -> {n}x sphere def {def} for {name} ({ok}).",
+            MysteryPackContentsCount, sphereDefId, connection.Player.Name, contents is not null ? "granted" : "GRANT FAILED");
     }
 
     private sealed record GrantedItem(int ItemGuid, ClientItemDefinition? Definition);

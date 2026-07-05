@@ -114,7 +114,35 @@ public class ObjectiveActivatePacket : ISerializablePacket
     }
 }
 
-/// <summary>Sub 2 — progress tick: sets the goal's current Count (e.g. wolves scared 3/12).</summary>
+/// <summary>Sub 3 — COMPLETE a goal: fires the green-check "Goal Complete!" announce for the id.
+/// GROUND TRUTH (04-01 capture idx 37163, the Frostfang win moment):
+///   2D00 03 [62310000 = 12642] [00000000] [88130000 = 5000]
+/// sent together with the op47/sub3 row-complete (TaskComplete) and the reward banners.</summary>
+public class ObjectiveCompletePacket : ISerializablePacket
+{
+    public const byte SubOpCode = 3;
+
+    public int ObjectiveId;
+    public int Unknown;          // 0 on the live wire
+    public int Unknown2 = 5000;  // 5000 on the live wire (announce display ms?)
+
+    public byte[] Serialize()
+    {
+        using var writer = new PacketWriter();
+
+        writer.Write(ObjectivePacketWriter.OpCode);
+        writer.Write(SubOpCode);
+        writer.Write(ObjectiveId);
+        writer.Write(Unknown);
+        writer.Write(Unknown2);
+
+        return writer.Buffer;
+    }
+}
+
+/// <summary>Sub 2 — progress tick: sets the goal's current Count (e.g. wolves scared 3/12).
+/// NOTE: the live Frostfang encounter never sends this — its goal (12642) is Total=1 and completes
+/// in one shot at the win (sub 3). Kept for other encounter types.</summary>
 public class ObjectiveUpdatePacket : ISerializablePacket
 {
     public const byte SubOpCode = 2;

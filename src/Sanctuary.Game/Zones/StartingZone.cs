@@ -236,6 +236,14 @@ public sealed class StartingZone : BaseZone
     // op35/sub10 AddNotifications (byte-exact vs live 2014 pcap) -> client attaches an
     // OverHeadBitmapElement above the character. ImageId 24 in NotificationImages.txt =
     // tint-circle + circle + crossed-swords icon 1345 (the combat-encounter badge art).
+    //
+    // ★ RED BADGE + RED MINIMAP DOT, BLUE NAME (2026-07-05): the color is driven by the notification's
+    // Type field, NOT the NPC disposition — so we get the red combat look while the name stays neutral
+    // blue. GROUND TRUTH: in BOTH 2014 captures the img-24 combat-encounter badge is sent with
+    // Type = 3 (the "combat" category) + Unknown3 = 7, and EVERY red minimap-dot notification is Type 3
+    // (04-01 idx 1928/4291). Our old badge used the default Type = 1 (a quest category) -> the blue
+    // bubble/dot the user saw. Type 3 tints the bubble (NotificationImages layer 369, APPLY_TINT) and
+    // the minimap blip (layer 1345) red without any disposition change.
     private void SendGrowlerBadge(Player player)
     {
         if (_growlerWolf is null)
@@ -246,6 +254,8 @@ public sealed class StartingZone : BaseZone
         {
             Guid = _growlerWolf.Guid,
             ImageId = 24,
+            Type = 3,       // COMBAT category -> red badge tint + red minimap dot (live img-24 value)
+            Unknown3 = 7,    // live combat-badge value (was default 1)
         });
 
         player.SendTunneled(badge);
