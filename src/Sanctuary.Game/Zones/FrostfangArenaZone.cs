@@ -144,6 +144,28 @@ public sealed class FrostfangArenaZone : BaseZone
     private const int GoalScareWolvesDescId = 104177;
     private const int WolfKillTarget = TotalSnarlers + 2; // pack budget + the Alpha's 2 escorts
 
+    // PRIZES — the offer popup's reward list AND the victory loot-wheel slices (both render from the
+    // details packet's PREVIEW reward bundle; see RewardEntry). GROUND TRUTH 2026-07-04: decoded verbatim
+    // from the real 04-01 launch packet (idx 28053) — and that player was ALSO a ninja, so this IS the
+    // correct job set for us (icons/names/ids cross-checked against ClientItemDefinitions.json).
+    // Job dependence is server-side: live picks the set for the player's ACTIVE job and stamps
+    // MiniGameInfo.ProfileType with the job CATEGORY (2 = combat jobs, Profiles.json Type). When more
+    // jobs matter, select a different set per player.ActiveProfileId here.
+    public const int CombatProfileType = 2;
+    public static List<RewardEntry> NinjaPrizePreview() =>
+    [
+        new() { Hidden = true,  IconId = 2483, TintId = 234, NameId = 133217, ItemDefId = 76209 }, // Kusa Ninja Tabi Boots
+        new() {                 IconId = 3717, TintId = 264, NameId = 131152, ItemDefId = 75408 }, // Ninja's Power Shard of Regeneration I
+        new() {                 IconId = 3229, TintId = 247, NameId = 131975, ItemDefId = 75091 }, // Ninja's Training Sword of 1000 Storms
+        new() {                 IconId = 1198, TintId = 0,   NameId = 131129, ItemDefId = 75385 }, // Ninja's Necklace of Vitality I
+        new() { Hidden = true,  IconId = 973,  TintId = -1,  NameId = 6666,   ItemDefId = 10482 }, // Battle Item Mystery Pack
+    ];
+    // Real preview bundle values, IDA-verified 2026-07-04 (bundle U2 = Num Coins, U3 = Experience):
+    // 10 coins, 0 XP. The encounter's XP (10) was granted by the GOAL's own reward bundle on live —
+    // wire that up with the real XP/level system (backburner task, see STATUS.md).
+    public const int PrizeCoins = 10;
+    public const int PrizeXp = 0;
+
     // The goal, defined inline in the launch details packet (Status=1 -> "InProgress"). Only the
     // "Scare away the wolves!" objective is kept (the survival one was dropped per the user).
     private static IEnumerable<EncounterObjective> EncounterObjectives =>
@@ -277,6 +299,14 @@ public sealed class FrostfangArenaZone : BaseZone
                     // find its caller). Full notes: docs/STATUS.md "RED BOSS NAME".
                     Launch = true,
                     Objectives = [.. EncounterObjectives],
+                    // Prizes + job category + activity id — all ground-truthed against the real 04-01
+                    // launch packet (2026-07-04 decode; see NinjaPrizePreview). The preview bundle in the
+                    // LAUNCH copy is what the victory score screen's loot wheel spins from.
+                    PreviewRewards = NinjaPrizePreview(),
+                    PreviewCoins = PrizeCoins,
+                    PreviewXp = PrizeXp,
+                    ProfileType = CombatProfileType,
+                    ActivityId = EncounterId,
                 };
 
                 EncounterPacketPlayerEnter MakeEnter(ulong guid) => new()
@@ -851,10 +881,45 @@ public sealed class FrostfangArenaZone : BaseZone
     }
 
     /// <summary>The player has beaten the encounter (Alpha fled or, as a fallback, died): complete the
-    /// goal and send everyone home after a beat.</summary>
+    /// goal, arm the loot wheel + score rows, and send everyone home after a beat.</summary>
     private void WinEncounter(Player player)
     {
         player.SendTunneled(new UiObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
+
+        // ★ LOOT WHEEL (real end flow, 04-01 capture + client RE — see MiniGameLootWheelPackets).
+        // Pick the prize SERVER-SIDE (the spin is theater): uniform over the 5 preview items + the
+        // coins slice. These two packets must go out while the MiniGameState is still alive (the
+        // landing apply matches the prize NameId against the state's stored preview rows); the Lua
+        // keeps the resolved index after our later state remove, so the player can spin any time.
+        var prizes = NinjaPrizePreview();
+        var slice = _rng.Next(prizes.Count + 1); // 0..4 = items, 5 = coins
+        var wheel = new MiniGameLootWheelSetItemToLandOnPacket();
+        if (slice < prizes.Count)
+        {
+            player.PendingWheelPrize = prizes[slice];
+            player.PendingWheelCoins = 0;
+            wheel.Entries.Add(prizes[slice]);
+            _logger.LogInformation("Frostfang arena: wheel will land on {item} (def {def}).",
+                prizes[slice].NameId, prizes[slice].ItemDefId);
+        }
+        else
+        {
+            player.PendingWheelPrize = null;
+            player.PendingWheelCoins = PrizeCoins;
+            wheel.Coins = PrizeCoins; // no entry + coins>0 -> the client resolves the COINS slice
+            _logger.LogInformation("Frostfang arena: wheel will land on the COINS slice ({coins}).", PrizeCoins);
+        }
+
+        // Score rows (op39/sub47, live points model: 300/enemy, 5000 per knockout remaining).
+        var enemies = _killedSnarlers;
+        var knockoutsLeft = KnockoutLimit; // player HP pool is cosmetic for now -> never knocked out
+        var score = new MiniGameGameEndScorePacket();
+        score.Rows.Add(new MiniGameScoreRow { Name = "scoreEnemiesDefeated", Order = 0, Value = enemies, Points = enemies * 300 });
+        score.Rows.Add(new MiniGameScoreRow { Name = "scorePlayerKnockouts", Order = 3, Value = knockoutsLeft, Max = KnockoutLimit, Points = knockoutsLeft * 5000 });
+        score.Rows.Add(new MiniGameScoreRow { Name = "scoreTotalScore", Order = 4, Points = enemies * 300 + knockoutsLeft * 5000 });
+
+        player.SendTunneled(wheel);
+        player.SendTunneled(score);
 
         _logger.LogInformation("Frostfang arena: encounter won -> returning {name} home in 6s.", player.Name);
 

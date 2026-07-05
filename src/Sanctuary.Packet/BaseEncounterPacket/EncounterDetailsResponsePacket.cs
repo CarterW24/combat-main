@@ -22,6 +22,9 @@ public sealed class EncounterObjective
     public int Unknown10;
 }
 
+// (RewardEntry + the shared bundle serializer live in RewardBundle.cs — used by this packet's preview
+// bundle, the loot-wheel packets, and the op50 reward grant banner.)
+
 // INSTANCE WIP (Frostfang Fury): BaseEncounterPacket (op 41) sub-opcode 114 = "EncounterDetailsResponsePacket"
 // — the S2C adventure OFFER POPUP (title / difficulty / description / prizes + GO! button).
 //
@@ -50,12 +53,18 @@ public sealed class EncounterObjective
 //     byte ×4 (U16..U19) · int32 U20
 //   RewardBundleBase (sub_8E7930):
 //     byte Unknown · int32 ×9 (U2..U10) · int32 ×2 pairA · int32 ×2 pairB ·
-//     int32 U13 · int32 U14 · int32 entryCount · entryCount×{int32 type + polymorphic entry} · int32 U15
+//     int32 U13 · int32 U14 · int32 entryCount · entryCount×{int32 type + entry body} · int32 U15
 //     (empty bundle = 69 fixed bytes, entryCount 0)
-//
-// This first cut sends the popup with the visible fields (NameId/Difficulty/DescriptionId/IconId) populated and
-// every collection EMPTY (no teams/objectives/prizes/reward-entries) — enough to make the panel render. Prizes
-// + objectives get layered in once the panel is confirmed.
+//   Reward entry (GROUND-TRUTHED 2026-07-04 against the real 04-01 launch packet idx 28053, which parsed
+//   end-to-end with these exact sizes — note the type prefix IS int32, not the byte the first IDA pass said):
+//     int32 type (1=ITEM) · byte Hidden · int32 IconId · int32 TintId · int32 NameId · int32 Quantity ·
+//     int32 Param1 (=the ITEM DEFINITION id — cross-checked: all 5 real entries' Param1 resolve in
+//     ClientItemDefinitions with matching NameId/Icon/Tint) · int32 Param2 · string · int32 U8 ·
+//     byte U9 (real entries all 0 = no per-type tail)
+//   Real-bundle constants worth mirroring: ints[6] (U8 of U2..U10) = 1.0f in EVERY live bundle (empty or
+//   not); empty bundles carry U13=U14=-1, populated ones carry U13=first entry IconId / U14=first NameId.
+//   The preview bundle also had ints[0]=10 / ints[3]=15 (best guess: coins/XP — the Lua end-screen wheel
+//   reads bundle-DS cols 2/3 as xp/coins) and U15=957 (unknown; not sent).
 public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializablePacket
 {
     public new const short OpCode = 114;
@@ -94,6 +103,23 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
     // Objectives DEFINED inline (real server flow — see EncounterObjective). Empty = count-0 (offer popup).
     public List<EncounterObjective> Objectives = [];
 
+    // PRIZES (the offer popup's reward list + the victory loot wheel) — serialized into the PREVIEW
+    // reward bundle. GROUND TRUTH: the real 04-01 launch packet carried 5 ITEM entries here (the ninja
+    // set: Tabi Boots / Power Shard / 1000 Storms sword / Vitality Necklace / Mystery Pack), matching
+    // the player's ACTIVE JOB — the job selection is server-side; ProfileType just names the job
+    // CATEGORY the set is for (2 = combat jobs, from Profiles.json Type).
+    public List<RewardEntry> PreviewRewards = [];
+
+    // Coins/XP for the extra loot-wheel slices — IDA-verified DS mapping (bundle U2 = Num Coins,
+    // U3 = Experience). Real preview: coins 10, XP 0 (the encounter's XP was granted by the GOAL's
+    // own bundle instead — obj 12642's carried U3=10).
+    public int PreviewCoins;
+    public int PreviewXp;
+
+    // MiniGameInfo tail int "U20". GROUND TRUTH (04-01 idx 28053): the real server sends the
+    // ClientActivityDefinitions ACTIVITY ID here (174 = Frostfang Growler). We sent 0 before 2026-07-04.
+    public int ActivityId;
+
     public EncounterDetailsResponsePacket() : base(OpCode)
     {
     }
@@ -127,7 +153,7 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         writer.Write(MembersOnly);       // MembersOnly (byte)
         WriteEmptyRewardBundle(writer);  // m_RewardBundleBase
         WriteEmptyRewardBundle(writer);  // m_RewardBundleBase_Member
-        WriteEmptyRewardBundle(writer);  // m_RewardBundleBase_Preview
+        WriteRewardBundle(writer, PreviewRewards, PreviewCoins, PreviewXp); // m_RewardBundleBase_Preview (the popup prizes + loot wheel)
         writer.Write(Objectives.Count);  // ObjectiveData array — goals defined inline (real server flow)
         foreach (var obj in Objectives)
             WriteObjective(writer, obj);
@@ -144,7 +170,7 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         writer.Write(false);             // U17
         writer.Write(false);             // U18
         writer.Write(false);             // U19
-        writer.Write(0);                 // U20
+        writer.Write(ActivityId);        // U20 = ClientActivityDefinitions activity id (real: 174)
         // ----- end MiniGameInfo -----
 
         writer.Write(false);             // EncounterDetailsCommon UNK0 (byte)
@@ -187,5 +213,18 @@ public class EncounterDetailsResponsePacket : BaseEncounterPacket, ISerializable
         writer.Write(0);                                  // int32 U14
         writer.Write(0);                                  // int32 entryCount = 0
         writer.Write(0);                                  // int32 U15
+    }
+
+    // RewardBundleBase with entries — the shared ground-truthed serializer (RewardBundle.cs). Falls back
+    // to the proven all-zero empty shape when no entries. U13/U14 mirror entry[0] like the real preview.
+    private static void WriteRewardBundle(PacketWriter writer, List<RewardEntry> entries, int coins, int xp)
+    {
+        if (entries.Count == 0)
+        {
+            WriteEmptyRewardBundle(writer);
+            return;
+        }
+
+        RewardBundle.Write(writer, entries, coins, xp, entries[0].IconId, entries[0].NameId);
     }
 }

@@ -72,7 +72,17 @@ public static class CommandPacketInteractRequestHandler
                 NameId = 93276,                       // "Frostfang Growler!"  (ClientActivityDefinitions Id 174)
                 DescriptionId = 104171,               // Growler description
                 Difficulty = 1,                       // 1 of 5 pips (matches the def)
-                IconId = 1345,                        // wolf emblem ImageSetId (was default squirrel 670)
+                IconId = 1345,                        // wolf emblem ImageSetId (real launch used 28605; 1345 is live-proven here)
+                MiniGameType = 4,                     // COMBAT (matches the real packet; the launch copy already sends it)
+                // ★ PRIZES on the talk popup (2026-07-04): the popup's reward list renders from the
+                // PREVIEW reward bundle ("BaseClient.MiniGame.RewardPreview.Entries", up to 4 non-hidden
+                // rows). This is the REAL ninja prize set decoded from the 04-01 capture — job-matched
+                // server-side (ProfileType = the job category, 2 = combat jobs).
+                PreviewRewards = FrostfangArenaZone.NinjaPrizePreview(),
+                PreviewCoins = FrostfangArenaZone.PrizeCoins,
+                PreviewXp = FrostfangArenaZone.PrizeXp,
+                ProfileType = FrostfangArenaZone.CombatProfileType,
+                ActivityId = FrostfangArenaZone.EncounterId,
             });
 
             // Auto-complete the ready handshake (sub107 -> "HandlerMiniGameStart:setReady") shortly after the

@@ -49,7 +49,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // The basic attack (slot 0) costs no energy; only slot-1 specials are gated.
     private const int MaxEnergy = 100;
     private const int SpecialEnergyCost = NinjaWeaponAbilities.SpecialEnergyCost; // 100 — shared with the toolbar's slot ManaCost (client grey-out)
-    private const int EnergyRegenPerSec = 4;
+    // ★ TESTING BOOST (user request 2026-07-05): the AUTHENTIC live value is 4 (25s full refill,
+    // measured from the 04-01 capture — preserved in the comment block above). Cranked to 50 (~2s
+    // refill) so repeated encounter test runs aren't a slog. RESTORE TO 4 for authenticity.
+    private const int EnergyRegenPerSec = 50;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, int> _energy = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, bool> _regenRunning = new();
 

@@ -64,7 +64,17 @@ public sealed class StartingZone : BaseZone
 
         SendAdventurersJournalInfo(player);
 
-        SendWelcomeInfo(player);
+        // LOGIN ONLY — not on re-zone. This handler runs on EVERY zone-in to the overworld (including
+        // the return from the Frostfang arena), and PacketLoadWelcomeScreen makes the client pop the
+        // Welcome screen each time it arrives — on the return trip it opened OVER the encounter's
+        // victory score screen (user report 2026-07-04). Returning from a battle is a plain re-zone,
+        // not a fresh login. (The other reference-data sends above are invisible/idempotent — left
+        // alone to keep this change minimal.)
+        if (!player.LoginBurstSent)
+        {
+            player.LoginBurstSent = true;
+            SendWelcomeInfo(player);
+        }
 
         SendPlayerCustomizations(player);
 

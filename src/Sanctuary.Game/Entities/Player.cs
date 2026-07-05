@@ -25,6 +25,19 @@ public sealed class Player : ClientPcData, IEntity
 
     public bool Visible { get; set; }
 
+    /// <summary>True once the login-only zone-in burst (Welcome screen etc.) has been sent this
+    /// session. The overworld's OnClientIsReady runs on EVERY zone-in — including the return from a
+    /// combat instance — and re-sending PacketLoadWelcomeScreen there re-opens the client's Welcome
+    /// popup (Main.wndWelcomeHandler) ON TOP of the encounter's victory screen (live bug 2026-07-04).</summary>
+    public bool LoginBurstSent { get; set; }
+
+    /// <summary>LOOT WHEEL: the prize the victory wheel was told to land on (set when the encounter
+    /// sends MiniGameLootWheelSetItemToLandOn; consumed by the C2S LootWheelOnRotationStopped handler,
+    /// which grants it). Null = no spin pending. A null prize with PendingWheelCoins &gt; 0 = the
+    /// COINS slice.</summary>
+    public Sanctuary.Packet.RewardEntry? PendingWheelPrize { get; set; }
+    public int PendingWheelCoins { get; set; }
+
     public IZone Zone { get; set; }
     public ZoneTile ZoneTile { get; private set; } = ZoneTile.Empty;
     public ConcurrentDictionary<ulong, Npc> VisibleNpcs { get; } = [];
