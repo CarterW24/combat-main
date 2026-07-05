@@ -86,7 +86,14 @@ public sealed class FrostfangArenaZone : BaseZone
 
     private const float RoamSpeed = 3f;        // live ExpectedSpeed while ambling
     private const float ChaseSpeed = 6f;       // live ExpectedSpeed while charging (all wolves)
-    private const float RoamerAggroRange = 6f; // player-approach distance that wakes the load-in roamer
+    // The roamer's fight-kickoff HOWL (live idx 28467-28469, both on the roamer, one tick before wave 1's
+    // AddNpc burst): a rear-up cast pose + a "commanding shout" composite over its head. THIS is what
+    // summons the pack — no wolf spawns until the howl fires. Trigger is PROXIMITY (the live capture shows
+    // the player walking straight up to the roamer, 52u -> ~4u, and it howls at close range — not a timer).
+    private const int RoamerHowlAnimId = 1111;   // AnimationGroup com_cast_01 (SetAnimation op35/8)
+    private const int RoamerHowlFxId = 15226;    // PFX_moire-circles_multi_head_commanding-shout-level-1_loop
+    private const int RoamerHowlHoldMs = 1500;   // plant + hold the howl pose (anim + fx) before charging
+    private const float RoamerAggroRange = 6f;   // player-approach distance that fires the howl
     private const int AggroDelayMs = 2200;     // live: ES 3.0 + ES 6.0 + state 0x8001 land ~2.2s after AddNpc
     private const int SpawnPoofFxId = 46;      // AddNpc.CompositeEffectId on every live WAVE wolf (not the roamer)
     private const int DeathPoofFxId = 5017;    // the graceful-remove composite effect on every dying wolf
@@ -217,6 +224,7 @@ public sealed class FrostfangArenaZone : BaseZone
         public float SlotAngle;
         // Roamer wander state
         public bool IsRoamer;
+        public bool Howled;          // roamer has howled; standing in the pose until ChargeAtTicks, then charges
         public Vector2? WanderTarget;
         public long WanderPauseUntil;
     }
@@ -233,6 +241,7 @@ public sealed class FrostfangArenaZone : BaseZone
     private Npc? _exitDoor;
     private int _waveIndex;        // next wave to spawn (0-based into WaveSizes)
     private bool _waveScheduled;
+    private bool _roamerEngaged;   // set once the roamer has howled + spawned wave 1 (gates the kickoff)
     private int _killedSnarlers;
     private bool _won;
     private int _encounterRun; // bumped every StartEncounter; stops stale AI loops
@@ -326,7 +335,12 @@ public sealed class FrostfangArenaZone : BaseZone
         StartLatitude = -2,
         EndLatitude = 8,
         Sky = null, // the GO! teleport sends sky_shrouded_gloam.xml (encounter mood); world default otherwise
-        SpawnPosition = new Vector4(136f, GroundY + 2f, 165f, 1f), // small settle-drop onto real ground
+        // Live player spawn (04-01 capture, first c2s position idx 28214): (130.11, 1.03, 120.04) — the
+        // SOUTH edge of the clearing, ~52u from the roaming wolf up at z~172. The player walks that whole
+        // stretch north before closing on the roamer (matches the video's long approach). Spawning at the
+        // arena centre (136,165) put the player ~10u from the roamer — right on top of it. GroundY+2 keeps
+        // the small settle-drop onto real ground.
+        SpawnPosition = new Vector4(130.11f, GroundY + 2f, 120.04f, 1f),
         SpawnRotation = Quaternion.Identity,
     };
 
@@ -381,6 +395,7 @@ public sealed class FrostfangArenaZone : BaseZone
             _exitDoor = null;
             _waveIndex = 0;
             _waveScheduled = false;
+            _roamerEngaged = false;
             _killedSnarlers = 0;
             _won = false;
             _encounterRun++;
@@ -481,14 +496,9 @@ public sealed class FrostfangArenaZone : BaseZone
                     State = 6,
                 });
 
-                // Wave 1 runs in ~2s after the launch burst (live: 23:20:29 burst -> 23:20:31 wave 1).
-                await Task.Delay(2000);
-                if (player.Zone == this && run == _encounterRun)
-                {
-                    lock (_stateLock)
-                        SpawnWave(player);
-                }
-
+                // Wave 1 is NOT on a timer — it's gated on the roamer's howl, which fires when the player
+                // walks up to the roamer (proximity, in the AI loop) or hits it (OnNpcDamaged). The lone
+                // roamer ambles until then. Live order: howl packets -> wave-1 AddNpc, same tick.
                 _logger.LogInformation("Frostfang arena: real entry sequence delivered (run {run}).", run);
             }
             catch (Exception ex)
@@ -748,18 +758,18 @@ public sealed class FrostfangArenaZone : BaseZone
 
                         var here = new Vector3(wolf.Position.X, wolf.Position.Y, wolf.Position.Z);
 
-                        // ROAMER: amble between random waypoints at walk speed until the player ENGAGES
-                        // it — either by hitting it (OnNpcDamaged) or by walking up to it (proximity
-                        // below). Matches the video: the load-in wolf roams around and only turns
-                        // hostile once the player closes in / starts the fight.
-                        if (state.IsRoamer && !state.Charging)
+                        // ROAMER: amble between random waypoints at walk speed until the player closes in
+                        // (proximity — the live trigger) or hits it (OnNpcDamaged). Either fires the howl
+                        // via EngageRoamer. Scenery until then, matching the video's load-in wolf. Once it
+                        // has howled it stops roaming (falls through to the hold+charge gate below).
+                        if (state.IsRoamer && !state.Charging && !state.Howled)
                         {
                             var dxr = target.X - here.X;
                             var dzr = target.Z - here.Z;
                             if (dxr * dxr + dzr * dzr <= RoamerAggroRange * RoamerAggroRange)
                             {
-                                _logger.LogInformation("Frostfang arena: the roamer was approached -> charging.");
-                                BeginCharge(player, wolf, state);
+                                _logger.LogInformation("Frostfang arena: player closed in on the roamer -> howl + wave 1.");
+                                EngageRoamer(player, wolf, state);
                             }
                             else
                             {
@@ -768,7 +778,8 @@ public sealed class FrostfangArenaZone : BaseZone
                             }
                         }
 
-                        // Waiting out the live ~2.2s post-spawn idle before the charge.
+                        // Standing still: the roamer holding its howl pose, or a wave wolf in its ~2.2s
+                        // post-spawn idle — either way, wait out ChargeAtTicks, then charge.
                         if (!state.Charging)
                         {
                             if (now < state.ChargeAtTicks)
@@ -916,6 +927,55 @@ public sealed class FrostfangArenaZone : BaseZone
         }
     }
 
+    /// <summary>The roamer's fight-kickoff (live idx 28467-28471): it plants, rears into a commanding
+    /// howl — SetAnimation com_cast_01 (1111) + PlayCompositeEffect 15226 (moire "commanding-shout" rings
+    /// over its head), animation and FX FIRING TOGETHER (EffectDelay 0) — and the pack spawns. It holds
+    /// the pose for RoamerHowlHoldMs (the AI loop then charges it via ChargeAtTicks) so the howl reads
+    /// before the lunge. Fires exactly once — proximity or a hit on the roamer (both idempotent).</summary>
+    private void EngageRoamer(Player player, Npc roamer, WolfState state)
+    {
+        lock (_stateLock)
+        {
+            if (_roamerEngaged)
+                return;
+            _roamerEngaged = true;
+
+            // Plant it where it stands so the client stops its wander walk and plays the howl cleanly.
+            var facePlayer = new Vector2(player.Position.X - roamer.Position.X, player.Position.Z - roamer.Position.Z);
+            var faceLen = facePlayer.Length();
+            var faceDir = faceLen > 0.01f ? facePlayer / faceLen : new Vector2(0f, 1f);
+            var howlRot = new Quaternion(faceDir.X, 0f, faceDir.Y, 0f);
+            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+            {
+                Guid = roamer.Guid, Position = roamer.Position, Rotation = howlRot, State = 1, Unknown = 0,
+            });
+
+            // The howl — animation and composite together (EffectDelay 0 keeps the FX in sync with the
+            // pose; the live 2000 fired the rings ~2s late, which read as "the FX only went as he charged").
+            player.SendTunneled(new PlayerUpdatePacketSetAnimation
+            {
+                Guid = roamer.Guid,
+                AnimationId = RoamerHowlAnimId,
+            });
+            player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+            {
+                Guid = roamer.Guid,
+                Unknown2 = player.Guid,
+                CompositeEffectId = RoamerHowlFxId,
+                EffectDelay = 0,
+                Position = new Vector4(0f, 0f, 0f, 1f),
+                Unknown7 = true,
+            });
+
+            // Hold the pose, THEN charge — the loop's charge gate waits out ChargeAtTicks.
+            state.Howled = true;
+            state.ChargeAtTicks = Environment.TickCount64 + RoamerHowlHoldMs;
+
+            // The pack answers the call — not a moment before.
+            SpawnWave(player);
+        }
+    }
+
     /// <summary>The defeated Alpha's flee run: sprint straight AWAY from the player (facing that way,
     /// no biting) until the flee timeout or he reaches the arena edge, then a small poof + despawn.
     /// Smooth server-driven movement — no death clip, no teleport.</summary>
@@ -969,8 +1029,8 @@ public sealed class FrostfangArenaZone : BaseZone
         {
             if (_wolfStates.TryGetValue(npc.Guid, out var state) && state.IsRoamer && !state.Charging)
             {
-                _logger.LogInformation("Frostfang arena: the roamer was provoked -> charging.");
-                BeginCharge(player, npc, state);
+                _logger.LogInformation("Frostfang arena: the roamer was provoked -> howl + wave 1.");
+                EngageRoamer(player, npc, state);
             }
         }
     }
