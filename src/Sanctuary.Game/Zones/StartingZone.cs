@@ -34,23 +34,34 @@ public sealed class StartingZone : BaseZone
         SpawnNpcs();
     }
 
+    // NPCs come from the community-contributed Npcs.json (fixed scale/rotation, static-marked). The guid
+    // is derived from each entry's id so that Quests.json giver/target guids and NpcVendors.json - both
+    // keyed by guid = NpcGuidBase + id - keep resolving after swapping the source from NpcSpawns.txt.
+    private const ulong NpcGuidBase = 100000000000UL;
+
     private void SpawnNpcs()
     {
         int spawnedCount = 0;
 
-        foreach (var npcSpawn in _resourceManager.NpcSpawns.Values)
+        foreach (var definition in _resourceManager.Npcs.Values)
         {
-            if (!TryCreateNpc(npcSpawn.Guid, out var npc))
+            var guid = NpcGuidBase + (ulong)definition.Id;
+
+            if (!TryCreateNpc(guid, out var npc))
                 continue;
 
-            npc.ModelId = npcSpawn.ModelId;
-            npc.NameId = npcSpawn.NameId;
-            npc.TextureAlias = npcSpawn.TextureAlias;
-            npc.Name = npcSpawn.Name;
-            npc.Scale = 1f;
+            npc.ModelId = definition.ModelId;
+            npc.NameId = definition.NameId;
+            npc.TextureAlias = definition.TextureAlias;
+            npc.Name = definition.Name;
+            npc.Static = definition.Static;
+            // Scale from the model definition (Models.txt), matching the client; 0 -> default 1.
+            npc.Scale = _resourceManager.Models.TryGetValue(definition.ModelId, out var model) && model.Scale != 0f
+                ? model.Scale
+                : 1f;
             npc.Visible = true;
 
-            if (_resourceManager.NpcVendors.TryGetValue(npcSpawn.Guid, out var vendorDef))
+            if (_resourceManager.NpcVendors.TryGetValue(guid, out var vendorDef))
             {
                 npc.VendorItems = vendorDef.Items;
                 npc.VendorCosts = vendorDef.ItemCosts;
@@ -104,16 +115,16 @@ public sealed class StartingZone : BaseZone
 
             // Quest givers/targets (from Quests.json) route their interaction through the quest manager,
             // which decides whether to offer a quest or advance/turn one in based on the player's state.
-            if (_questManager.IsQuestNpc(npcSpawn.Guid))
+            if (_questManager.IsQuestNpc(guid))
             {
                 npc.CursorId = 17;
                 var questNpc = npc;
                 npc.InteractAction = interactingPlayer => _questManager.OnNpcInteract(interactingPlayer, questNpc);
             }
 
-            npc.UpdatePosition(npcSpawn.Position, npcSpawn.Rotation);
+            npc.UpdatePosition(definition.Position, definition.Rotation);
 
-            var tile = GetTileFromPosition(npcSpawn.Position);
+            var tile = GetTileFromPosition(definition.Position);
             tile.Entities.TryAdd(npc.Guid, npc);
 
             spawnedCount++;

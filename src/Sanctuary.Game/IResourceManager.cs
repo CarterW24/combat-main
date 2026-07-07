@@ -37,6 +37,7 @@ public interface IResourceManager
     PointOfInterestDefinitionCollection PointOfInterests { get; }
     NpcSpawnCollection NpcSpawns { get; }
     NpcVendorCollection NpcVendors { get; }
+    NpcDefinitionCollection Npcs { get; }
 
 
     ConsumableCollection Consumables { get; }

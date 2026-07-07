@@ -47,6 +47,7 @@ public class ResourceManager : IResourceManager
     public static readonly string PointOfInterestsFile = Path.Combine(BaseDirectory, "PointOfInterests.json");
     public static readonly string NpcSpawnsFile = Path.Combine(BaseDirectory, "NpcSpawns.txt");
     public static readonly string NpcVendorsFile = Path.Combine(BaseDirectory, "NpcVendors.json");
+    public static readonly string NpcsFile = Path.Combine(BaseDirectory, "Npcs.json");
 
     public static readonly string ConsumablesFile = Path.Combine(BaseDirectory, "Consumables.jsonc");
 
@@ -85,6 +86,7 @@ public class ResourceManager : IResourceManager
     public PointOfInterestDefinitionCollection PointOfInterests { get; }
     public NpcSpawnCollection NpcSpawns { get; }
     public NpcVendorCollection NpcVendors { get; }
+    public NpcDefinitionCollection Npcs { get; }
 
 
     public ConsumableCollection Consumables { get; }
@@ -132,6 +134,7 @@ public class ResourceManager : IResourceManager
         PointOfInterests = new(_logger);
         NpcSpawns = new(_logger);
         NpcVendors = new(_logger);
+        Npcs = new(_logger);
         Consumables = new(_logger);
         Quests = new(_logger);
     }
@@ -214,6 +217,9 @@ public class ResourceManager : IResourceManager
             return false;
 
         if (!NpcVendors.Load(NpcVendorsFile))
+            return false;
+
+        if (!Npcs.Load(NpcsFile))
             return false;
 
 
