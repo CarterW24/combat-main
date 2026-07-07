@@ -35,7 +35,6 @@ public interface IResourceManager
     ProfileDefinitionCollection Profiles { get; }
     QuickChatDefinitionCollection QuickChats { get; }
     PointOfInterestDefinitionCollection PointOfInterests { get; }
-    NpcSpawnCollection NpcSpawns { get; }
     NpcVendorCollection NpcVendors { get; }
     NpcDefinitionCollection Npcs { get; }
 

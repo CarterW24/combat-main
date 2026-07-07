@@ -45,7 +45,6 @@ public class ResourceManager : IResourceManager
     public static readonly string QuickChatsFile = Path.Combine(BaseDirectory, "QuickChats.json");
     public static readonly string PlayerTitlesFile = Path.Combine(BaseDirectory, "PlayerTitles.json");
     public static readonly string PointOfInterestsFile = Path.Combine(BaseDirectory, "PointOfInterests.json");
-    public static readonly string NpcSpawnsFile = Path.Combine(BaseDirectory, "NpcSpawns.txt");
     public static readonly string NpcVendorsFile = Path.Combine(BaseDirectory, "NpcVendors.json");
     public static readonly string NpcsFile = Path.Combine(BaseDirectory, "Npcs.json");
 
@@ -84,7 +83,6 @@ public class ResourceManager : IResourceManager
     public ProfileDefinitionCollection Profiles { get; }
     public QuickChatDefinitionCollection QuickChats { get; }
     public PointOfInterestDefinitionCollection PointOfInterests { get; }
-    public NpcSpawnCollection NpcSpawns { get; }
     public NpcVendorCollection NpcVendors { get; }
     public NpcDefinitionCollection Npcs { get; }
 
@@ -132,7 +130,6 @@ public class ResourceManager : IResourceManager
         QuickChats = new(_logger);
         PlayerTitles = new(_logger);
         PointOfInterests = new(_logger);
-        NpcSpawns = new(_logger);
         NpcVendors = new(_logger);
         Npcs = new(_logger);
         Consumables = new(_logger);
@@ -211,9 +208,6 @@ public class ResourceManager : IResourceManager
             return false;
 
         if (!PointOfInterests.Load(PointOfInterestsFile))
-            return false;
-
-        if (!NpcSpawns.Load(NpcSpawnsFile))
             return false;
 
         if (!NpcVendors.Load(NpcVendorsFile))
