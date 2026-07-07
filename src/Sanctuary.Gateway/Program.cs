@@ -96,6 +96,7 @@ builder.ConfigureServices((hostBuilderContext, serviceCollection) =>
     serviceCollection.AddSingleton<IZoneManager, ZoneManager>();
     serviceCollection.AddSingleton<IResourceManager, ResourceManager>();
     serviceCollection.AddSingleton<IInteractionManager, InteractionManager>();
+    serviceCollection.AddSingleton<Sanctuary.Game.Quests.IQuestManager, Sanctuary.Game.Quests.QuestManager>();
 });
 
 builder.ConfigureLogging((hostBuilderContext, loggingBuilder) =>

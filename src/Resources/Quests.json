@@ -1,0 +1,74 @@
+// Quest definitions. The loader allows // comments (JsonCommentHandling.Skip).
+// All *Id fields are SOE T4 "Global.Text" localization ids (resolved client-side to the actual
+// on-screen text). NPC *Guid fields reference entries in Resources/NpcSpawns.txt.
+// The first quest below is fully annotated; the rest follow the same schema.
+[
+  {
+    "QuestId": 2563,                    // Unique quest id. Referenced by prerequisites, the client's journal, and the DB.
+    "TitleId": 94247,                   // Quest NAME. Shows as the journal/tracker title AND the turn-in end-screen panel title.
+    "DescriptionId": 94360,             // Long narrative description. NOT prominently shown in-game (the objective text below is used for the details summary instead).
+    "GiverDialogueId": 94246,           // The GIVER NPC's spoken line in the OFFER popup (Samantha's speech bubble when you accept).
+    "ObjectiveDescriptionId": 94248,    // The OBJECTIVE ("Introduce yourself to X"). Shows in the on-screen tracker header, the journal, and the turn-in "Show Details" summary.
+    "SubGoalId": 94359,                 // The goal-row checklist text ("Talk to X") shown under the tracker (single-goal quests only).
+    "TargetDialogueId": 94388,          // The TARGET NPC's line in the TURN-IN speech bubble (Ricky's reply when you hand the quest in).
+    "IconId": 43278,                    // The quest's icon (journal/tracker/end screen).
+    "GiverGuid": 100000002045,          // NPC that OFFERS the quest (shows the "!" badge). Here: Samantha.
+    "TargetGuid": 100000002049,         // NPC you TALK TO / TURN IN at. Here: Ricky Danger.
+    "RewardCoins": 5,                   // Coins granted on completion (shown in the offer/end-screen reward preview).
+    "RewardItems": [1180, 2939],        // Item definition ids added to the bags on completion. Here: a boombox (1180 Realms Roll, from Consumables.jsonc) + a transform food (2939, from ClientItemDefinitions.json). Add/remove any item ids.
+    "PrerequisiteQuestId": 0,           // Quest that must be completed before this is offered (0 = none).
+    "NextQuestId": 1801,                // Quest that becomes offerable once this completes (0 = none). Refreshes that giver's "!" badge.
+    "NotificationAvailable": 2,         // World badge icon when the quest is AVAILABLE (2 = "!" exclamation).
+    "NotificationActive": 6             // World badge icon when the quest is IN PROGRESS / ready to turn in (6 = "?" question mark).
+  },
+  {
+    "QuestId": 1801,
+    "TitleId": 94255,
+    "DescriptionId": 94256,
+    "GiverDialogueId": 94254,
+    "ObjectiveDescriptionId": 100080,
+    "SubGoalId": 100103,
+    "TargetDialogueId": 94258,
+    "IconId": 43278,
+    "GiverGuid": 100000002049,
+    "TargetGuid": 100000003018,
+    "RewardCoins": 25,
+    "RewardItems": [8185, 2947],
+    "PrerequisiteQuestId": 2563,
+    "NextQuestId": 0,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6,
+    "Goals": [
+      {
+        "NameId": 100103,
+        "DescriptionId": 100104,
+        "DialogueId": 384144,
+        "TargetGuid": 100000003018
+      },
+      {
+        "NameId": 94511,
+        "DescriptionId": 94512,
+        "DialogueId": 94261,
+        "TargetGuid": 100000002049
+      }
+    ]
+  },
+  {
+    "QuestId": 2564,
+    "TitleId": 94247,
+    "DescriptionId": 104099,
+    "GiverDialogueId": 104097,
+    "ObjectiveDescriptionId": 104099,
+    "SubGoalId": 115453,
+    "TargetDialogueId": 104100,
+    "IconId": 43278,
+    "GiverGuid": 100000002912,
+    "TargetGuid": 100000002889,
+    "RewardCoins": 5,
+    "RewardItems": [56774, 3006],
+    "PrerequisiteQuestId": 0,
+    "NextQuestId": 0,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6
+  }
+]

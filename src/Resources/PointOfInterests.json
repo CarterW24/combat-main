@@ -2047,5 +2047,35 @@
     "Id": 176,
     "TeleportLocationId": 260493,
     "AtlasName": "sacredgrove"
+  },
+  {
+    "Comment": "Breadcrumb: Introduce Yourself (talk to Ricky Danger, Cobblestone Village)",
+    "Id": 177,
+    "NameId": 18142,
+    "LocationId": 285,
+    "Position": [ -1909.511, -44.3937, 462.83 ],
+    "SpawnPosition": [ -1909.511, -44.3937, 462.83 ],
+    "Heading": 0.0,
+    "IconId": 7555,
+    "NotificationType": 6,
+    "SubNameId": 382862,
+    "BreadcrumbQuestId": 2563,
+    "TeleportLocationId": 210023,
+    "AtlasName": "sacredgrove"
+  },
+  {
+    "Comment": "Breadcrumb: Call The Crew! (talk to Shakey, Wildwood Speedway)",
+    "Id": 178,
+    "NameId": 18206,
+    "LocationId": 2569,
+    "Position": [ -2246.516, -16.8037, 599.2841 ],
+    "SpawnPosition": [ -2246.516, -16.8037, 599.2841 ],
+    "Heading": 0.0,
+    "IconId": 7555,
+    "NotificationType": 6,
+    "SubNameId": 382862,
+    "BreadcrumbQuestId": 2564,
+    "TeleportLocationId": 210045,
+    "AtlasName": "sacredgrove"
   }
 ]

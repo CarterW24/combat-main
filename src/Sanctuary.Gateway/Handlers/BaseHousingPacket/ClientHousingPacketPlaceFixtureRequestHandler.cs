@@ -37,8 +37,9 @@ public static class ClientHousingPacketPlaceFixtureRequestHandler
 
         if (connection.Player.CurrentHouseGuid == 0)
         {
-            _logger.LogWarning("Player {name} tried to place furniture but not in a house", 
+            _logger.LogWarning("Player {name} tried to place furniture but not in a house",
                 connection.Player.Name.FirstName);
+            connection.SendTunneled(new HousingPacketFixturePlacementDenied { ItemDefinitionId = packet.ItemDefinitionId });
             return false;
         }
 

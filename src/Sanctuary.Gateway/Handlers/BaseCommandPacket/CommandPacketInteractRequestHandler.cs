@@ -1,8 +1,10 @@
-﻿using System;
+using System;
+using System.Numerics;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+using Sanctuary.Game.Entities;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common.Attributes;
 
@@ -27,12 +29,35 @@ public static class CommandPacketInteractRequestHandler
             return false;
         }
 
-        _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(CommandPacketInteractRequest), packet);
+        var player = connection.Player;
 
-        if (!connection.Player.Zone.TryGetEntity(packet.Guid, out var entity))
+        // Same guards as FreeInteractionNpc: the client can fire this on zone entry / from UI without a
+        // deliberate click. Ignore interacts within the spawn grace window.
+        if (player.SpawnedAt is { } spawnedAt && DateTime.UtcNow - spawnedAt < TimeSpan.FromSeconds(2))
             return true;
 
-        entity.OnInteract(connection.Player);
+        if (!player.Zone.TryGetEntity(packet.Guid, out var entity))
+            return true;
+
+        // Enforce the NPC's interact range here too (this path resolves by guid and would otherwise
+        // let a click land from any distance), so the "must be next to the NPC" rule holds regardless
+        // of which interact packet the client sends.
+        if (entity is Npc npc)
+        {
+            var playerPosition = new Vector3(player.Position.X, player.Position.Y, player.Position.Z);
+            var npcPosition = new Vector3(npc.Position.X, npc.Position.Y, npc.Position.Z);
+
+            if (Vector3.Distance(playerPosition, npcPosition) > npc.InteractRange)
+                return true;
+        }
+
+        if (packet.Guid == player.LastInteractNpcGuid && DateTime.UtcNow - player.LastInteractAt < TimeSpan.FromSeconds(3))
+            return true;
+
+        player.LastInteractNpcGuid = packet.Guid;
+        player.LastInteractAt = DateTime.UtcNow;
+
+        entity.OnInteract(player);
 
         return true;
     }

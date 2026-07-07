@@ -308,6 +308,7 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
                     ImageSetId = petDefinition.ImageSetId,
                     TintId = orderDetailTint,
                     TintAlias = petDefinition.TintAlias ?? string.Empty,
+                    TextureAlias = petDefinition.TextureAlias ?? string.Empty,
                     MembersOnly = petDefinition.MembersOnly,
                     IsNameable = petDefinition.IsNameable, // Server-side only
                     IsUpgradable = false, // Match mount structure - pets don't upgrade

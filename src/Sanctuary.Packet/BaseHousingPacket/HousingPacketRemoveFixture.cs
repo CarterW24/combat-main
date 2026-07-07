@@ -4,7 +4,7 @@ namespace Sanctuary.Packet;
 
 public class HousingPacketRemoveFixture : BaseHousingPacket, ISerializablePacket
 {
-    public new const short OpCode = 44;
+    public new const short OpCode = 41;
 
     public ulong FixtureGuid;
 

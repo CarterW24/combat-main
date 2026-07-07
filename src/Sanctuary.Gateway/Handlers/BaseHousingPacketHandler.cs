@@ -35,6 +35,11 @@ public static class BaseHousingPacketHandler
             ClientHousingPacketPickupFixture.OpCode => ClientHousingPacketPickupFixtureHandler.HandlePacket(connection, reader.Span),
             ClientHousingPacketSetEditMode.OpCode => ClientHousingPacketSetEditModeHandler.HandlePacket(connection, reader.Span),
             ClientHousingPacketEnterRequest.OpCode => ClientHousingPacketEnterRequestHandler.HandlePacket(connection, reader.Span),
+            ClientHousingPacketLeaveHouse.OpCode => ClientHousingPacketLeaveHouseHandler.HandlePacket(connection, reader.Span),
+            ClientHousingPacketToggleLocked.OpCode => ClientHousingPacketToggleLockedHandler.HandlePacket(connection, reader.Span),
+            ClientHousingPacketToggleFloraAllowed.OpCode => ClientHousingPacketToggleFloraAllowedHandler.HandlePacket(connection, reader.Span),
+            ClientHousingPacketTogglePetAutospawn.OpCode => ClientHousingPacketTogglePetAutospawnHandler.HandlePacket(connection, reader.Span),
+            ClientHousingPacketRequestPlayerHouses.OpCode => ClientHousingPacketRequestPlayerHousesHandler.HandlePacket(connection, reader.Span),
             _ => false
         };
     }

@@ -41,8 +41,8 @@ public class FixtureInstance : ISerializableType
 
     public void Serialize(PacketWriter writer)
     {
-        writer.Write(Guid);
         writer.Write(HouseGuid);
+        writer.Write(Guid);
 
         writer.Write(FixtureDefinitionId);
 
@@ -51,9 +51,9 @@ public class FixtureInstance : ISerializableType
         writer.Write(Position);
         writer.Write(Rotation);
 
-        writer.Write(Tilt);
+        writer.Write(Unknown12); // m_strGroup
 
-        writer.Write(NpcGuid);
+        writer.Write(Scale);
 
         writer.Write(TintId);
 
@@ -61,13 +61,15 @@ public class FixtureInstance : ISerializableType
 
         Customization.Serialize(writer);
 
-        writer.Write(Unknown11);
-        writer.Write(Unknown12);
+        writer.Write(Tilt);
+
+        writer.Write(NpcGuid);
+
+        writer.Write(Unknown11); // m_strGroup2
+
         writer.Write(Unknown13);
 
         writer.Write(XmlData);
-
-        writer.Write(Scale);
 
         writer.Write(Unknown16);
 

@@ -117,7 +117,7 @@ public static class ClientHousingPacketEnterRequestHandler
         // Get zone definition for this house
         string zoneName = "hsg_emptylot_seaside_beach_01"; // Default fallback
         string sky = "sky_seaside24.xml"; // Default sky
-        int geometryId = houseDefinition.ZoneId; // Use ZoneId as geometry
+        int geometryId = 214; // Seaside housing geometry ID (client-side)
         
         // Always use spawn position from Houses.json (more reliable than zone files)
         var spawnPosition = new Vector4(
@@ -154,8 +154,8 @@ public static class ClientHousingPacketEnterRequestHandler
             Rotation = new Quaternion(spawnRotation.X, spawnRotation.Y, spawnRotation.Z, spawnRotation.W),
             Sky = sky,
             Unknown = 1,
-            Id = houseDefinition.ZoneId, // CRITICAL: Use zone ID, not house instance ID!
-            GeometryId = houseDefinition.ZoneId, // Match the zone ID for geometry
+            Id = houseDefinition.ZoneId,
+            GeometryId = geometryId,
             OverrideUpdateRadius = true
         };
 
@@ -167,29 +167,62 @@ public static class ClientHousingPacketEnterRequestHandler
 
     private static void SendHouseData(GatewayConnection connection, DbHouse dbHouse, Game.Resources.Definitions.HouseDefinition houseDefinition)
     {
-        var instanceData = new PlayerHousingInstanceData
+        var instanceInfo = BuildInstanceInfo(connection, dbHouse);
+
+        connection.SendTunneled(new HousingPacketZoneData
         {
-            HouseGuid = dbHouse.Id,
+            IsPreview = false,
+            HeadSize = 0,
+            InstanceInfo = instanceInfo
+        });
+
+        connection.SendTunneled(new HousingPacketInstanceData
+        {
+            InstanceData = new PlayerHousingInstanceData
+            {
+                HouseGuid = dbHouse.Id,
+                OwnerGuid = connection.Player.Guid,
+                OwnerName = connection.Player.Name.FirstName,
+                NameId = dbHouse.NameId,
+                Name = dbHouse.CustomName,
+                IsLocked = dbHouse.IsLocked,
+                IsFloraAllowed = dbHouse.IsFloraAllowed,
+                PetAutospawn = dbHouse.PetAutospawn,
+                MaxFixtureCount = dbHouse.MaxFixtureCount,
+                MaxLandmarkCount = dbHouse.MaxLandmarkCount,
+                CurFixtureCount = dbHouse.Fixtures.Count,
+                IconId = dbHouse.IconId,
+                IsMembersOnly = dbHouse.IsMembersOnly,
+                BuildAreas = houseDefinition.BuildAreas
+            }
+        });
+    }
+
+    private static PlayerHousingInstanceInfo BuildInstanceInfo(GatewayConnection connection, DbHouse dbHouse)
+    {
+        return new PlayerHousingInstanceInfo
+        {
             OwnerGuid = connection.Player.Guid,
-            OwnerName = connection.Player.Name.FirstName,
+            InstanceGuid = dbHouse.Id,
             NameId = dbHouse.NameId,
-            Name = dbHouse.CustomName,
-            IsLocked = dbHouse.IsLocked,
-            PetAutospawn = dbHouse.PetAutospawn,
-            MaxFixtureCount = dbHouse.MaxFixtureCount,
-            MaxLandmarkCount = dbHouse.MaxLandmarkCount,
-            CurFixtureCount = dbHouse.Fixtures.Count,
+            OwnerName = connection.Player.Name.FirstName,
+            HouseName = dbHouse.CustomName,
             IconId = dbHouse.IconId,
+            FixtureCount = dbHouse.Fixtures.Count,
+            FurnitureScore = 0,
+            LastVisited = dbHouse.LastVisited,
+            WhenCreated = dbHouse.Created,
+            IsLocked = dbHouse.IsLocked,
             IsMembersOnly = dbHouse.IsMembersOnly,
-            BuildAreas = houseDefinition.BuildAreas
+            IsFloraAllowed = dbHouse.IsFloraAllowed,
+            Description = dbHouse.Description,
+            KeywordList = dbHouse.KeywordList,
+            Rating = dbHouse.Rating,
+            Votes = dbHouse.Votes,
+            HasRating = dbHouse.Votes > 0,
+            CanVote = false,
+            FactoryPlotId = 0
         };
-
-        var packet = new HousingPacketInstanceData
-        {
-            InstanceData = instanceData
-        };
-
-        connection.SendTunneled(packet);
     }
 
     private static void SendFurnitureData(GatewayConnection connection, DbHouse dbHouse)
@@ -199,23 +232,17 @@ public static class ClientHousingPacketEnterRequestHandler
         uint fixtureKey = 1;
         foreach (var dbFixture in dbHouse.Fixtures)
         {
-            // Add fixture instance info
             fixtureItemList.Infos.Add(new FixtureInstanceInfo
             {
                 FixtureGuid = dbFixture.Id,
-                ItemDefinitionId = dbFixture.ItemDefinitionId,
-                Unknown3 = 0,
-                Unknown4 = 0,
-                Unknown5 = 0
+                ItemDefinitionId = dbFixture.ItemDefinitionId
             });
 
-            // Add fixture definition (properties)
             fixtureItemList.Definitions.Add(new FixtureDefinition
             {
                 Id = (int)fixtureKey++,
                 ItemDefinitionId = dbFixture.ItemDefinitionId,
                 Unknown3 = 0,
-                Unknown4 = 0,
                 Unknown5 = false,
                 Unknown6 = false,
                 Unknown7 = true,
@@ -223,8 +250,8 @@ public static class ClientHousingPacketEnterRequestHandler
                 Unknown9 = false,
                 Unknown10 = false,
                 CompositeEffectId = 0,
-                Unknown14 = 1.0f,
-                Unknown15 = 1.0f,
+                Unknown14 = 1,
+                Unknown15 = 1,
                 Unknown16 = false,
                 Unknown17 = false,
                 Unknown18 = false,

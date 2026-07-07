@@ -39,5 +39,7 @@ public interface IResourceManager
 
     ConsumableCollection Consumables { get; }
 
+    QuestDefinitionCollection Quests { get; }
+
     bool Load();
 }

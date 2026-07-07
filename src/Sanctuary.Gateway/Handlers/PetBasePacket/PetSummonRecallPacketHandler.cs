@@ -72,7 +72,8 @@ public static class PetSummonRecallPacketHandler
 
         pet.Visible = true;
 
-        pet.Name = string.Empty; // Pet name not sent in PacketPetInfo (uses NameId for localization)
+        pet.PetId = petInfo.Id;
+        pet.Name = petInfo.Name;
         pet.NameId = petDefinition.NameId;
         pet.ModelId = petDefinition.ModelId;
 

@@ -83,6 +83,8 @@ public static class PacketPetSpawnHandler
 
         pet.Visible = true;
 
+        pet.PetId = petInfo.Id;
+        pet.Name = petInfo.Name;
         pet.NameId = petDefinition.NameId;
         pet.ModelId = petDefinition.ModelId;
 

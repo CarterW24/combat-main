@@ -10,7 +10,6 @@ public class FixtureDefinition : ISerializableType
     public int ItemDefinitionId;
 
     public int Unknown3;
-    public int Unknown4;
 
     public int ModelId;
 
@@ -50,8 +49,8 @@ public class FixtureDefinition : ISerializableType
 
     public int CompositeEffectId;
 
-    public float Unknown14;
-    public float Unknown15;
+    public int Unknown14;
+    public int Unknown15;
 
     public bool Unknown16;
     public bool Unknown17;
@@ -67,15 +66,15 @@ public class FixtureDefinition : ISerializableType
 
         writer.Write(ModelId);
 
+        writer.Write(Category);
+        writer.Write(LuaCall);
+
         writer.Write(Unknown5);
         writer.Write(Unknown6);
         writer.Write(Unknown7);
         writer.Write(Unknown8);
         writer.Write(Unknown9);
         writer.Write(Unknown10);
-
-        writer.Write(Category);
-        writer.Write(LuaCall);
 
         writer.Write(Actions);
 

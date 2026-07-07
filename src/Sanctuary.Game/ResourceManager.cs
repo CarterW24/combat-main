@@ -48,6 +48,8 @@ public class ResourceManager : IResourceManager
 
     public static readonly string ConsumablesFile = Path.Combine(BaseDirectory, "Consumables.jsonc");
 
+    public static readonly string QuestsFile = Path.Combine(BaseDirectory, "Quests.json");
+
     public IdToStringLookup HairMappings { get; }
     public IdToStringLookup HeadMappings { get; }
     public IdToStringLookup SkinToneMappings { get; }
@@ -82,6 +84,8 @@ public class ResourceManager : IResourceManager
 
 
     public ConsumableCollection Consumables { get; }
+
+    public QuestDefinitionCollection Quests { get; }
 
     public ResourceManager(ILogger<ResourceManager> logger)
     {
@@ -123,6 +127,7 @@ public class ResourceManager : IResourceManager
         NpcSpawns = new(_logger);
         NpcVendors = new(_logger);
         Consumables = new(_logger);
+        Quests = new(_logger);
     }
 
     public bool Load()
@@ -204,6 +209,9 @@ public class ResourceManager : IResourceManager
 
 
         if (!Consumables.Load(ConsumablesFile))
+            return false;
+
+        if (!Quests.Load(QuestsFile))
             return false;
 
         return true;

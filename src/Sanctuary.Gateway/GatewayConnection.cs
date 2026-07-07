@@ -348,8 +348,10 @@ public class GatewayConnection : UdpConnection
                 ImageSetId = petDefinition.ImageSetId,
                 TintId = dbPet.Tint,
                 TintAlias = petDefinition.TintAlias ?? string.Empty,
+                TextureAlias = petDefinition.TextureAlias ?? string.Empty,
                 MembersOnly = petDefinition.MembersOnly,
                 IsNameable = petDefinition.IsNameable, // Server-side only
+                Name = dbPet.Name,
                 IsUpgradable = false, // Match mount structure - pets don't upgrade
                 IsUpgraded = false, // Match mount structure
                 Guid = 0 // Keep at 0 in ClientPcData (like mounts), calculate only when needed for world spawning
@@ -359,6 +361,13 @@ public class GatewayConnection : UdpConnection
 
             _logger.LogInformation("Loaded pet: PetId={petId}, Definition={definition}, NameId={nameId}, ImageSetId={imageSetId}, Guid={guid}, TintId={tintId}, TintAlias={tintAlias}",
                 petInfo.Id, petInfo.Definition, petInfo.NameId, petInfo.ImageSetId, petInfo.Guid, petInfo.TintId, petInfo.TintAlias);
+        }
+
+        foreach (var dbQuest in dbCharacter.Quests)
+        {
+            Player.Quests[dbQuest.QuestId] = dbQuest.Completed;
+            if (dbQuest.GoalProgress > 0)
+                Player.QuestGoalProgress[dbQuest.QuestId] = dbQuest.GoalProgress;
         }
 
         _logger.LogInformation("Pets loaded and will be sent via PetListPacket. TotalPetsCount={count}", Player.Pets.Count);
@@ -583,15 +592,8 @@ public class GatewayConnection : UdpConnection
 
         SendTunneled(packetSendSelfToClient);
 
-        // TEST: Send PetListPacket immediately after ClientPcData, mimicking how mounts are sent
-        // Try assigning unique Guids to pets (maybe Guid=0 prevents display?)
-        ulong baseGuid = 999000000000; // Use a high base number for pet collection Guids
-        int guidOffset = 0;
-        foreach (var pet in Player.Pets)
-        {
-            // Generate a unique Guid for this pet for the collection UI
-            pet.Guid = baseGuid + (ulong)guidOffset++;
-        }
+        // Send PetListPacket immediately after ClientPcData, mimicking how mounts are sent.
+        // Guid is left untouched (like PacketMountInfo) - only assigned when spawned in world.
         var petListPacket = new PetListPacket { Pets = Player.Pets };
         Player.SendTunneled(petListPacket);
 

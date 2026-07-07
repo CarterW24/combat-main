@@ -48,7 +48,59 @@ public static class WallOfDataUIEventPacketHandler
             return HandleClaimCode(connection, packet.Param);
         }
 
+        // The "My Pets" browser panel opens via this UI event rather than a raw PetBasePacket
+        // request, so re-push the pet list here in case the client only renders on this trigger.
+        if (packet.Callback is "ShowPets" or "GotoMyPets")
+        {
+            return HandleShowPets(connection);
+        }
+
+        // DIAGNOSTIC: mirroring the pet fix for mounts, to test whether resending on this UI
+        // event is enough to populate a browser list panel, or if the whole approach is wrong.
+        if (packet.Callback is "ShowMounts" or "GotoMyMounts")
+        {
+            return HandleShowMounts(connection);
+        }
+
         Console.WriteLine("[DEBUG] Packet processed but not a claim code redemption");
+        return true;
+    }
+
+    private static bool HandleShowMounts(GatewayConnection connection)
+    {
+        var packetMountList = new PacketMountList { Mounts = connection.Player.Mounts };
+
+        connection.SendTunneled(packetMountList);
+
+        _logger.LogInformation("Resent PacketMountList in response to Mounts UI event. TotalMountsCount={count}",
+            connection.Player.Mounts.Count);
+
+        return true;
+    }
+
+    private static bool HandleShowPets(GatewayConnection connection)
+    {
+        var petListPacket = new PetListPacket { Pets = connection.Player.Pets };
+
+        var rawBytes = petListPacket.Serialize();
+
+        Console.WriteLine($"[DEBUG] PetListPacket raw bytes ({rawBytes.Length}): {Convert.ToHexString(rawBytes)}");
+
+        if (connection.Player.Pets.Count > 0)
+        {
+            using var entryWriter = new Sanctuary.Core.IO.PacketWriter();
+            connection.Player.Pets[0].Serialize(entryWriter);
+            var entryBytes = entryWriter.Buffer;
+
+            Console.WriteLine($"[DEBUG] First pet entry raw bytes ({entryBytes.Length}): {Convert.ToHexString(entryBytes)}");
+            Console.WriteLine($"[DEBUG] First pet entry: Id={connection.Player.Pets[0].Id}, Name='{connection.Player.Pets[0].Name}', NameId={connection.Player.Pets[0].NameId}, TintId={connection.Player.Pets[0].TintId}, TextureAlias='{connection.Player.Pets[0].TextureAlias}'");
+        }
+
+        connection.SendTunneled(petListPacket);
+
+        _logger.LogInformation("Resent PetListPacket in response to Pets UI event. TotalPetsCount={count}",
+            connection.Player.Pets.Count);
+
         return true;
     }
 

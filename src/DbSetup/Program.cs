@@ -77,6 +77,44 @@ using (var cmd = connection.CreateCommand())
     Console.WriteLine("  - Created Pets unique index");
 }
 
+Console.WriteLine("Creating CharacterQuests table...");
+using (var cmd = connection.CreateCommand())
+{
+    cmd.CommandText = @"
+        CREATE TABLE IF NOT EXISTS CharacterQuests (
+            QuestId INTEGER NOT NULL,
+            CharacterId INTEGER NOT NULL,
+            Completed INTEGER NOT NULL,
+            CONSTRAINT PK_CharacterQuests PRIMARY KEY (QuestId, CharacterId),
+            CONSTRAINT FK_CharacterQuests_Characters_CharacterId FOREIGN KEY (CharacterId) REFERENCES Characters (Id) ON DELETE CASCADE
+        )";
+    cmd.ExecuteNonQuery();
+    Console.WriteLine("  - CharacterQuests table created");
+}
+
+// GoalProgress: number of goals ticked off (multi-goal progress). Added after the table so existing
+// DBs get it too (idempotent - ignore "duplicate column" when it already exists).
+try
+{
+    using (var cmd = connection.CreateCommand())
+    {
+        cmd.CommandText = "ALTER TABLE CharacterQuests ADD COLUMN GoalProgress INTEGER NOT NULL DEFAULT 0";
+        cmd.ExecuteNonQuery();
+        Console.WriteLine("  - Added CharacterQuests.GoalProgress column");
+    }
+}
+catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
+{
+    Console.WriteLine("  - GoalProgress column already exists");
+}
+
+using (var cmd = connection.CreateCommand())
+{
+    cmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_CharacterQuests_CharacterId ON CharacterQuests (CharacterId)";
+    cmd.ExecuteNonQuery();
+    Console.WriteLine("  - Created CharacterQuests index");
+}
+
 Console.WriteLine("\nMigration completed successfully!");
 
 // Remove test pets if they exist

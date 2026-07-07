@@ -37,8 +37,11 @@ public static class PacketTunneledClientPacketHandler
             return false;
         }
 
-        var handled = opCode switch
+        bool handled;
+        try
         {
+            handled = opCode switch
+            {
             PacketClientFinishedLoading.OpCode => PacketClientFinishedLoadingHandler.HandlePacket(connection),
             PacketClientIsReady.OpCode => PacketClientIsReadyHandler.HandlePacket(connection),
             BaseChatPacket.OpCode => BaseChatPacketHandler.HandlePacket(connection, reader),
@@ -65,8 +68,21 @@ public static class PacketTunneledClientPacketHandler
             PacketClientInitializationDetails.OpCode => PacketClientInitializationDetailsHandler.HandlePacket(connection, packet.Payload),
             BaseNameChangePacket.OpCode => BaseNameChangePacketHandler.HandlePacket(connection, reader),
             BaseCombatPacket.OpCode => BaseCombatPacketHandler.HandlePacket(connection, reader),
-            _ => false
-        };
+            BaseQuestPacket.OpCode => BaseQuestPacketHandler.HandlePacket(connection, reader),
+            BaseUiPacket.OpCode => BaseUiPacketHandler.HandlePacket(connection, reader),
+            ClientPathBasePacket.OpCode => ClientPathBasePacketHandler.HandlePacket(connection, reader),
+                _ => false
+            };
+        }
+        catch (Exception ex)
+        {
+            // A handler throwing here would otherwise propagate to the UDP receive loop in
+            // GatewayService.ExecuteAsync and tear down the entire host. Log and swallow so one
+            // bad packet/interaction only drops that action, not the whole server.
+            _logger.LogError(ex, "Unhandled exception processing tunneled packet op={op}. ( Data: {data} )",
+                opCode, Convert.ToHexString(packet.Payload));
+            handled = true;
+        }
 
         if (!handled)
         {

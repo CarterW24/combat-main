@@ -56,6 +56,7 @@ public static class CheckNamePacketHandler
         checkNameResponsePacket.Result = packet.Type switch
         {
             NameChangeType.Character => OnCheckCharacterName(connection, packet),
+            NameChangeType.Pet => OnCheckPetName(connection, packet),
             _ => CheckNameResponse.Invalid
         };
 
@@ -96,6 +97,30 @@ public static class CheckNamePacketHandler
 
         if (taken)
             return CheckNameResponse.Taken;
+
+        return CheckNameResponse.Available;
+    }
+
+    private static CheckNameResponse OnCheckPetName(GatewayConnection connection, CheckNamePacket packet)
+    {
+        var pet = connection.Player.Pet;
+
+        if (pet is null || pet.Guid != packet.Guid)
+            return CheckNameResponse.MissingPet;
+
+        var petInfo = connection.Player.Pets.SingleOrDefault(x => x.Id == pet.PetId);
+
+        if (petInfo is null || !petInfo.IsNameable)
+            return CheckNameResponse.MissingPet;
+
+        if (string.IsNullOrWhiteSpace(packet.Name.FirstName) || packet.Name.LastName != string.Empty)
+            return CheckNameResponse.IncorrectLength;
+
+        if (packet.Name.FirstName.Length < 3)
+            return CheckNameResponse.FirstNameTooShort;
+
+        if (packet.Name.FirstName.Length > 14)
+            return CheckNameResponse.FirstNameTooLong;
 
         return CheckNameResponse.Available;
     }

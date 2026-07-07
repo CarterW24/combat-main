@@ -25,6 +25,16 @@ public sealed class Player : ClientPcData, IEntity
     private readonly IResourceManager _resourceManager;
 
     public bool Visible { get; set; }
+    public DateTime? SpawnedAt { get; set; }
+    public ulong LastInteractNpcGuid { get; set; }
+    public DateTime LastInteractAt { get; set; }
+
+    /// <summary>
+    /// When the player last accepted a quest. Used to ignore a spurious CommandPacketQuestAbandon
+    /// (26/23) that the client can fire in the moments right after accepting - without this guard
+    /// that stray packet would immediately drop the quest the player just took.
+    /// </summary>
+    public DateTime LastQuestAcceptedAt { get; set; }
 
     public IZone Zone { get; set; }
     public ZoneTile ZoneTile { get; private set; } = ZoneTile.Empty;
@@ -74,6 +84,23 @@ public sealed class Player : ClientPcData, IEntity
     public DateTime LastCombatTime { get; set; }
 
     public Pet? Pet { get; set; }
+
+    /// <summary>
+    /// QuestId -> Completed. Presence in the dictionary means the quest has been accepted.
+    /// </summary>
+    public Dictionary<int, bool> Quests { get; } = new();
+
+    /// <summary>
+    /// QuestId -> number of goals completed (goals tick off in order). The active goal is at this index.
+    /// Absent = 0 goals done. Persisted alongside the quest so multi-goal progress survives relog.
+    /// </summary>
+    public Dictionary<int, int> QuestGoalProgress { get; } = new();
+
+    /// <summary>
+    /// Deferred quest turn-in finalization: set when a quest end screen is shown, invoked (once)
+    /// when the client sends QuestEndReplyPacket (the player clicked "Complete").
+    /// </summary>
+    public System.Action? PendingQuestEndAction { get; set; }
 
     public void Disconnect() => _connection.Disconnect();
 
@@ -398,6 +425,16 @@ public sealed class Player : ClientPcData, IEntity
         {
             var playerUpdatePacketAddNpc = npc.GetAddNpcPacket();
 
+            // Vendors bake a static badge into the AddNpc packet itself (npc.NotificationImageSetId).
+            // Quest badges are per-player, so override that field per-recipient here - this is likely
+            // the primary mechanism the client uses for the badge, not just the separate NotificationInfo packet.
+            playerUpdatePacketAddNpc.NotificationImageSetId = GetNotificationImageId(npc);
+
+            // EXPERIMENT: Unknown68 sits immediately next to NotificationImageSetId in the wire
+            // format - testing whether it's the "quest this NPC offers" id, since that's the only
+            // unexplored field adjacent to a field we've already confirmed matters.
+            playerUpdatePacketAddNpc.Unknown68 = GetOfferedQuestId(npc);
+
             SendTunneled(playerUpdatePacketAddNpc);
         }
 
@@ -408,20 +445,95 @@ public sealed class Player : ClientPcData, IEntity
             if (npc.CursorId == 0)
                 continue;
 
+            var hasCursor = GetNotificationImageId(npc) != 0;
+
             playerUpdatePacketNpcRelevance.Entries.Add(new PlayerUpdatePacketNpcRelevance.Entry
             {
                 Guid = npc.Guid,
                 Unknown = true,
                 CursorId = npc.CursorId,
-                HasCursor = npc.NotificationImageSetId != 0
+                HasCursor = hasCursor
             });
         }
 
         if (playerUpdatePacketNpcRelevance.Entries.Count > 0)
             SendTunneled(playerUpdatePacketNpcRelevance);
 
+        var notifications = new PlayerUpdatePacketAddNotifications();
+
+        foreach (var npc in npcs)
+        {
+            var imageId = GetNotificationImageId(npc);
+
+            if (imageId == 0)
+                continue;
+
+            notifications.Notifications.Add(new NotificationInfo
+            {
+                Guid = npc.Guid,
+                Combat = false,
+                ImageId = imageId,
+                NameId = npc.NameId,
+                SubTextId = npc.SubTextNameId,
+            });
+        }
+
+        if (notifications.Notifications.Count > 0)
+            SendTunneled(notifications);
+
         foreach (var npc in npcs)
             VisibleNpcs.TryAdd(npc.Guid, npc);
+    }
+
+    /// <summary>
+    /// Quest badges are per-player (unlike vendor badges, which are static on the Npc entity),
+    /// since they depend on this player's own quest progress.
+    /// </summary>
+    public int GetNotificationImageId(Npc npc)
+    {
+        var quests = _resourceManager.Quests;
+
+        // Giver: "!" if this NPC gives a quest the player can currently take.
+        if (quests.ByGiver.TryGetValue(npc.Guid, out var giverQuestIds))
+        {
+            foreach (var questId in giverQuestIds)
+            {
+                if (quests.TryGet(questId, out var quest) && quest.IsOfferableFor(Quests))
+                    return quest.NotificationAvailable;
+            }
+        }
+
+        // Target: "?" if the player has an active (accepted, not completed) quest that turns in here.
+        if (quests.ByTarget.TryGetValue(npc.Guid, out var targetQuestIds))
+        {
+            foreach (var questId in targetQuestIds)
+            {
+                if (Quests.TryGetValue(questId, out var completed) && !completed && quests.TryGet(questId, out var quest))
+                    return quest.NotificationActive;
+            }
+        }
+
+        return npc.NotificationImageSetId;
+    }
+
+    /// <summary>
+    /// AddNpc.Unknown68 sits next to NotificationImageSetId; used to carry the "quest this NPC offers"
+    /// id. Returns the first currently-offerable quest this NPC gives, else 0.
+    /// </summary>
+    public int GetOfferedQuestId(Npc npc)
+    {
+        var quests = _resourceManager.Quests;
+
+        if (quests.ByGiver.TryGetValue(npc.Guid, out var giverQuestIds))
+        {
+            foreach (var questId in giverQuestIds)
+            {
+                if (quests.TryGet(questId, out var quest) && quest.IsOfferableFor(Quests))
+                    return questId;
+            }
+        }
+
+        return 0;
     }
 
     public void OnAddVisiblePlayers(params IEnumerable<Player> players)

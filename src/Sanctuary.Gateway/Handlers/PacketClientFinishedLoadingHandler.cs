@@ -24,6 +24,7 @@ public static class PacketClientFinishedLoadingHandler
         _logger.LogTrace("Received {name} packet.", nameof(PacketClientFinishedLoading));
 
         connection.Player.Visible = true;
+        connection.Player.SpawnedAt = DateTime.UtcNow;
 
         connection.Player.UpdatePosition(connection.Player.Position, connection.Player.Rotation);
 

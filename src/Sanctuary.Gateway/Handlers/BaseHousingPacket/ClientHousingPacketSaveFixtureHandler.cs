@@ -66,10 +66,16 @@ public static class ClientHousingPacketSaveFixtureHandler
 
         dbContext.SaveChanges();
 
-        _logger.LogInformation("Player {name} moved furniture fixture {guid} to position {pos}", 
+        _logger.LogInformation("Player {name} moved furniture fixture {guid} to position {pos}",
             connection.Player.Name.FirstName, packet.FixtureGuid, packet.Position);
 
-        // Client doesn't need a response for this, it already moved the object visually
+        connection.SendTunneled(new HousingPacketFixtureUpdate
+        {
+            FixtureGuid = packet.FixtureGuid,
+            Position = packet.Position,
+            Rotation = packet.Rotation,
+            Scale = packet.Scale
+        });
 
         return true;
     }

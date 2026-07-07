@@ -36,24 +36,22 @@ public class HouseDefinitionCollection : ObservableConcurrentDictionary<int, Hou
                 PropertyNameCaseInsensitive = true
             };
 
-            var list = JsonSerializer.Deserialize<List<HouseDefinition>>(fileStream, jsonSerializerOptions);
+            var entries = JsonSerializer.Deserialize<List<HouseDefinition>>(fileStream, jsonSerializerOptions);
 
-            if (list is null)
+            if (entries is null)
             {
                 _logger.LogError("No entries found in file \"{file}\".", filePath);
                 return false;
             }
 
-            foreach (var entry in list)
+            foreach (var entry in entries)
             {
                 if (!TryAdd(entry.Id, entry))
                 {
                     _logger.LogWarning("Failed to add entry. {id} \"{file}\"", entry.Id, filePath);
-                    return false;
+                    continue;
                 }
             }
-
-            _logger.LogInformation("Loaded {count} house definitions from \"{file}\"", Count, filePath);
         }
         catch (Exception ex)
         {

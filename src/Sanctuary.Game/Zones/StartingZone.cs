@@ -19,6 +19,7 @@ public sealed class StartingZone : BaseZone
     private readonly IZoneManager _zoneManager;
     private readonly IResourceManager _resourceManager;
     private readonly StartingZoneDefinition _zoneDefinition;
+    private readonly Sanctuary.Game.Quests.IQuestManager _questManager;
 
     public StartingZone(StartingZoneDefinition zoneDefinition, IServiceProvider serviceProvider)
         : base(zoneDefinition, serviceProvider)
@@ -27,6 +28,7 @@ public sealed class StartingZone : BaseZone
 
         _zoneManager = serviceProvider.GetRequiredService<IZoneManager>();
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
+        _questManager = serviceProvider.GetRequiredService<Sanctuary.Game.Quests.IQuestManager>();
 
         // Spawn all static NPCs in the zone
         SpawnNpcs();
@@ -54,7 +56,7 @@ public sealed class StartingZone : BaseZone
                 npc.VendorCosts = vendorDef.ItemCosts;
                 npc.VendorBundles = vendorDef.Bundles;
                 npc.ResourceManager = _resourceManager;
-                npc.CursorId = 5;
+                npc.CursorId = 17;
                 npc.NameplateImageId = vendorDef.NameplateImageId;
                 npc.ImageSetId = vendorDef.ImageSetId;
                 npc.NotificationImageSetId = vendorDef.NotificationImageSetId;
@@ -98,6 +100,15 @@ public sealed class StartingZone : BaseZone
                     interactingPlayer.ActiveMerchantGuid = capturedNpc.Guid;
                     interactingPlayer.SendTunneled(merchantPacket);
                 };
+            }
+
+            // Quest givers/targets (from Quests.json) route their interaction through the quest manager,
+            // which decides whether to offer a quest or advance/turn one in based on the player's state.
+            if (_questManager.IsQuestNpc(npcSpawn.Guid))
+            {
+                npc.CursorId = 17;
+                var questNpc = npc;
+                npc.InteractAction = interactingPlayer => _questManager.OnNpcInteract(interactingPlayer, questNpc);
             }
 
             npc.UpdatePosition(npcSpawn.Position, npcSpawn.Rotation);
@@ -158,6 +169,10 @@ public sealed class StartingZone : BaseZone
         SendIgnoreList(player);
 
         UpdateFriendStatus(player);
+
+        // Repopulate the Hero's Journal + tracker for any in-progress quest after a relog (the client's
+        // quest UI starts empty; player.Quests is restored from the DB but the packets must be replayed).
+        _questManager.RestoreJournal(player);
     }
 
     private void SendQuickChatData(Player player)

@@ -54,6 +54,7 @@ public static class ChangeNameRequestPacketHandler
         nameChangeResponsePacket.Result = packet.Type switch
         {
             NameChangeType.Character => OnChangeCharacterName(connection, packet),
+            NameChangeType.Pet => OnChangePetName(connection, packet),
             _ => ChangeNameResponse.Error
         };
 
@@ -100,6 +101,42 @@ public static class ChangeNameRequestPacketHandler
 
             friendPlayer.SendTunneled(friendRenamePacket);
         }
+
+        return ChangeNameResponse.Pending;
+    }
+
+    private static ChangeNameResponse OnChangePetName(GatewayConnection connection, ChangeNameRequestPacket packet)
+    {
+        var pet = connection.Player.Pet;
+
+        if (pet is null || pet.Guid != packet.Guid)
+            return ChangeNameResponse.Error;
+
+        var petInfo = connection.Player.Pets.SingleOrDefault(x => x.Id == pet.PetId);
+
+        if (petInfo is null || !petInfo.IsNameable)
+            return ChangeNameResponse.Error;
+
+        if (string.IsNullOrWhiteSpace(packet.Name.FirstName) || packet.Name.FirstName.Length is < 3 or > 14)
+            return ChangeNameResponse.Error;
+
+        using var dbContext = _dbContextFactory.CreateDbContext();
+
+        var dbPet = dbContext.Pets.FirstOrDefault(x => x.Id == petInfo.Id
+            && x.CharacterId == GuidHelper.GetPlayerId(connection.Player.Guid));
+
+        if (dbPet is null)
+            return ChangeNameResponse.Error;
+
+        dbPet.Name = packet.Name.FirstName;
+
+        if (dbContext.SaveChanges() <= 0)
+            return ChangeNameResponse.Error;
+
+        petInfo.Name = packet.Name.FirstName;
+        pet.Name = packet.Name.FirstName;
+
+        connection.Player.SendTunneledToVisible(pet.GetAddNpcPacket(), true);
 
         return ChangeNameResponse.Pending;
     }

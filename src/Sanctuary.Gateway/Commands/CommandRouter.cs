@@ -124,10 +124,14 @@ public static class CommandRouter
                 return HandleFly(conn);
             case "testicons":
                 return HandleTestIcons(conn);
+            case "testsubtext":
+                return HandleTestSubText(conn, parts);
             case "spawntest":
                 return HandleSpawnTest(conn, parts);
             case "giveitem":
                 return HandleGiveItem(conn, parts);
+            case "lua":
+                return HandleLua(conn, message);
 
             default:
                 SendSystem(conn, $"Unknown command '{verb}'. Try /help.");
@@ -1566,6 +1570,30 @@ public static class CommandRouter
         return true;
     }
 
+    // ================== /LUA (debug: run client-side script) ==================
+
+    // /lua <script>  - sends an ExecuteScriptPacket so the client runs the given Lua.
+    // Debug/testing tool for reverse-engineering the client script API.
+    private static bool HandleLua(GatewayConnection conn, string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return true;
+
+        int sp = message.IndexOf(' ');
+        if (sp < 0 || sp + 1 >= message.Length)
+        {
+            SendSystem(conn, "Usage: /lua <script>");
+            return true;
+        }
+
+        string script = message.Substring(sp + 1).Trim();
+
+        conn.SendTunneled(new ExecuteScriptPacket { Script = script });
+        SendSystem(conn, $"[lua] sent: {script}");
+        _logger.LogInformation("/lua from {Player}: {Script}", conn.Player.Name.FullName, script);
+        return true;
+    }
+
     // ================== HELPERS ==================
 
     private static void SendMessageToPlayer(Player player, string message)
@@ -2158,6 +2186,63 @@ public static class CommandRouter
         return true;
     }
 
+    // /testsubtext [start] [end]  — spawns a row of NPCs with SubTextNameId from start to end (default 2910-2940)
+    private static bool HandleTestSubText(GatewayConnection conn, string[] parts)
+    {
+        var zone = conn.Player.Zone;
+        if (zone is null)
+        {
+            SendSystem(conn, "You are not in a zone.");
+            return true;
+        }
+
+        int start = 2910;
+        int end = 2940;
+        if (parts.Length >= 2) int.TryParse(parts[1], out start);
+        if (parts.Length >= 3) int.TryParse(parts[2], out end);
+        if (end < start) end = start + 30;
+
+        var origin = conn.Player.Position;
+        var rotation = conn.Player.Rotation;
+        var vendorModel = zone.Npcs.FirstOrDefault(n => n.CursorId == 5)?.ModelId ?? 9240;
+        const int cols = 6;
+
+        int count = 0;
+        int i = 0;
+        for (int subTextId = start; subTextId <= end; subTextId++, i++)
+        {
+            if (!zone.TryCreateNpc(out var npc))
+                continue;
+
+            int col = i % cols;
+            int row = i / cols;
+            var pos = origin with
+            {
+                X = origin.X + col * 4f,
+                Z = origin.Z + 5f + row * 5f
+            };
+
+            npc.ModelId = vendorModel;
+            npc.NameId = 0;
+            npc.Name = $"ST={subTextId}";
+            npc.SubTextNameId = subTextId;
+            npc.NotificationImageSetId = 294;
+            npc.ActiveProfile = 200;
+            npc.CursorId = 5;
+            npc.Scale = 1f;
+            npc.Disposition = 1;
+
+            npc.UpdatePosition(pos, rotation);
+            npc.Visible = true;
+            zone.GetTileFromPosition(pos).Entities.TryAdd(npc.Guid, npc);
+            conn.Player.OnAddVisibleNpcs([npc]);
+            count++;
+        }
+
+        SendSystem(conn, $"Spawned {count} NPCs with SubTextNameId {start}-{end}.");
+        return true;
+    }
+
     // /testtransform <modelId>  — triggers the NPC overlay transform for all nearby players to see.
     // /testtransform 0          — removes the active transform.
     private static bool HandleTestIcons(GatewayConnection conn)
@@ -2190,7 +2275,6 @@ public static class CommandRouter
             npc.ImageSetId = 381;
             npc.CursorId = 5;
             npc.Scale = 1f;
-            npc.Visible = true;
             npc.Disposition = 1;
 
             int col = i % cols;
@@ -2201,6 +2285,7 @@ public static class CommandRouter
                 Z = origin.Z + 5f + row * 5f
             };
             npc.UpdatePosition(pos, rotation);
+            npc.Visible = true;
 
             zone.GetTileFromPosition(pos).Entities.TryAdd(npc.Guid, npc);
             created.Add(npc);

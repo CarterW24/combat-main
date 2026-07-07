@@ -84,6 +84,7 @@ public static class PacketLoginHandler
             .Include(x => x.Titles)
             .Include(x => x.Mounts)
             .Include(x => x.Pets)
+            .Include(x => x.Quests)
             .Include(x => x.Friends)
                 .ThenInclude(x => x.FriendCharacter)
             .Include(x => x.Ignores)

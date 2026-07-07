@@ -20,6 +20,7 @@ public class PlayerHousingInstanceData
 
     public bool IsLocked;
     public bool IsFloraAllowed;
+    public bool PetAutospawn;
 
     public int MaxFixtureCount;
     public int MaxLandmarkCount;
@@ -43,12 +44,11 @@ public class PlayerHousingInstanceData
 
     public bool IsMembersOnly;
 
+    public string? Unknown30;
     public string? Unknown23;
     public string? Unknown22;
 
     // public FactoryInstanceData? FactoryInstance; // TODO
-
-    public bool PetAutospawn;
 
     public bool Unknown24;
 
@@ -67,33 +67,28 @@ public class PlayerHousingInstanceData
 
         writer.Write(Unknown4);
 
+        writer.Write(Unknown7);
+
         writer.Write(NameId);
         writer.Write(Name);
 
-        writer.Write(Unknown7);
+        writer.Write(IsLocked);
+        writer.Write(IsFloraAllowed);
+        writer.Write(PetAutospawn);
 
         writer.Write(MaxFixtureCount);
         writer.Write(MaxLandmarkCount);
 
-        writer.Write(Fixtures);
+        writer.Write(Unknown15);
 
-        writer.Write(Permissions);
+        writer.Write(Unknown14);
 
-        writer.Write(IsLocked);
-        writer.Write(IsFloraAllowed);
+        writer.Write(Preview);
 
         writer.Write(CurFixtureCount);
         writer.Write(CurLandmarkCount);
 
-        writer.Write(Unknown14);
-
-        writer.Write(Unknown15);
-
-        writer.Write(BuildAreas);
-
         writer.Write(IconId);
-
-        writer.Write(Preview);
 
         writer.Write(Unknown18);
 
@@ -103,11 +98,18 @@ public class PlayerHousingInstanceData
 
         writer.Write(IsMembersOnly);
 
-        writer.Write(Unknown22);
+        writer.Write(Unknown30);
         writer.Write(Unknown23);
+        writer.Write(Unknown22);
 
         writer.Write(Unknown24);
 
         writer.Write(false); // TODO: FactoryInstance
+
+        writer.Write(Fixtures);
+
+        writer.Write(Permissions);
+
+        writer.Write(BuildAreas);
     }
 }
