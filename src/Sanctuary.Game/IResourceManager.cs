@@ -25,6 +25,8 @@ public interface IResourceManager
     StoreBundleCategoryNodeCollection StoreBundleCategories { get; }
     StoreBundleCategoryGroupDefinitionCollection StoreBundleCategoryGroups { get; }
 
+    ClientActivityDefinitionCollection ClientActivityDefinitions { get; }
+
     ZoneDefinitionCollection Zones { get; }
     HouseDefinitionCollection Houses { get; }
     MountDefinitionCollection Mounts { get; }
