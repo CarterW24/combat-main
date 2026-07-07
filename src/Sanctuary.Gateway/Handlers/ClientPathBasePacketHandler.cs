@@ -65,16 +65,25 @@ public static class ClientPathBasePacketHandler
 
         // The reply's ResultType routes it to a different client controller: 1 = the breadcrumb trail
         // (renders the green line), 2 = the character auto-move (pushes the path into the ProxiedCharacter's
-        // movement so it actually walks). Send both so we get the trail AND the auto-walk.
-        foreach (var resultType in new[] { 1, 2 })
+        // movement so it actually walks).
+        //
+        // The trail always refreshes. The auto-walk must fire ONLY on a genuine "Take Me There" click
+        // (Mode 2). The client also sends passive refreshes (Mode 1) automatically on accept, on teleport,
+        // and as the player moves - replying to those with the auto-move made the character wander off to
+        // the objective on its own (the "auto Take Me There on accept/teleport" bug).
+        var trail = new ClientPathReplyPacket { RequestId = request.RequestId, ResultType = 1 };
+        trail.Path.AddRange(path);
+        player.SendTunneled(trail);
+
+        if (request.Mode == 2)
         {
-            var reply = new ClientPathReplyPacket { RequestId = request.RequestId, ResultType = resultType };
-            reply.Path.AddRange(path);
-            player.SendTunneled(reply);
+            var walk = new ClientPathReplyPacket { RequestId = request.RequestId, ResultType = 2 };
+            walk.Path.AddRange(path);
+            player.SendTunneled(walk);
         }
 
-        _logger.LogInformation("[Path] Take-Me-There path for {name}: {a} -> {b} ({n} nodes)",
-            player.Name, request.Start, destination, path.Count);
+        _logger.LogInformation("[Path] {kind} for {name}: {a} -> {b} ({n} nodes)",
+            request.Mode == 2 ? "Take-Me-There walk" : "trail refresh", player.Name, request.Start, destination, path.Count);
         return true;
     }
 

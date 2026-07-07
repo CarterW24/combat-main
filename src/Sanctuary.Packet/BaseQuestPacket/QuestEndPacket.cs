@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
@@ -28,7 +30,9 @@ public class QuestEndPacket : BaseQuestPacket, ISerializablePacket
     public float Percent = 1f;   // obj+0xe0
 
     public int RewardCoins;      // RewardBundleBase +0x50
-    public int RewardStars;      // RewardBundleBase +0x48
+    public int RewardExperience; // RewardBundleBase +0x48 - job/profile experience (XP)
+    /// <summary>Item rewards shown as icons in the turn-in "Show Details" reward preview.</summary>
+    public List<RewardBundleItem> RewardItems = new();
 
     public QuestEndPacket() : base(SubOpCode)
     {
@@ -45,25 +49,8 @@ public class QuestEndPacket : BaseQuestPacket, ISerializablePacket
         writer.Write(TitleId);
         writer.Write(DescriptionId);
 
-        // RewardBundleBase (FUN_008e7930 read order) - +0x50 = coins, +0x48 = stars; rest 0.
-        writer.Write(false); // +0x74 bool
-        writer.Write(RewardCoins); // +0x50 int (coins)
-        writer.Write(RewardStars); // +0x48 int (stars)
-        writer.Write(0); // +0x4C int
-        writer.Write(0); // +0x54 int
-        writer.Write(0); // +0x6C int
-        writer.Write(0); // +0x70 int
-        writer.Write(0f); // +0x78 float
-        writer.Write(0); // +0x5C int
-        writer.Write(0); // +0x60 int
-        writer.Write(0); // guid pair 1, low
-        writer.Write(0); // guid pair 1, high
-        writer.Write(0); // guid pair 2, low
-        writer.Write(0); // guid pair 2, high
-        writer.Write(0); // +0x64 int
-        writer.Write(0); // +0x68 int
-        writer.Write(0); // discarded temp int
-        writer.Write(0); // +0x58 int
+        // RewardBundleBase - coins/XP + item-reward entries (icons in the turn-in preview).
+        RewardBundleSerializer.Write(writer, RewardCoins, RewardExperience, RewardItems);
 
         writer.Write(Percent);
 

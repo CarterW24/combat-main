@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Numerics;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -49,6 +50,15 @@ public static class CommandPacketInteractionSelectHandler
         }
         else if (connection.Player.VisibleNpcs.TryGetValue(packet.Guid, out var npc))
         {
+            // Enforce the NPC's interact range (this path had none, so a selection could land from
+            // across the map). Matches CommandPacketInteractRequest/FreeInteractionNpc so the
+            // "must be next to the NPC" rule holds no matter which interact packet the client sends.
+            var playerPosition = new Vector3(connection.Player.Position.X, connection.Player.Position.Y, connection.Player.Position.Z);
+            var npcPosition = new Vector3(npc.Position.X, npc.Position.Y, npc.Position.Z);
+
+            if (Vector3.Distance(playerPosition, npcPosition) > npc.InteractRange)
+                return true;
+
             interaction.OnInteract(connection.Player, npc);
         }
         else

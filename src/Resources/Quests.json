@@ -15,7 +15,8 @@
     "GiverGuid": 100000002045,          // NPC that OFFERS the quest (shows the "!" badge). Here: Samantha.
     "TargetGuid": 100000002049,         // NPC you TALK TO / TURN IN at. Here: Ricky Danger.
     "RewardCoins": 5,                   // Coins granted on completion (shown in the offer/end-screen reward preview).
-    "RewardItems": [1180, 2939],        // Item definition ids added to the bags on completion. Here: a boombox (1180 Realms Roll, from Consumables.jsonc) + a transform food (2939, from ClientItemDefinitions.json). Add/remove any item ids.
+    "RewardExperience": 50,             // Job XP (RewardBundleBase +0x48) granted to the active job on completion and shown as XP in the reward preview.
+    "RewardItems": [1180, 2939],        // Item definition ids added to the bags + shown as icons in "Show Details". Here: a boombox (1180 Realms Roll) + a transform food (2939 Brewery Corned Beef). Add/remove any item ids.
     "PrerequisiteQuestId": 0,           // Quest that must be completed before this is offered (0 = none).
     "NextQuestId": 1801,                // Quest that becomes offerable once this completes (0 = none). Refreshes that giver's "!" badge.
     "NotificationAvailable": 2,         // World badge icon when the quest is AVAILABLE (2 = "!" exclamation).
@@ -33,7 +34,8 @@
     "GiverGuid": 100000002049,
     "TargetGuid": 100000003018,
     "RewardCoins": 25,
-    "RewardItems": [8185, 2947],
+    "RewardExperience": 150,
+    "RewardItems": [8185, 3007, 2969],
     "PrerequisiteQuestId": 2563,
     "NextQuestId": 0,
     "NotificationAvailable": 2,
@@ -64,8 +66,9 @@
     "IconId": 43278,
     "GiverGuid": 100000002912,
     "TargetGuid": 100000002889,
-    "RewardCoins": 5,
-    "RewardItems": [56774, 3006],
+    "RewardCoins": 10,
+    "RewardExperience": 75,
+    "RewardItems": [56774, 4011, 4045],
     "PrerequisiteQuestId": 0,
     "NextQuestId": 0,
     "NotificationAvailable": 2,

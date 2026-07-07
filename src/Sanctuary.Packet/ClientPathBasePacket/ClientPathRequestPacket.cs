@@ -6,9 +6,15 @@ using Sanctuary.Core.IO;
 namespace Sanctuary.Packet;
 
 /// <summary>
-/// Client -> server (opcode 98, sub 1). Sent when "Take Me There" is clicked. Payload (52 bytes, verified
-/// from a live capture): int RequestId, int, int(=2), int, Vector4 Start, Vector4 End, int. The server
-/// replies with <see cref="ClientPathReplyPacket"/> carrying the path from Start to the destination.
+/// Client -> server (opcode 98, sub 1). A path request for the "Take Me There" breadcrumb system.
+/// Payload (52 bytes): int RequestId, int, int Mode, int, Vector4 Start, Vector4 End, int.
+///
+/// <see cref="Mode"/> distinguishes the two situations the client sends this in (confirmed from live logs):
+///   1 = a passive breadcrumb refresh - fired automatically on quest accept, on teleport, and as the
+///       player moves, only to keep the green trail pointing at the objective (must NOT auto-walk).
+///   2 = the actual "Take Me There" button click (each is followed by the QuestHelper:takeMeThere UI
+///       event) - this is the one that should auto-walk the character.
+/// The server replies with <see cref="ClientPathReplyPacket"/> carrying the path from Start to the destination.
 /// </summary>
 public class ClientPathRequestPacket : ClientPathBasePacket, IDeserializable<ClientPathRequestPacket>
 {
@@ -16,7 +22,7 @@ public class ClientPathRequestPacket : ClientPathBasePacket, IDeserializable<Cli
 
     public int RequestId;
     public int Unknown1;
-    public int Unknown2;
+    public int Mode;      // 1 = passive trail refresh, 2 = "Take Me There" button click (auto-walk)
     public int Unknown3;
     public Vector4 Start;
     public Vector4 End;
@@ -37,7 +43,7 @@ public class ClientPathRequestPacket : ClientPathBasePacket, IDeserializable<Cli
 
         if (!reader.TryRead(out value.RequestId)) return false;
         if (!reader.TryRead(out value.Unknown1)) return false;
-        if (!reader.TryRead(out value.Unknown2)) return false;
+        if (!reader.TryRead(out value.Mode)) return false;
         if (!reader.TryRead(out value.Unknown3)) return false;
         if (!reader.TryRead(out value.Start)) return false;
         if (!reader.TryRead(out value.End)) return false;

@@ -84,6 +84,7 @@ public sealed class QuestManager : IQuestManager
 
         player.Quests[questId] = false;
         player.QuestGoalProgress.Remove(questId); // fresh accept starts on the first goal
+        player.ActiveQuestId = questId; // a freshly accepted quest becomes the tracked one
         player.LastQuestAcceptedAt = DateTime.UtcNow; // guards against a stray post-accept QuestAbandon
 
         using (var db = _dbContextFactory.CreateDbContext())
@@ -194,6 +195,8 @@ public sealed class QuestManager : IQuestManager
 
         if (player.Quests.TryGetValue(questId, out var completed) && !completed)
         {
+            player.ActiveQuestId = questId; // this is now the tracked quest for the arrow + "Take Me There"
+
             int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
             var goals = quest.EffectiveGoals;
 
@@ -269,7 +272,7 @@ public sealed class QuestManager : IQuestManager
     }
 
     /// <summary>Sends the quest offer popup (QuestInfoPacket) for the giver NPC.</summary>
-    private static void Offer(Player player, QuestDefinition quest)
+    private void Offer(Player player, QuestDefinition quest)
     {
         player.SendTunneled(new QuestInfoPacket
         {
@@ -286,8 +289,33 @@ public sealed class QuestManager : IQuestManager
             Unknown10 = 0,
             Unknown11 = false,
             Unknown12 = false,
-            RewardCoins = quest.RewardCoins
+            RewardCoins = quest.RewardCoins,
+            RewardExperience = quest.RewardExperience, // job XP shown in the reward preview
+            RewardItems = BuildRewardItems(quest) // item icons in the "Show Details" reward preview
         });
+    }
+
+    /// <summary>
+    /// Resolves a quest's <see cref="QuestDefinition.RewardItems"/> def ids into reward-preview entries
+    /// (icon + name + count) by looking up each item's ClientItemDefinition. Shown as icons in the offer
+    /// and turn-in "Show Details" panels.
+    /// </summary>
+    private List<RewardBundleItem> BuildRewardItems(QuestDefinition quest)
+    {
+        var items = new List<RewardBundleItem>();
+        foreach (var definitionId in quest.RewardItems)
+        {
+            if (_resourceManager.ClientItemDefinitions.TryGetValue(definitionId, out var itemDef))
+            {
+                items.Add(new RewardBundleItem
+                {
+                    IconId = itemDef.Icon.Id,
+                    NameId = itemDef.NameId,
+                    Count = 1
+                });
+            }
+        }
+        return items;
     }
 
     /// <summary>
@@ -393,7 +421,9 @@ public sealed class QuestManager : IQuestManager
             // col1=TitleId title, col2=ObjectiveDescriptionId objective), independent of this packet.
             TitleId = quest.TurnInDialogueId, // -> showEndText -> speech bubble = the NPC's turn-in line
             DescriptionId = quest.TitleId,    // -> showEndId (not rendered as text); harmless
-            RewardCoins = quest.RewardCoins
+            RewardCoins = quest.RewardCoins,
+            RewardExperience = quest.RewardExperience, // job XP shown in the reward preview
+            RewardItems = BuildRewardItems(quest) // item icons in the "Show Details" reward preview
         });
 
         // Reward/completion is applied when the player clicks "Complete" (QuestEndReply invokes this).
@@ -541,43 +571,74 @@ public sealed class QuestManager : IQuestManager
     /// </summary>
     private void RefreshObjectiveTarget(Player player)
     {
-        foreach (var (questId, completed) in player.Quests)
-        {
-            if (completed || !_resourceManager.Quests.TryGet(questId, out var quest))
-                continue;
-
-            int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
-            ulong targetGuid = GoalTargetGuid(quest, done);
-            if (targetGuid != 0 && player.Zone.TryGetNpc(targetGuid, out _))
-            {
-                SendObjectiveTarget(player, targetGuid);
-                return;
-            }
-        }
-
-        player.SendTunneled(new ObjectiveTargetUpdatePacket { Active = false });
+        ulong targetGuid = GetTrackedTargetGuid(player);
+        if (targetGuid != 0)
+            SendObjectiveTarget(player, targetGuid);
+        else
+            player.SendTunneled(new ObjectiveTargetUpdatePacket { Active = false });
     }
 
     public bool TryGetActiveObjectiveTarget(Player player, out Vector3 targetPosition)
     {
-        foreach (var (questId, completed) in player.Quests)
+        ulong targetGuid = GetTrackedTargetGuid(player);
+        if (targetGuid != 0 && player.Zone.TryGetNpc(targetGuid, out var target))
         {
-            if (completed || !_resourceManager.Quests.TryGet(questId, out var quest))
-                continue;
-
-            // Same goal-aware target the tracker arrow uses: the ACTIVE goal's NPC, not the quest's
-            // final turn-in NPC (they differ mid-quest on multi-goal quests).
-            int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
-            ulong targetGuid = GoalTargetGuid(quest, done);
-            if (targetGuid != 0 && player.Zone.TryGetNpc(targetGuid, out var target))
-            {
-                var pos = target.Position;
-                targetPosition = new Vector3(pos.X, pos.Y, pos.Z);
-                return true;
-            }
+            var pos = target.Position;
+            targetPosition = new Vector3(pos.X, pos.Y, pos.Z);
+            return true;
         }
 
         targetPosition = default;
+        return false;
+    }
+
+    /// <summary>
+    /// The NPC guid the tracker arrow and the "Take Me There" breadcrumb should point at: the ACTIVE goal
+    /// of the player's <see cref="Player.ActiveQuestId"/> (the quest they selected in the quest helper /
+    /// most recently accepted) when it's still active and its target NPC is spawned; otherwise the first
+    /// active quest whose target NPC is present. Returns 0 when nothing is trackable.
+    /// </summary>
+    private ulong GetTrackedTargetGuid(Player player)
+    {
+        // Prefer the quest the player actually has selected - the whole point of "make active" is that the
+        // arrow and Take Me There follow IT, not whatever quest happens to be first in storage order.
+        if (player.ActiveQuestId != 0
+            && player.Quests.TryGetValue(player.ActiveQuestId, out var activeCompleted) && !activeCompleted
+            && TryGetGoalTargetGuid(player, player.ActiveQuestId, out var activeTarget))
+        {
+            return activeTarget;
+        }
+
+        // Fallback: the first active quest whose (goal-aware) target NPC is spawned in this zone.
+        foreach (var (questId, completed) in player.Quests)
+        {
+            if (completed)
+                continue;
+            if (TryGetGoalTargetGuid(player, questId, out var targetGuid))
+                return targetGuid;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// The active-goal target NPC guid for <paramref name="questId"/> (the ACTIVE goal's NPC, not the
+    /// final turn-in NPC - they differ mid-quest on multi-goal quests), or false if the quest is unknown
+    /// or that NPC isn't spawned in the player's current zone.
+    /// </summary>
+    private bool TryGetGoalTargetGuid(Player player, int questId, out ulong targetGuid)
+    {
+        targetGuid = 0;
+        if (!_resourceManager.Quests.TryGet(questId, out var quest))
+            return false;
+
+        int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
+        ulong guid = GoalTargetGuid(quest, done);
+        if (guid != 0 && player.Zone.TryGetNpc(guid, out _))
+        {
+            targetGuid = guid;
+            return true;
+        }
         return false;
     }
 
@@ -599,15 +660,26 @@ public sealed class QuestManager : IQuestManager
             }
 
             player.Coins = newTotal;
-
-            // Reward-earned celebration (coins fly-in + sound) then the updated coin total.
-            player.SendTunneled(new RewardBundlePacket { RewardCoins = coins });
             player.SendTunneled(new ClientUpdatePacketCoinCount { Coins = newTotal });
         }
 
+        // Job/profile XP - grant to the active job (updates the job's level bar).
+        var experience = quest.RewardExperience;
+        if (experience > 0)
+            player.AwardXp(experience);
+
+        // Reward-earned celebration (coins + XP fly-in with sound).
+        if (coins > 0 || experience > 0)
+            player.SendTunneled(new RewardBundlePacket { RewardCoins = coins, RewardExperience = experience });
+
         // Item rewards - defined per quest in Resources/Quests.json ("RewardItems": [id, ...]).
         foreach (var itemDefinitionId in quest.RewardItems)
+        {
             GrantItem(player, itemDefinitionId);
+
+            // "You earned an item" celebration (opcode 50/2): shows the item icon + "received 1".
+            player.SendTunneled(new RewardNonBundledItemPacket { ItemDefinitionId = itemDefinitionId, Quantity = 1 });
+        }
     }
 
     /// <summary>

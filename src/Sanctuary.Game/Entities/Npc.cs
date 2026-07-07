@@ -52,7 +52,7 @@ public class Npc : IEntity
     public int CompositeEffectId { get; set; }
 
     // World units - the interact/click distance, also sent to the client in the AddNpc packet.
-    public int InteractRange { get; set; } = 100;
+    public int InteractRange { get; set; } = 5;
     public bool IsInteractable { get; set; } = true;
 
     public int MovementType { get; set; }

@@ -39,9 +39,12 @@ public class QuestDefinition
     public ulong GiverGuid { get; set; }            // NPC that offers the quest
     public ulong TargetGuid { get; set; }           // NPC the player talks to / turns in at
 
-    // Reward (RewardBundleBase coins at +0x50). Stars aren't used in this game, so the star slot
-    // (+0x48) is always sent as 0 by the packets - no quest field for it.
+    // Reward (RewardBundleBase coins at +0x50).
     public int RewardCoins { get; set; }
+
+    /// <summary>Job/profile experience (XP) granted on completion and shown in the reward preview
+    /// (RewardBundleBase +0x48). Awarded to the player's active profile via <c>Player.AwardXp</c>.</summary>
+    public int RewardExperience { get; set; }
 
     /// <summary>Item definition ids granted (added to the bags) on completion - e.g. a boombox and a
     /// food whose ActivatableAbilityId is a Transformations entry. Empty = no item rewards.</summary>

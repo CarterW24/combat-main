@@ -97,6 +97,13 @@ public sealed class Player : ClientPcData, IEntity
     public Dictionary<int, int> QuestGoalProgress { get; } = new();
 
     /// <summary>
+    /// The quest the player currently has selected/tracked in the quest helper (set on accept and when
+    /// they pick one in the journal). The tracker arrow and the "Take Me There" breadcrumb point at THIS
+    /// quest's objective, not just the first active quest. 0 = none selected.
+    /// </summary>
+    public int ActiveQuestId { get; set; }
+
+    /// <summary>
     /// Deferred quest turn-in finalization: set when a quest end screen is shown, invoked (once)
     /// when the client sends QuestEndReplyPacket (the player clicked "Complete").
     /// </summary>
