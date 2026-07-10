@@ -438,7 +438,7 @@ public sealed class QuestManager : IQuestManager
             }
 
             // Point the tracker/breadcrumb at the active goal's target.
-            SendObjectiveTarget(player, GoalTargetGuid(quest, done));
+            SendObjectiveTarget(player, ResolveGoalTargetGuid(player, quest, done));
         }
     }
 
@@ -596,7 +596,7 @@ public sealed class QuestManager : IQuestManager
             RequiredCount = goals[done].RequiredCount,
             Unknown2 = false
         });
-        SendObjectiveTarget(player, GoalTargetGuid(quest, done));
+        SendObjectiveTarget(player, ResolveGoalTargetGuid(player, quest, done));
 
         // Mid-quest NPC reply via the stock conversation dialog (CommandPacketShowDialog, 26/3): a speech
         // bubble with a green-check response button, HTML-rendered (colored <font> tags show), NO details
@@ -766,7 +766,7 @@ public sealed class QuestManager : IQuestManager
         }
 
         // Point the tracker + "Take Me There" breadcrumb at the active goal's target NPC.
-        SendObjectiveTarget(player, GoalTargetGuid(quest, done));
+        SendObjectiveTarget(player, ResolveGoalTargetGuid(player, quest, done));
     }
 
     /// <summary>
@@ -779,6 +779,26 @@ public sealed class QuestManager : IQuestManager
         if (goalIndex >= 0 && goalIndex < goals.Count && goals[goalIndex].TargetGuid != 0)
             return goals[goalIndex].TargetGuid;
         return quest.TargetGuid;
+    }
+
+    /// <summary>
+    /// Player-aware objective target: the NPC the tracker arrow / "Take Me There" breadcrumb should point
+    /// at for the active goal. For an EncounterComplete goal this is the encounter's world giver (the
+    /// Frostfang Growler wolf near spawn — the thing you click to enter the arena), whose guid is dynamic;
+    /// for every other goal it's the static <see cref="GoalTargetGuid"/>.
+    /// </summary>
+    private static ulong ResolveGoalTargetGuid(Player player, QuestDefinition quest, int goalIndex)
+    {
+        var goals = quest.EffectiveGoals;
+        if (goalIndex >= 0 && goalIndex < goals.Count
+            && goals[goalIndex].Type == QuestGoalType.EncounterComplete
+            && player.Zone is StartingZone startingZone
+            && startingZone.GrowlerWolf is { } growler)
+        {
+            return growler.Guid;
+        }
+
+        return GoalTargetGuid(quest, goalIndex);
     }
 
     /// <summary>
@@ -882,7 +902,7 @@ public sealed class QuestManager : IQuestManager
             return false;
 
         int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
-        ulong guid = GoalTargetGuid(quest, done);
+        ulong guid = ResolveGoalTargetGuid(player, quest, done);
         if (guid != 0 && player.Zone.TryGetNpc(guid, out _))
         {
             targetGuid = guid;

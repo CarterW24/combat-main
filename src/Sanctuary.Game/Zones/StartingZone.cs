@@ -341,9 +341,11 @@ public sealed class StartingZone : BaseZone
             npc.ImageSetId = 0;
             npc.ShowHealthBar = false;      // MaxHealth stays 0 => not damageable
 
-            // Next to the home spawn (the training dummy sits at X+5; put the wolf on the other side at X-6).
-            // +0.6 on Y: the wolf model's origin sits above its feet, so at exact ground Y it half-sinks.
-            var pos = new Vector4(SpawnPosition.X - 6f, SpawnPosition.Y + 0.6f, SpawnPosition.Z, SpawnPosition.W);
+            // Out in Snowhill, EAST of Gerold (35.7, 23.4, 345.6) — matching the quest text "knock out
+            // Frostfang Growlers to the east of Gerold". +0.6 on Y: the wolf model's origin sits above its
+            // feet, so at exact ground Y it half-sinks. (Ground height here is an estimate — verify with
+            // !arena and nudge if it floats/sinks.)
+            var pos = new Vector4(75f, 24.0f, 345.6f, 1f);
             npc.UpdatePosition(pos, SpawnRotation);
 
             _growlerWolf = npc;
