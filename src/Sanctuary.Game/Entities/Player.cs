@@ -702,6 +702,14 @@ public sealed class Player : ClientPcData, IEntity
             playerUpdatePacketAddNpc.Unknown68 = GetOfferedQuestId(npc);
 
             SendTunneled(playerUpdatePacketAddNpc);
+
+            // Damageable hostiles (quest kill targets, world combat NPCs) need their attack cursor
+            // (NpcRelevance) + health bar as soon as they come into view, not just at zone load.
+            if (npc.IsDamageable)
+            {
+                Zone.SendNpcRelevance(this, npc);
+                Zone.SendNpcHealth(this, npc);
+            }
         }
 
         var playerUpdatePacketNpcRelevance = new PlayerUpdatePacketNpcRelevance();

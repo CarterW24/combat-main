@@ -56,10 +56,10 @@ public sealed class QuestManager : IQuestManager
             if (done >= goals.Count)
                 continue; // all goals already done (turn-in fires on the last goal, so this shouldn't linger)
 
-            // Collect goals advance only by gathering their pickups (OnCollectInteract). Since a Collect goal
-            // has no NPC target, GoalTargetGuid would fall back to the quest's turn-in NPC - talking to it must
-            // NOT tick the goal off (that would bypass the collecting), so skip it here.
-            if (goals[done].Type == QuestGoalType.Collect)
+            // Collect/Kill goals advance only by their own events (OnCollectInteract / OnNpcKilled). Since
+            // they have no NPC target, GoalTargetGuid would fall back to the quest's turn-in NPC - talking
+            // to it must NOT tick the goal off (that would bypass the counting), so skip them here.
+            if (goals[done].Type is QuestGoalType.Collect or QuestGoalType.Kill)
                 continue;
 
             if (GoalTargetGuid(activeQuest, done) == npc.Guid)
@@ -157,6 +157,63 @@ public sealed class QuestManager : IQuestManager
             // Persist so a relog mid-collect resumes at this count (done after the visual so the DB write
             // doesn't delay the on-screen feedback).
             PersistCollectCount(player, questId, count);
+        }
+    }
+
+    /// <summary>
+    /// An NPC died at the player's hands. Credits the active Kill goal (Type=3) of any in-progress quest
+    /// whose <see cref="QuestGoal.KillNpcNameId"/> matches the victim's NameId, animating the tracker's
+    /// "current/required" counter and completing the goal at <see cref="QuestGoal.RequiredCount"/>.
+    /// Mirrors <see cref="OnCollectInteract"/> (same per-quest count storage + persistence).
+    /// </summary>
+    public void OnNpcKilled(Player player, Npc npc)
+    {
+        if (npc.NameId == 0)
+            return;
+
+        foreach (var (questId, completed) in player.Quests)
+        {
+            if (completed || !_resourceManager.Quests.TryGet(questId, out var quest))
+                continue;
+
+            var goals = quest.EffectiveGoals;
+            int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
+            if (done >= goals.Count)
+                continue;
+
+            var goal = goals[done];
+            if (goal.Type != QuestGoalType.Kill || goal.KillNpcNameId != npc.NameId)
+                continue;
+
+            int required = goal.RequiredCount > 0 ? goal.RequiredCount : 1;
+            int count = (player.QuestCollectProgress.TryGetValue(questId, out var c) ? c : 0) + 1;
+
+            _logger.LogInformation("Kill goal: quest={quest} goal={goal} victim nameId={nameId} -> {count}/{required}",
+                questId, done, npc.NameId, count, required);
+
+            if (count >= required)
+            {
+                player.QuestCollectProgress.Remove(questId);
+                // Final kill -> tick the goal's checkmark and advance to the return step. Same completion
+                // path as talk-to-NPC and collect goals.
+                CompleteGoal(player, quest, done);
+            }
+            else
+            {
+                player.QuestCollectProgress[questId] = count;
+                player.SendTunneled(new QuestObjectiveUpdatePacket
+                {
+                    QuestId = questId,
+                    ObjectiveId = goal.NameId,
+                    CurrentCount = count,
+                    CompletedPercentage = (float)count / required
+                });
+
+                // Persist so a relog mid-hunt resumes at this count.
+                PersistCollectCount(player, questId, count);
+            }
+
+            return; // one kill credits one goal
         }
     }
 
@@ -662,9 +719,9 @@ public sealed class QuestManager : IQuestManager
                 Unknown2 = false
             });
 
-            // If it's a Collect goal with restored progress (relog mid-collect), show the current count so the
-            // tracker reads e.g. 3/8 instead of 0/8. Activated only sets the "required" half.
-            if (activeGoal.Type == QuestGoalType.Collect
+            // If it's a count goal (Collect/Kill) with restored progress (relog mid-count), show the current
+            // count so the tracker reads e.g. 3/8 instead of 0/8. Activated only sets the "required" half.
+            if (activeGoal.Type is QuestGoalType.Collect or QuestGoalType.Kill
                 && player.QuestCollectProgress.TryGetValue(quest.QuestId, out var collected) && collected > 0)
             {
                 int req = activeGoal.RequiredCount > 0 ? activeGoal.RequiredCount : activeGoal.CollectSpawns.Count;

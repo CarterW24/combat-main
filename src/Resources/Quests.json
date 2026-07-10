@@ -169,5 +169,46 @@
         "TargetGuid": 100000002335
       }
     ]
+  },
+  {
+    // === Ninja: That's the Spirit ===  real FR NINJA JOB quest (Blackspore Swamp).
+    // Chloe sends the player to defeat 6 Tormented Spirits at the sinking graveyard south of the swamp.
+    // ALL ids are the REAL directory ids from the community quest doc (fully documented entry; there is
+    // a reference video: youtu.be/g7x3ZACZ99I). Demonstrates the Kill goal type: the 5 Tormented Spirit
+    // spawns (Npcs.json NameId 76190, near Chloe) become attackable hostiles and respawn after ~20s so
+    // the 6-kill count can complete.
+    "QuestId": 31442,
+    "TitleId": 31442,                 // "Ninja: That's the Spirit"
+    "DescriptionId": 37374,           // menu: "Hone your skills against the tormented spirits ... as a Ninja."
+    "GiverDialogueId": 31441,         // Chloe: "You still have some training to do..."
+    "ObjectiveDescriptionId": 31443,  // "Chloe has directed you to hone your skills on the tormented spirits wandering Blackspore."
+    "SubGoalId": 32941,               // "Defeat the tormented spirits"
+    "TargetDialogueId": 31444,        // Chloe at turn-in: "And that's how the Flying Dragons do things! You're a natural, kid."
+    "IconId": 43278,
+    "GiverGuid": 100000001557,        // Chloe (Blackspore, NE of the warpstone, tent with target dummy)
+    "TargetGuid": 100000001557,       // return to Chloe
+    "RewardCoins": 0,
+    "RewardExperience": 88,           // doc: 88 EXP
+    "RewardItems": [76216],           // Nokizaru Ninja Cowl (doc reward 45828 is its name id)
+    "PrerequisiteQuestId": 0,
+    "NextQuestId": 0,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6,
+    "Goals": [
+      {
+        // GOAL 1 - Kill: defeat 6 Tormented Spirits (0/6 counter in the tracker).
+        "NameId": 32941,              // "Defeat the tormented spirits - 0/6"
+        "DialogueId": 65696,          // Chloe mid-goal: "You need practice kid! Hone your skills..."
+        "Type": 3,                    // QuestGoalType.Kill
+        "RequiredCount": 6,
+        "KillNpcNameId": 76190        // "Tormented Spirit" (5 world spawns around the graveyard)
+      },
+      {
+        // GOAL 2 - Return to Chloe (TalkToNpc, the default type).
+        "NameId": 52456,              // "Return to Chloe"
+        "DialogueId": 31444,          // her closing line at turn-in
+        "TargetGuid": 100000001557
+      }
+    ]
   }
 ]

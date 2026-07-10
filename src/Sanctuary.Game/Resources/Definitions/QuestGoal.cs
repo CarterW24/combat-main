@@ -4,17 +4,21 @@ namespace Sanctuary.Game.Resources.Definitions;
 
 /// <summary>
 /// How a <see cref="QuestGoal"/> is completed. Drives which server event ticks the goal off.
-/// Only <see cref="TalkToNpc"/> is wired today (the "talk to an NPC" quest shape); the others are
-/// placeholders for the richer objective types FR uses (reach a place, collect/kill counts).
+/// TalkToNpc, Collect and Kill are wired; ReachLocation is still a placeholder.
 /// </summary>
 public enum QuestGoalType
 {
     /// <summary>Completes when the player interacts with <see cref="QuestGoal.TargetGuid"/>.</summary>
     TalkToNpc = 0,
 
-    // Future trigger types (not yet wired):
+    // Future trigger type (not yet wired):
     ReachLocation = 1,
+
+    /// <summary>Completes when the player has gathered <see cref="QuestGoal.RequiredCount"/> pickups.</summary>
     Collect = 2,
+
+    /// <summary>Completes when the player has defeated <see cref="QuestGoal.RequiredCount"/> NPCs whose
+    /// NameId matches <see cref="QuestGoal.KillNpcNameId"/> (kills credit via QuestManager.OnNpcKilled).</summary>
     Kill = 3,
 }
 
@@ -67,6 +71,13 @@ public class QuestGoal
 
     /// <summary>For <see cref="QuestGoalType.Collect"/>: the collectible's hover/name text id (Global.Text).</summary>
     public int CollectNameId { get; set; }
+
+    /// <summary>
+    /// For <see cref="QuestGoalType.Kill"/>: the NameId of the NPCs this goal counts (e.g. 76190
+    /// "Tormented Spirit"). Any world NPC with this NameId is made hostile/damageable at spawn, and
+    /// each kill credits the goal until <see cref="RequiredCount"/> is reached.
+    /// </summary>
+    public int KillNpcNameId { get; set; }
 
     /// <summary>
     /// For <see cref="QuestGoalType.Collect"/>: world positions ([x, y, z] each) where the collectible

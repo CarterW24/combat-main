@@ -24,6 +24,12 @@ public interface IQuestManager
     /// </summary>
     void OnCollectInteract(Player player, Npc npc);
 
+    /// <summary>
+    /// Player killed an NPC: credit the active Kill goal of any in-progress quest whose
+    /// <see cref="Resources.Definitions.QuestGoal.KillNpcNameId"/> matches the NPC's NameId.
+    /// </summary>
+    void OnNpcKilled(Player player, Npc npc);
+
     /// <summary>Player accepted a quest offer (QuestReply, Accepted = true).</summary>
     void AcceptQuest(Player player, int questId);
 

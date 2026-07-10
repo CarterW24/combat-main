@@ -11,6 +11,7 @@ using Sanctuary.Core.Extensions;
 using Sanctuary.Core.IO;
 using Sanctuary.Game.Combat;
 using Sanctuary.Game.Entities;
+using Sanctuary.Game.Resources.Definitions;
 using Sanctuary.Game.Resources.Definitions.Zones;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common;
@@ -124,6 +125,11 @@ public sealed class StartingZone : BaseZone
                 var questNpc = npc;
                 npc.InteractAction = interactingPlayer => _questManager.OnNpcInteract(interactingPlayer, questNpc);
             }
+
+            // Kill-goal targets (Quests.json goals of Type=Kill, matched by NameId): spawn as attackable
+            // hostiles (red name + health bar + attack cursor) so combat abilities can target them.
+            if (_resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId))
+                MakeQuestHostile(npc);
 
             npc.UpdatePosition(definition.Position, definition.Rotation);
 
@@ -414,12 +420,90 @@ public sealed class StartingZone : BaseZone
             SendNpcHealth(zonePlayer, dummy);
     }
 
-    // COMBAT: kill routing for this zone — the only killable NPC here is the eternal training dummy.
+    // ---- Quest kill targets (world hostiles from Npcs.json, made attackable by a Kill goal) ----
+
+    /// <summary>HP of a quest kill target (~2 ninja melee swings at current damage numbers).</summary>
+    private const int QuestHostileHealth = 5000;
+
+    /// <summary>Live dying-wolf graceful-removal params (04-01 capture): death clip + poof fx 5017.</summary>
+    private const int QuestHostileDeathFxId = 5017;
+    private const int QuestHostileDeathHoldMs = 2000;
+
+    /// <summary>How long a defeated quest hostile stays gone before respawning (shared world spawns —
+    /// a 6-kill goal only has 5 spirit spawns, so respawns are required to finish it).</summary>
+    private const int QuestHostileRespawnMs = 20_000;
+
+    private static void MakeQuestHostile(Npc npc)
+    {
+        npc.Disposition = 0;        // hostile — with NameColor 0 the client resolves the name RED...
+        npc.ActiveProfile = 1;      // ...but only if a non-default profile re-runs the color resolver
+        npc.EnemyStatus = true;     // AddNpc "render as enemy" flag (set on every live camp hostile)
+        npc.CursorId = 11;          // crossed-swords attack cursor (delivered via NpcRelevance)
+        npc.MaxHealth = QuestHostileHealth;
+        npc.Health = QuestHostileHealth;
+    }
+
+    /// <summary>Re-spawn a defeated quest hostile from its Npcs.json definition (same guid).</summary>
+    private void RespawnQuestHostile(NpcDefinition definition)
+    {
+        var guid = NpcGuidBase + (ulong)definition.Id;
+
+        if (!TryCreateNpc(guid, out var npc))
+            return;
+
+        npc.ModelId = definition.ModelId;
+        npc.NameId = definition.NameId;
+        npc.TextureAlias = definition.TextureAlias;
+        npc.Name = definition.Name;
+        npc.Static = definition.Static;
+        npc.Scale = _resourceManager.Models.TryGetValue(definition.ModelId, out var model) && model.Scale != 0f
+            ? model.Scale
+            : 1f;
+        npc.Visible = true;
+
+        MakeQuestHostile(npc);
+
+        npc.UpdatePosition(definition.Position, definition.Rotation);
+
+        var tile = GetTileFromPosition(definition.Position);
+        tile.Entities.TryAdd(npc.Guid, npc);
+    }
+
+    // COMBAT: kill routing for this zone — the eternal training dummy resets, quest kill targets
+    // credit the killer's active Kill goal and respawn after a delay.
     // (The Frostfang encounter wolves live in FrostfangArenaZone, which has its own override.)
     public override void OnNpcKilled(Player killer, Npc npc)
     {
         if (ReferenceEquals(npc, _trainingDummy))
+        {
             ResetTrainingDummy();
+            return;
+        }
+
+        // Credit the active Kill goal of any of the killer's in-progress quests (matched by NameId).
+        _questManager.OnNpcKilled(killer, npc);
+
+        // World hostiles die with the live death flow (death clip + poof) and respawn after a delay.
+        if (npc.Guid > NpcGuidBase
+            && _resourceManager.Npcs.TryGetValue((int)(npc.Guid - NpcGuidBase), out var definition)
+            && _resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId))
+        {
+            npc.GracefulRemoval = (true, QuestHostileDeathHoldMs, 0, QuestHostileDeathFxId, 1000);
+            npc.Dispose();
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(QuestHostileRespawnMs);
+                    RespawnQuestHostile(definition);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Quest hostile respawn failed for npc definition {id}.", definition.Id);
+                }
+            });
+        }
     }
 
     // COMBAT WIP: Shadow Army special — spawn temporary "shadow clone" NPCs around the caster, each using the

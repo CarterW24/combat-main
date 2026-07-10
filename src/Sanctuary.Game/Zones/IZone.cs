@@ -31,6 +31,12 @@ public interface IZone
     /// instead of dying. Default: no-op.</summary>
     void OnNpcDamaged(Player attacker, Npc npc);
 
+    /// <summary>COMBAT: push an NPC's cursor (attack/talk) to a player so it is selectable as a target.</summary>
+    void SendNpcRelevance(Player player, Npc npc);
+
+    /// <summary>COMBAT: push an NPC's current/max health to a player so its nameplate health bar renders.</summary>
+    void SendNpcHealth(Player player, Npc npc);
+
     #endregion
 
     #region Entities
