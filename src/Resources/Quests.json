@@ -173,23 +173,24 @@
   {
     // === Ninja: That's the Spirit ===  real FR NINJA JOB quest (Blackspore Swamp).
     // Chloe sends the player to defeat 6 Tormented Spirits at the sinking graveyard south of the swamp.
-    // ALL ids are the REAL directory ids from the community quest doc (fully documented entry; there is
-    // a reference video: youtu.be/g7x3ZACZ99I). Demonstrates the Kill goal type: the 5 Tormented Spirit
-    // spawns (Npcs.json NameId 76190, near Chloe) become attackable hostiles and respawn after ~20s so
-    // the 6-kill count can complete.
+    // ★ TEXT IDS: the community doc's numbers (31441-31444 etc.) are NOT the client's Global.Text ids -
+    // the ids below were reverse-engineered from the client's en_us_data locale (Jenkins lookup2 hash of
+    // "Global.Text.<id>" -> CID -> verified against the .dat text). Demonstrates the Kill goal type: the 5
+    // Tormented Spirit spawns (Npcs.json NameId 76190, near Chloe) become attackable hostiles that respawn
+    // after ~20s so the 6-kill count can complete.
     "QuestId": 31442,
-    "TitleId": 31442,                 // "Ninja: That's the Spirit"
-    "DescriptionId": 37374,           // menu: "Hone your skills against the tormented spirits ... as a Ninja."
-    "GiverDialogueId": 31441,         // Chloe: "You still have some training to do..."
-    "ObjectiveDescriptionId": 31443,  // "Chloe has directed you to hone your skills on the tormented spirits wandering Blackspore."
-    "SubGoalId": 32941,               // "Defeat the tormented spirits"
-    "TargetDialogueId": 31444,        // Chloe at turn-in: "And that's how the Flying Dragons do things! You're a natural, kid."
+    "TitleId": 78865,                 // "Ninja: That's the Spirit"
+    "DescriptionId": 101371,          // menu: "Hone your skills against the tormented spirits ... as a Ninja."
+    "GiverDialogueId": 78864,         // Chloe: "You still have some training to do..."
+    "ObjectiveDescriptionId": 78866,  // "Chloe has directed you to hone your skills on the tormented spirits wandering Blackspore."
+    "SubGoalId": 90465,               // "Defeat the tormented spirits"
+    "TargetDialogueId": 78867,        // Chloe at turn-in: "And that's how the Flying Dragons do things! You're a natural, kid."
     "IconId": 43278,
     "GiverGuid": 100000001557,        // Chloe (Blackspore, NE of the warpstone, tent with target dummy)
     "TargetGuid": 100000001557,       // return to Chloe
     "RewardCoins": 0,
     "RewardExperience": 88,           // doc: 88 EXP
-    "RewardItems": [76216],           // Nokizaru Ninja Cowl (doc reward 45828 is its name id)
+    "RewardItems": [76216],           // Nokizaru Ninja Cowl
     "PrerequisiteQuestId": 0,
     "NextQuestId": 0,
     "NotificationAvailable": 2,
@@ -197,17 +198,110 @@
     "Goals": [
       {
         // GOAL 1 - Kill: defeat 6 Tormented Spirits (0/6 counter in the tracker).
-        "NameId": 32941,              // "Defeat the tormented spirits - 0/6"
-        "DialogueId": 65696,          // Chloe mid-goal: "You need practice kid! Hone your skills..."
+        "NameId": 90465,              // "Defeat the tormented spirits"
+        "DialogueId": 420695,         // Chloe mid-goal: "You need practice kid! Hone your skills..."
         "Type": 3,                    // QuestGoalType.Kill
         "RequiredCount": 6,
         "KillNpcNameId": 76190        // "Tormented Spirit" (5 world spawns around the graveyard)
       },
       {
         // GOAL 2 - Return to Chloe (TalkToNpc, the default type).
-        "NameId": 52456,              // "Return to Chloe"
-        "DialogueId": 31444,          // her closing line at turn-in
+        "NameId": 388222,             // "Return to Chloe"
+        "DialogueId": 78867,          // her closing line at turn-in
         "TargetGuid": 100000001557
+      }
+    ]
+  },
+  {
+    // === Brawler: Restless Rumors ===  the lead-in to the Growler dungeon chain.
+    // Merigold points the player north to find Gerold (Harold's twin) near Snowhill. Pure talk quest.
+    // All text ids reverse-engineered from the client locale (Jenkins lookup2 -> CID -> verified).
+    "QuestId": 104146,
+    "TitleId": 104146,                // "Brawler: Restless Rumors"
+    "DescriptionId": 104147,          // "Harold's twin brother Gerold is having some trouble with wolves..."
+    "GiverDialogueId": 104145,        // Merigold: "I've heard that Harold's twin brother, Gerold, is also having trouble..."
+    "ObjectiveDescriptionId": 104147,
+    "SubGoalId": 115619,              // "Talk to Gerold"
+    "TargetDialogueId": 104148,       // Gerold: "Hi there stranger! ... I could really use some help..."
+    "IconId": 43278,
+    "GiverGuid": 100000002912,        // Merigold (Highroad Vale)
+    "TargetGuid": 100000033082,       // Gerold
+    "RewardCoins": 15,
+    "RewardExperience": 20,
+    "RewardItems": [],
+    "PrerequisiteQuestId": 0,
+    "NextQuestId": 104150,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6,
+    "Goals": [
+      {
+        "NameId": 115619,             // "Talk to Gerold"
+        "DialogueId": 104148,
+        "TargetGuid": 100000033082
+      }
+    ]
+  },
+  {
+    // === Brawler: Growler Encroachment ===  ★ THE DUNGEON QUEST. Gerold sends the player to defeat the
+    // Frostfang Growlers - our Frostfang arena battle instance (activity id 174). Winning the encounter
+    // (click the Growler wolf near spawn -> arena -> defeat the Alpha) credits the EncounterComplete goal.
+    "QuestId": 104150,
+    "TitleId": 104150,                // "Brawler: Growler Encroachment"
+    "DescriptionId": 104171,          // "Dangerous wolves from Frostfang Caverns are in the woods!..."
+    "GiverDialogueId": 104149,        // Gerold: "Frostfang wolves are dangerous! ... defeating a few Frostfang Growlers?"
+    "ObjectiveDescriptionId": 115484, // "As a brawler, knock out Frostfang Growlers to the east of Gerold."
+    "SubGoalId": 104176,              // "Scare away the wolves!" (the arena's own goal string)
+    "TargetDialogueId": 104152,       // Gerold: "Nice job! Thanks to you, the Growlers won't be as likely to wander down here again."
+    "IconId": 43278,
+    "GiverGuid": 100000033082,        // Gerold
+    "TargetGuid": 100000033082,       // return to Gerold
+    "RewardCoins": 15,
+    "RewardExperience": 50,
+    "RewardItems": [75858],           // Saved by the Bell Brawler Shoulderpads
+    "PrerequisiteQuestId": 104146,
+    "NextQuestId": 104154,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6,
+    "Goals": [
+      {
+        // GOAL 1 - EncounterComplete: win the Frostfang Growler arena (activity id 174).
+        "NameId": 104176,             // "Scare away the wolves!"
+        "DialogueId": 115352,         // Gerold mid-goal: "I can still hear those Frostfang Growlers howling..."
+        "Type": 4,                    // QuestGoalType.EncounterComplete
+        "EncounterId": 174            // FrostfangArenaZone.EncounterId
+      },
+      {
+        // GOAL 2 - Return to Gerold.
+        "NameId": 115624,             // "Return to Gerold"
+        "DialogueId": 104152,
+        "TargetGuid": 100000033082
+      }
+    ]
+  },
+  {
+    // === Brawler: The Growler Report ===  the closer: deliver Gerold's report to Assistant Mayor Tevin.
+    "QuestId": 104154,
+    "TitleId": 104154,                // "Brawler: The Growler Report"
+    "DescriptionId": 104155,          // "Gerold has asked you to deliver his report ... to Assistant Mayor Tevin in Snowhill."
+    "GiverDialogueId": 104153,        // Gerold: "We need to report this wolf problem to Snowhill..."
+    "ObjectiveDescriptionId": 104155,
+    "SubGoalId": 104155,
+    "TargetDialogueId": 104156,       // Tevin: "You have a report on some Frostfang activity? Thank you!..."
+    "IconId": 43278,
+    "GiverGuid": 100000033082,        // Gerold
+    "TargetGuid": 100000033083,       // Assistant Mayor Tevin
+    "RewardCoins": 15,
+    "RewardExperience": 63,
+    "RewardItems": [75855],           // Saved by the Bell Brawler Gloves
+    "PrerequisiteQuestId": 104150,
+    "NextQuestId": 0,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6,
+    "Goals": [
+      {
+        "NameId": 104155,             // deliver to Tevin
+        "DialogueId": 104156,
+        "TargetGuid": 100000033083
       }
     ]
   }

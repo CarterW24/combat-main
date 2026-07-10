@@ -20,6 +20,11 @@ public enum QuestGoalType
     /// <summary>Completes when the player has defeated <see cref="QuestGoal.RequiredCount"/> NPCs whose
     /// NameId matches <see cref="QuestGoal.KillNpcNameId"/> (kills credit via QuestManager.OnNpcKilled).</summary>
     Kill = 3,
+
+    /// <summary>Completes when the player WINS the battle-instance encounter whose activity id matches
+    /// <see cref="QuestGoal.EncounterId"/> (credited via QuestManager.OnEncounterComplete when the arena
+    /// win fires). This is how a dungeon/encounter becomes a quest objective.</summary>
+    EncounterComplete = 4,
 }
 
 /// <summary>
@@ -78,6 +83,12 @@ public class QuestGoal
     /// each kill credits the goal until <see cref="RequiredCount"/> is reached.
     /// </summary>
     public int KillNpcNameId { get; set; }
+
+    /// <summary>
+    /// For <see cref="QuestGoalType.EncounterComplete"/>: the activity/encounter id (e.g. 174 =
+    /// Frostfang Growler arena) that completes this goal when the player wins it.
+    /// </summary>
+    public int EncounterId { get; set; }
 
     /// <summary>
     /// For <see cref="QuestGoalType.Collect"/>: world positions ([x, y, z] each) where the collectible

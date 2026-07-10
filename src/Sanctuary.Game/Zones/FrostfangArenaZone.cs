@@ -322,11 +322,14 @@ public sealed class FrostfangArenaZone : BaseZone
         },
     ];
 
+    private readonly Sanctuary.Game.Quests.IQuestManager _questManager;
+
     public FrostfangArenaZone(IServiceProvider serviceProvider)
         : base(CreateDefinition(), serviceProvider)
     {
         _zoneManager = serviceProvider.GetRequiredService<IZoneManager>();
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
+        _questManager = serviceProvider.GetRequiredService<Sanctuary.Game.Quests.IQuestManager>();
     }
 
     private static BaseZoneDefinition CreateDefinition() => new FrostfangArenaDefinition
@@ -1286,6 +1289,10 @@ public sealed class FrostfangArenaZone : BaseZone
         //     RewardBundlePacket is the coins/XP fly-in banner the live goal bundle produced.
         player.AwardXp(EncounterXp);
         player.SendTunneled(new RewardBundlePacket { Xp = EncounterXp });
+
+        // 2c) Credit any quest whose active goal is "win THIS encounter" (EncounterComplete, id 174) -
+        //     e.g. Brawler: Growler Encroachment. This is what makes the dungeon a quest objective.
+        _questManager.OnEncounterComplete(player, EncounterId);
 
         // 3) ★ LOOT WHEEL (real end flow, 04-01 capture + client RE — see MiniGameLootWheelPackets).
         // Pick the prize SERVER-SIDE (the spin is theater): uniform over the 5 preview items + the

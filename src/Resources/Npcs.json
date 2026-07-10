@@ -1,5 +1,31 @@
 [
   {
+    "Id": 33082,
+    "NameId": 104054,
+    "Name": "Gerold",
+    "ModelId": 967,
+    "ModelFileName": "human_m_harold.agr",
+    "SpawnPosition": [
+      -486.0,
+      -7.0,
+      258.0
+    ],
+    "SpawnHeading": -1.2
+  },
+  {
+    "Id": 33083,
+    "NameId": 79022,
+    "Name": "Assistant Mayor Tevin",
+    "ModelId": 555,
+    "ModelFileName": "human_m_freestyle_09.agr",
+    "SpawnPosition": [
+      -500.0,
+      -7.0,
+      300.0
+    ],
+    "SpawnHeading": -1.2
+  },
+  {
     "Id": 1186,
     "ModelId": 1062,
     "ModelFileName": "bw_boombox_01.adr",

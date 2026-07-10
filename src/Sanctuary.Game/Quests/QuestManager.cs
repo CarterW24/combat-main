@@ -56,10 +56,11 @@ public sealed class QuestManager : IQuestManager
             if (done >= goals.Count)
                 continue; // all goals already done (turn-in fires on the last goal, so this shouldn't linger)
 
-            // Collect/Kill goals advance only by their own events (OnCollectInteract / OnNpcKilled). Since
-            // they have no NPC target, GoalTargetGuid would fall back to the quest's turn-in NPC - talking
-            // to it must NOT tick the goal off (that would bypass the counting), so skip them here.
-            if (goals[done].Type is QuestGoalType.Collect or QuestGoalType.Kill)
+            // Collect/Kill/EncounterComplete goals advance only by their own events (OnCollectInteract /
+            // OnNpcKilled / OnEncounterComplete). Since they have no NPC target, GoalTargetGuid would fall
+            // back to the quest's turn-in NPC - talking to it must NOT tick the goal off (that would bypass
+            // the objective), so skip them here.
+            if (goals[done].Type is QuestGoalType.Collect or QuestGoalType.Kill or QuestGoalType.EncounterComplete)
                 continue;
 
             if (GoalTargetGuid(activeQuest, done) == npc.Guid)
@@ -214,6 +215,35 @@ public sealed class QuestManager : IQuestManager
             }
 
             return; // one kill credits one goal
+        }
+    }
+
+    /// <summary>
+    /// The player won a battle-instance encounter. Completes the active EncounterComplete goal (Type=4)
+    /// of any in-progress quest whose <see cref="QuestGoal.EncounterId"/> matches - i.e. the dungeon was
+    /// this quest's objective. Advances to the next goal (usually "return to the giver").
+    /// </summary>
+    public void OnEncounterComplete(Player player, int encounterId)
+    {
+        foreach (var (questId, completed) in player.Quests)
+        {
+            if (completed || !_resourceManager.Quests.TryGet(questId, out var quest))
+                continue;
+
+            var goals = quest.EffectiveGoals;
+            int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
+            if (done >= goals.Count)
+                continue;
+
+            var goal = goals[done];
+            if (goal.Type != QuestGoalType.EncounterComplete || goal.EncounterId != encounterId)
+                continue;
+
+            _logger.LogInformation("Encounter goal: quest={quest} goal={goal} encounter={enc} completed.",
+                questId, done, encounterId);
+
+            CompleteGoal(player, quest, done);
+            return; // one win credits one goal
         }
     }
 

@@ -30,6 +30,13 @@ public interface IQuestManager
     /// </summary>
     void OnNpcKilled(Player player, Npc npc);
 
+    /// <summary>
+    /// Player won a battle-instance encounter: complete the active EncounterComplete goal of any
+    /// in-progress quest whose <see cref="Resources.Definitions.QuestGoal.EncounterId"/> matches.
+    /// This is what makes a dungeon count as a quest objective.
+    /// </summary>
+    void OnEncounterComplete(Player player, int encounterId);
+
     /// <summary>Player accepted a quest offer (QuestReply, Accepted = true).</summary>
     void AcceptQuest(Player player, int questId);
 
