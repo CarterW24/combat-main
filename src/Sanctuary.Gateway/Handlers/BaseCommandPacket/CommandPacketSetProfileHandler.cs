@@ -42,6 +42,9 @@ public static class CommandPacketSetProfileHandler
 
         connection.Player.ActiveProfileId = packet.Id;
 
+        // Each job has its own level, so switching jobs rescales HP/mana/stats to the new job's rank.
+        connection.Player.RecalculateStats(refill: true);
+
         var clientUpdatePacketActivateProfile = new ClientUpdatePacketActivateProfile();
 
         using var packetWriter = new PacketWriter();

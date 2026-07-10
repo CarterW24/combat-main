@@ -14,4 +14,11 @@ public class DbCharacterQuest
     /// Lets multi-goal progress survive relog; single-goal quests only ever hit 0 -> turn-in.
     /// </summary>
     public int GoalProgress { get; set; }
+
+    /// <summary>
+    /// In-progress count for the ACTIVE goal when it's a Collect goal (how many pickups gathered so far,
+    /// 0..RequiredCount). Lets a partially-collected goal resume after relog instead of restarting at 0.
+    /// 0 for non-collect goals.
+    /// </summary>
+    public int GoalCount { get; set; }
 }

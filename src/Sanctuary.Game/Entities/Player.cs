@@ -10,6 +10,7 @@ using System.Numerics;
 using Sanctuary.Core.Collections;
 using Sanctuary.Core.IO;
 using Sanctuary.Game.Interactions;
+using Sanctuary.Game.Leveling;
 using Sanctuary.Game.Zones;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common;
@@ -95,6 +96,14 @@ public sealed class Player : ClientPcData, IEntity
     /// Absent = 0 goals done. Persisted alongside the quest so multi-goal progress survives relog.
     /// </summary>
     public Dictionary<int, int> QuestGoalProgress { get; } = new();
+
+    /// <summary>
+    /// QuestId -> current collect count for the quest's ACTIVE Collect goal (how many pickups gathered so
+    /// far, 0..RequiredCount). In-memory only: a relog restarts the in-progress collect goal from 0 (the
+    /// shared collectibles respawn), while completed goals persist via <see cref="QuestGoalProgress"/>.
+    /// Cleared when the collect goal ticks off.
+    /// </summary>
+    public Dictionary<int, int> QuestCollectProgress { get; } = new();
 
     /// <summary>
     /// The quest the player currently has selected/tracked in the quest helper (set on accept and when
@@ -190,6 +199,8 @@ public sealed class Player : ClientPcData, IEntity
 
     public void UpdateEverySecond()
     {
+        RegenTick();
+
         var now = DateTimeOffset.UtcNow;
         foreach (var (key, cooldown) in _pendingCooldowns)
         {
@@ -199,6 +210,38 @@ public sealed class Player : ClientPcData, IEntity
             if (expired)
                 _pendingCooldowns.TryRemove(key, out _);
         }
+    }
+
+    /// <summary>Regenerates HP and mana toward their maximums using the level-scaled regen stats.</summary>
+    private void RegenTick()
+    {
+        if (IsDead)
+            return;
+
+        if (!Stats.TryGetValue(CharacterStatId.MaxHealth, out var maxHpStat) ||
+            !Stats.TryGetValue(CharacterStatId.MaxMana, out var maxManaStat))
+            return; // stats not initialized yet
+
+        int maxHp = maxHpStat.Int;
+        int maxMana = maxManaStat.Int;
+        bool changed = false;
+
+        if (CurrentHitpoints < maxHp)
+        {
+            int regen = Stats.TryGetValue(CharacterStatId.HitPointRegen, out var hr) ? hr.Int : 25;
+            CurrentHitpoints = Math.Min(maxHp, CurrentHitpoints + Math.Max(1, regen));
+            changed = true;
+        }
+
+        if (CurrentMana < maxMana)
+        {
+            int regen = Stats.TryGetValue(CharacterStatId.ManaRegen, out var mr) ? mr.Int : 4;
+            CurrentMana = Math.Min(maxMana, CurrentMana + Math.Max(1, regen));
+            changed = true;
+        }
+
+        if (changed)
+            SendHealthMana();
     }
 
     public void StartActionBarCooldown(int actionBarId, int slotIndex, int iconId, int nameId, int count, int cooldownMs)
@@ -258,16 +301,209 @@ public sealed class Player : ClientPcData, IEntity
             IsDead = true;
     }
 
+    /// <summary>
+    /// Grants XP to the active job: accrues into the current level, levels up (and rescales stats +
+    /// refills HP/mana) when the curve threshold is crossed, notifies the client, and updates the star
+    /// meter. Persistence happens on the normal save path (DbProfile.Level / LevelXP).
+    /// </summary>
     public void AwardXp(int xp)
     {
-        var xpPacket = new ClientUpdatePacketUpdateProfileExperience
+        if (xp <= 0)
+            return;
+
+        var profile = ActiveProfile;
+        if (profile.Rank >= JobLeveling.MaxLevel)
+            return; // already max level - no more XP
+
+        int startLevel = profile.Rank;
+        profile.LevelXpRaw += xp;
+
+        while (profile.Rank < JobLeveling.MaxLevel && profile.LevelXpRaw >= JobLeveling.XpForLevel(profile.Rank))
         {
-            ProfileId = ActiveProfileId,
+            profile.LevelXpRaw -= JobLeveling.XpForLevel(profile.Rank);
+            profile.Rank++;
+            profile.StarsEarned++;   // one star per level
+        }
+
+        if (profile.Rank >= JobLeveling.MaxLevel)
+            profile.LevelXpRaw = 0;
+
+        profile.RankPercent = JobLeveling.RankPercent(profile.Rank, profile.LevelXpRaw);
+
+        bool leveled = profile.Rank != startLevel;
+
+        // Floating "+XP" feedback.
+        SendTunneled(new ClientUpdatePacketUpdateProfileExperience
+        {
+            ProfileId = profile.Id,
             XpGained = xp,
-            TotalXpInLevel = 0,
-            CurrentLevel = 0
+            TotalXpInLevel = profile.LevelXpRaw,
+            CurrentLevel = profile.Rank
+        });
+
+        // Native job XP bar + level-up: the ability-set experience (opcode 36/8). The client renders the
+        // on-screen job XP bar from Progress/TotalForLevel and fires JobLevelUp when Level increases.
+        SendTunneled(new AbilityPacketUpdateAbilityExperience { Experience = BuildJobAbilityExperience() });
+
+        if (leveled)
+        {
+            // Level number + level-up display, then rescale HP/mana to the new rank.
+            SendTunneled(new ClientUpdatePacketUpdateProfileRank
+            {
+                ProfileId = profile.Id,
+                NewRank = profile.Rank,
+                ProfileIconId = profile.Icon,
+                ProfileNameId = profile.NameId
+            });
+
+            RecalculateStats(refill: true);
+            PlayLevelUpCelebration(); // visible particle burst on the character
+
+            // Full-screen job level-up UI (levelup_<job>.gfx) via the "JobLevelUp" client event. This is a
+            // ClientUpdate 38/15 (NOT ability 36/15 - verified by live client trace): the client reads a single
+            // length-prefixed payload and parses it as a profile, so we send the serialized active profile.
+            using (var jluWriter = new PacketWriter())
+            {
+                profile.Serialize(jluWriter);
+                SendTunneled(new ClientUpdatePacketJobLevelUp { Payload = jluWriter.Buffer });
+            }
+        }
+
+        // Re-send the full profile so the Jobs panel's level + XP bar (RankPercent) reflect immediately.
+        RefreshActiveProfile();
+    }
+
+    /// <summary>Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).</summary>
+    private AbilityExperience BuildJobAbilityExperience()
+    {
+        var p = ActiveProfile;
+        return new AbilityExperience
+        {
+            Unknown = 1,                 // non-zero = a present/valid entry (0 terminates the profile list)
+            NameId = p.NameId,
+            DescriptionId = p.DescriptionId,
+            IconId = p.Icon,
+            Level = p.Rank,
+            Progress = p.LevelXpRaw,
+            TotalForLevel = JobLeveling.XpForLevel(p.Rank),
         };
-        SendTunneled(xpPacket);
+    }
+
+    private const int LevelUpCompositeEffect = 15117; // PFX_levelup_big (retail level-up particle burst)
+
+    /// <summary>
+    /// Re-sends the active job's serialized profile (ClientUpdatePacketActivateProfile) so the client
+    /// refreshes the Jobs panel level + XP bar from the authoritative Rank/RankPercent. An optional
+    /// composite effect plays on the player (used for the level-up celebration).
+    /// </summary>
+    public void RefreshActiveProfile(int compositeEffect = 0)
+    {
+        using var writer = new PacketWriter();
+        ActiveProfile.Serialize(writer);
+
+        SendTunneled(new ClientUpdatePacketActivateProfile
+        {
+            Payload = writer.Buffer,
+            Attachments = GetAttachments(),
+            Animation = 0,
+            CompositeEffect = compositeEffect
+        });
+    }
+
+    /// <summary>
+    /// Recomputes level-scaled character stats from the active job's Rank, pushes them to the client and
+    /// caches them in <see cref="ClientPcData.Stats"/>. When <paramref name="refill"/> is set (login,
+    /// level-up) current HP/mana are topped to the new maximum; otherwise they're only clamped down.
+    /// </summary>
+    public void RecalculateStats(bool refill = false)
+    {
+        int level = ActiveProfile.Rank;
+        int maxHealth = JobLeveling.MaxHealth(level);
+        int maxMana = JobLeveling.MaxMana(level);
+
+        UpdateCharacterStats(
+            new CharacterStat(CharacterStatId.MaxHealth, maxHealth),
+            new CharacterStat(CharacterStatId.MaxMovementSpeed, 8f),
+            new CharacterStat(CharacterStatId.WeaponRange, 5f),
+            new CharacterStat(CharacterStatId.HitPointRegen, JobLeveling.HitPointRegen(level)),
+            new CharacterStat(CharacterStatId.MaxMana, maxMana),
+            new CharacterStat(CharacterStatId.ManaRegen, JobLeveling.ManaRegen(level)),
+            new CharacterStat(CharacterStatId.MeleeChanceToHit, 100),
+            new CharacterStat(CharacterStatId.MeleeWeaponDamageMultiplier, 1f),
+            new CharacterStat(CharacterStatId.MeleeHandToHandDamage, 1),
+            new CharacterStat(CharacterStatId.EquippedMeleeWeaponDamage, 1),
+            new CharacterStat(CharacterStatId.MeleeAttackIntervalMs, 2000),
+            new CharacterStat(CharacterStatId.DamageMultiplier, 1f),
+            new CharacterStat(CharacterStatId.HealingMultiplier, 1f),
+            new CharacterStat(CharacterStatId.AbilityCriticalHitMultiplier, 1f),
+            new CharacterStat(CharacterStatId.HeadInflationPercent, 100),
+            new CharacterStat(CharacterStatId.RangeMultiplier, 1f),
+            new CharacterStat(CharacterStatId.FactoryProductionModifier, 1f),
+            new CharacterStat(CharacterStatId.FactoryYieldModifier, 1f),
+            new CharacterStat(CharacterStatId.InCombatHitPointRegen, 6),
+            new CharacterStat(CharacterStatId.InCombatManaRegen, 4));
+
+        if (refill || CurrentHitpoints > maxHealth || CurrentHitpoints <= 0)
+            CurrentHitpoints = maxHealth;
+        if (refill || CurrentMana > maxMana)
+            CurrentMana = maxMana;
+
+        SendHealthMana();
+    }
+
+    /// <summary>
+    /// Pushes current HP and mana (with their level-scaled maximums) to the client. Sends both the
+    /// self-HUD packets (ClientUpdate 38/1 hitpoints, 38/13 mana) AND the over-head bar packets
+    /// (PlayerUpdate 35/5 hitpoints, 35/9 mana) so both the HUD and the bar over the character update.
+    /// </summary>
+    public void SendHealthMana()
+    {
+        int maxHealth = Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : CurrentHitpoints;
+        int maxMana = Stats.TryGetValue(CharacterStatId.MaxMana, out var mm) ? mm.Int : CurrentMana;
+
+        // Self HUD.
+        SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = CurrentHitpoints, MaxHitpoints = maxHealth });
+        SendTunneled(new ClientUpdatePacketMana { CurrentMana = CurrentMana, MaxMana = maxMana });
+
+        // Over-head bars, visible to self + nearby players.
+        SendTunneledToVisible(new PlayerUpdatePacketUpdateHitpoints
+        {
+            Guid = Guid,
+            CurrentHitpoints = CurrentHitpoints,
+            MaxHitpoints = maxHealth
+        }, sendToSelf: true);
+
+        SendTunneledToVisible(new PlayerUpdatePacketUpdateMana
+        {
+            Guid = Guid,
+            CurrentMana = CurrentMana,
+            MaxMana = maxMana
+        }, sendToSelf: true);
+    }
+
+    /// <summary>Plays the job level-up celebration effect on the player (visible to nearby players too).</summary>
+    private void PlayLevelUpCelebration()
+    {
+        // PFX_levelup_big is a ~2s one-shot, so a single play looked like it "disappeared". Re-fire it at the
+        // player's CURRENT position a few times over ~5s: overlapping plays keep it sustained, and re-anchoring
+        // on the live Position each time makes it track the player if they move during the celebration.
+        FireLevelUpBurst();
+        for (int i = 1; i <= 4; i++)
+            System.Threading.Tasks.Task.Delay(i * 1000).ContinueWith(_ => FireLevelUpBurst());
+    }
+
+    /// <summary>One level-up particle burst at the player's current position (guarded against post-logout sends).</summary>
+    private void FireLevelUpBurst()
+    {
+        if (!Visible)
+            return;
+
+        SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
+        {
+            Guid = Guid,
+            CompositeEffectId = LevelUpCompositeEffect,
+            Position = Position
+        }, sendToSelf: true);
     }
 
     public void UpdatePosition(Vector4 position, Quaternion rotation)

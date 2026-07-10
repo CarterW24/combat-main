@@ -118,6 +118,8 @@ public static class CommandRouter
                 return HandleSpawnEnemy(conn, parts);
             case "hp":
                 return HandleHp(conn, parts);
+            case "xp":
+                return HandleXp(conn, parts);
             case "testtransform":
                 return HandleTestTransform(conn, parts);
             case "fly":
@@ -2025,6 +2027,36 @@ public static class CommandRouter
         }
 
         SendSystem(conn, "Usage: /hp | /hp set <value> | /hp full");
+        return true;
+    }
+
+    // ================== XP (check / grant job XP) ==================
+
+    private static bool HandleXp(GatewayConnection conn, string[] parts)
+    {
+        var profile = conn.Player.ActiveProfile;
+
+        if (parts.Length < 2)
+        {
+            SendSystem(conn, $"Job {profile.NameId}: level {profile.Rank}/{Sanctuary.Game.Leveling.JobLeveling.MaxLevel}, " +
+                $"{profile.LevelXpRaw}/{Sanctuary.Game.Leveling.JobLeveling.XpForLevel(profile.Rank)} XP ({profile.RankPercent}%). Usage: /xp <amount>");
+            return true;
+        }
+
+        if (!int.TryParse(parts[1], out var amount) || amount <= 0)
+        {
+            SendSystem(conn, "Usage: /xp <amount>");
+            return true;
+        }
+
+        int before = profile.Rank;
+        conn.Player.AwardXp(amount);
+
+        if (profile.Rank > before)
+            SendSystem(conn, $"Gained {amount} XP - leveled up to {profile.Rank}! (HP {conn.Player.CurrentHitpoints}/{conn.Player.Stats[CharacterStatId.MaxHealth].Int})");
+        else
+            SendSystem(conn, $"Gained {amount} XP. Level {profile.Rank}, {profile.LevelXpRaw}/{Sanctuary.Game.Leveling.JobLeveling.XpForLevel(profile.Rank)} ({profile.RankPercent}%)");
+
         return true;
     }
 

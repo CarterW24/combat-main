@@ -262,8 +262,9 @@ public class GatewayConnection : UdpConnection
 
             clientPcProfile.ItemClasses = profileData.ItemClasses;
 
-            clientPcProfile.Rank = dbProfile.Level;
-            clientPcProfile.RankPercent = dbProfile.LevelXP;
+            clientPcProfile.Rank = Math.Max(1, dbProfile.Level); // fresh characters persist Level 0
+            clientPcProfile.LevelXpRaw = dbProfile.LevelXP;      // raw XP into the current level
+            clientPcProfile.RankPercent = Sanctuary.Game.Leveling.JobLeveling.RankPercent(clientPcProfile.Rank, clientPcProfile.LevelXpRaw);
 
             foreach (var dbItem in dbProfile.Items)
             {
@@ -368,6 +369,8 @@ public class GatewayConnection : UdpConnection
             Player.Quests[dbQuest.QuestId] = dbQuest.Completed;
             if (dbQuest.GoalProgress > 0)
                 Player.QuestGoalProgress[dbQuest.QuestId] = dbQuest.GoalProgress;
+            if (dbQuest.GoalCount > 0)
+                Player.QuestCollectProgress[dbQuest.QuestId] = dbQuest.GoalCount;
         }
 
         _logger.LogInformation("Pets loaded and will be sent via PetListPacket. TotalPetsCount={count}", Player.Pets.Count);
@@ -508,7 +511,7 @@ public class GatewayConnection : UdpConnection
                 if (dbProfile is not null)
                 {
                     dbProfile.Level = profile.Rank;
-                    dbProfile.LevelXP = profile.RankPercent;
+                    dbProfile.LevelXP = profile.LevelXpRaw; // persist raw XP into the current level
                 }
             }
 

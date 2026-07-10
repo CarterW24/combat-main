@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using System.Text.Json;
 
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,19 @@ using Microsoft.Extensions.Logging;
 using Sanctuary.Game.Resources.Definitions;
 
 namespace Sanctuary.Game.Resources;
+
+/// <summary>
+/// One collectible pickup to spawn for a Collect goal: a world object (interactable NPC) the player clicks
+/// to gather. Its guid is assigned at load time and maps back to (quest, goal) via
+/// <see cref="QuestDefinitionCollection.Collectibles"/>.
+/// </summary>
+public sealed class CollectibleSpawn
+{
+    public ulong Guid { get; init; }
+    public int ModelId { get; init; }
+    public int NameId { get; init; }
+    public Vector4 Position { get; init; }
+}
 
 /// <summary>
 /// Loads quest definitions from Resources/Quests.json and builds the lookups the quest manager needs:
@@ -26,6 +40,16 @@ public class QuestDefinitionCollection
 
     /// <summary>target NPC guid -&gt; quest ids that use the NPC as a talk-to / turn-in target.</summary>
     public ConcurrentDictionary<ulong, List<int>> ByTarget { get; } = new();
+
+    /// <summary>collectible pickup guid -&gt; (questId, goalIndex) it credits when interacted with.</summary>
+    public ConcurrentDictionary<ulong, (int QuestId, int GoalIndex)> Collectibles { get; } = new();
+
+    /// <summary>Every collectible pickup to spawn in the world (across all Collect goals of all quests).</summary>
+    public List<CollectibleSpawn> CollectibleSpawns { get; } = new();
+
+    /// <summary>Collectible guids live well above the NPC range (NpcGuidBase 100000000000 + id) to avoid collision.</summary>
+    private const ulong CollectibleGuidBase = 700000000000UL;
+    private ulong _nextCollectibleGuid = CollectibleGuidBase;
 
     public QuestDefinitionCollection(ILogger logger)
     {
@@ -89,6 +113,36 @@ public class QuestDefinitionCollection
                     // int0 -> row hash key) - a duplicate makes goals indistinguishable client-side.
                     if (!goalNameIds.Add(goal.NameId))
                         _logger.LogWarning("Quest {id}: duplicate goal NameId {nameId} - goals will collide client-side (checkmarks/advance won't render correctly).", quest.QuestId, goal.NameId);
+                }
+
+                // Assign world guids to each Collect goal's pickups and index them back to (quest, goal), so
+                // interacting with a pickup credits the right goal. Goals index matches EffectiveGoals.
+                var effective = quest.EffectiveGoals;
+                for (int gi = 0; gi < effective.Count; gi++)
+                {
+                    var goal = effective[gi];
+                    if (goal.Type != QuestGoalType.Collect)
+                        continue;
+
+                    // Default the required count to "collect them all" so the tracker's 0/N matches the pickups.
+                    if (goal.RequiredCount <= 0)
+                        goal.RequiredCount = goal.CollectSpawns.Count;
+
+                    foreach (var pos in goal.CollectSpawns)
+                    {
+                        if (pos is null || pos.Length < 3)
+                            continue;
+
+                        var guid = _nextCollectibleGuid++;
+                        Collectibles[guid] = (quest.QuestId, gi);
+                        CollectibleSpawns.Add(new CollectibleSpawn
+                        {
+                            Guid = guid,
+                            ModelId = goal.CollectModelId,
+                            NameId = goal.CollectNameId,
+                            Position = new Vector4(pos[0], pos[1], pos[2], 1f)
+                        });
+                    }
                 }
             }
 

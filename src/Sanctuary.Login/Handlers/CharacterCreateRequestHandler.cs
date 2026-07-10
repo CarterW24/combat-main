@@ -275,7 +275,7 @@ public static class CharacterCreateRequestHandler
         var dbProfile = new DbProfile
         {
             Id = profileData.Id,
-            Level = 20
+            Level = 1
         };
 
         dbCharacter.ActiveProfileId = dbProfile.Id;
@@ -361,7 +361,7 @@ public static class CharacterCreateRequestHandler
             var dbProfile = new DbProfile
             {
                 Id = profileData.Id,
-                Level = 20
+                Level = 1
             };
 
             // TODO

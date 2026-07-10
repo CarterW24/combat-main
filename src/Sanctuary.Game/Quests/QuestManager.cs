@@ -56,6 +56,12 @@ public sealed class QuestManager : IQuestManager
             if (done >= goals.Count)
                 continue; // all goals already done (turn-in fires on the last goal, so this shouldn't linger)
 
+            // Collect goals advance only by gathering their pickups (OnCollectInteract). Since a Collect goal
+            // has no NPC target, GoalTargetGuid would fall back to the quest's turn-in NPC - talking to it must
+            // NOT tick the goal off (that would bypass the collecting), so skip it here.
+            if (goals[done].Type == QuestGoalType.Collect)
+                continue;
+
             if (GoalTargetGuid(activeQuest, done) == npc.Guid)
             {
                 CompleteGoal(player, activeQuest, done);
@@ -77,6 +83,131 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
+    /// <summary>Composite effect played on a collectible when picked up (PFX_sparkles-swirl_gold_treasure-reward).</summary>
+    private const int CollectPickupEffect = 5386;
+
+    /// <summary>
+    /// A collectible pickup was clicked. Credits the quest's active Collect goal (one per distinct pickup),
+    /// hides the pickup for this player, animates the tracker counter, and completes the goal - advancing to
+    /// the return step - once <see cref="QuestGoal.RequiredCount"/> is reached.
+    /// </summary>
+    public void OnCollectInteract(Player player, Npc npc)
+    {
+        if (!_resourceManager.Quests.Collectibles.TryGetValue(npc.Guid, out var loc))
+            return;
+
+        var (questId, goalIndex) = loc;
+        if (!_resourceManager.Quests.TryGet(questId, out var quest))
+            return;
+
+        // Must have this quest active (accepted, not completed) and be ON this goal (earlier goals done).
+        if (!player.Quests.TryGetValue(questId, out var completed) || completed)
+            return;
+
+        int done = player.QuestGoalProgress.TryGetValue(questId, out var progress) ? progress : 0;
+        if (done != goalIndex)
+            return; // not the active goal yet (a prior goal is pending) or already collected past it
+
+        var goal = quest.EffectiveGoals[goalIndex];
+        if (goal.Type != QuestGoalType.Collect)
+            return;
+
+        int required = goal.RequiredCount > 0 ? goal.RequiredCount : goal.CollectSpawns.Count;
+        if (required <= 0)
+            return;
+
+        int count = (player.QuestCollectProgress.TryGetValue(questId, out var c) ? c : 0) + 1;
+
+        _logger.LogInformation("Collect: quest={quest} goal={goal} pickup={guid} -> {count}/{required}",
+            questId, goalIndex, npc.Guid, count, required);
+
+        // Gold sparkle "reward" burst where the pickup is - immediate visual feedback that the collect
+        // registered (plays before the removal so the effect's source actor still exists).
+        player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
+        {
+            Guid = npc.Guid,
+            CompositeEffectId = CollectPickupEffect,
+            Position = npc.Position
+        }, sendToSelf: true);
+
+        // Hide this pickup for the collecting player so it can't be re-clicked. Collectibles are shared, so
+        // other players still see it; a relog re-adds them all and restarts this goal's (in-memory) count.
+        player.SendTunneled(new PlayerUpdatePacketRemovePlayer { Guid = npc.Guid });
+
+        if (count >= required)
+        {
+            player.QuestCollectProgress.Remove(questId);
+            // Final pickup -> tick the goal's checkmark and advance to the return goal (or turn in). Reuses
+            // the same completion path as talk-to-NPC goals.
+            CompleteGoal(player, quest, goalIndex);
+        }
+        else
+        {
+            player.QuestCollectProgress[questId] = count;
+            // Animate the tracker's "current/required" counter (the client stores CurrentCount at the
+            // objective's row+0xd4 and re-renders "count/required").
+            player.SendTunneled(new QuestObjectiveUpdatePacket
+            {
+                QuestId = questId,
+                ObjectiveId = goal.NameId,
+                CurrentCount = count,
+                CompletedPercentage = (float)count / required
+            });
+
+            // Persist so a relog mid-collect resumes at this count (done after the visual so the DB write
+            // doesn't delay the on-screen feedback).
+            PersistCollectCount(player, questId, count);
+        }
+    }
+
+    /// <summary>Persists the active Collect goal's in-progress count (DbCharacterQuest.GoalCount).</summary>
+    private void PersistCollectCount(Player player, int questId, int count)
+    {
+        using var db = _dbContextFactory.CreateDbContext();
+        var dbQuest = db.CharacterQuests.FirstOrDefault(x => x.QuestId == questId && x.CharacterId == player.CharacterId);
+        if (dbQuest is not null)
+        {
+            dbQuest.GoalCount = count;
+            db.SaveChanges();
+        }
+    }
+
+    /// <summary>
+    /// Re-sends this quest's collectible pickups to the player so any hidden in a prior attempt reappear and
+    /// are clickable again: AddNpc (re-adds the model; a no-op for one still showing) PLUS an NpcRelevance
+    /// entry - that relevance packet, not just AddNpc's IsInteractable flag, is what registers a pickup as
+    /// interactable client-side (this is how zone-entry wires them up). NB: no RemovePlayer first - a
+    /// remove+re-add of the same guid races and can leave the pickup gone.
+    /// </summary>
+    private void RespawnQuestCollectibles(Player player, int questId)
+    {
+        var relevance = new PlayerUpdatePacketNpcRelevance();
+
+        foreach (var entry in _resourceManager.Quests.Collectibles)
+        {
+            if (entry.Value.QuestId != questId)
+                continue;
+            if (!player.Zone.TryGetNpc(entry.Key, out var npc))
+                continue;
+
+            player.SendTunneled(npc.GetAddNpcPacket());
+
+            if (npc.CursorId != 0)
+            {
+                relevance.Entries.Add(new PlayerUpdatePacketNpcRelevance.Entry
+                {
+                    Guid = npc.Guid,
+                    Unknown = true,
+                    CursorId = npc.CursorId,
+                    HasCursor = true
+                });
+            }
+        }
+
+        if (relevance.Entries.Count > 0)
+            player.SendTunneled(relevance);
+    }
+
     public void AcceptQuest(Player player, int questId)
     {
         if (!_resourceManager.Quests.TryGet(questId, out var quest) || !quest.IsOfferableFor(player.Quests))
@@ -84,6 +215,7 @@ public sealed class QuestManager : IQuestManager
 
         player.Quests[questId] = false;
         player.QuestGoalProgress.Remove(questId); // fresh accept starts on the first goal
+        player.QuestCollectProgress.Remove(questId); // and with no collect progress
         player.ActiveQuestId = questId; // a freshly accepted quest becomes the tracked one
         player.LastQuestAcceptedAt = DateTime.UtcNow; // guards against a stray post-accept QuestAbandon
 
@@ -99,6 +231,11 @@ public sealed class QuestManager : IQuestManager
         }
 
         SendActiveState(player, quest);
+
+        // Restore this quest's collectible pickups for the player: any collected in a PRIOR attempt were
+        // hidden with RemovePlayer (which persists until relog), so without this a collect-then-abandon-then-
+        // reaccept would leave fewer than RequiredCount pickups and the goal could never finish.
+        RespawnQuestCollectibles(player, questId);
 
         RefreshQuestNotification(player, quest.GiverGuid);
         RefreshQuestNotification(player, quest.TargetGuid);
@@ -117,6 +254,7 @@ public sealed class QuestManager : IQuestManager
             return; // already finalized
 
         player.Quests[questId] = true;
+        player.QuestCollectProgress.Remove(questId);
 
         using (var db = _dbContextFactory.CreateDbContext())
         {
@@ -167,6 +305,7 @@ public sealed class QuestManager : IQuestManager
             return;
 
         player.Quests.Remove(questId);
+        player.QuestCollectProgress.Remove(questId);
 
         using (var db = _dbContextFactory.CreateDbContext())
         {
@@ -327,12 +466,17 @@ public sealed class QuestManager : IQuestManager
     {
         var goals = quest.EffectiveGoals;
 
+        // The final goal ticks SILENTLY (checkmark, no "Goal Complete!" banner): the "Quest Completed!" banner
+        // fires right after on turn-in, and two banners back-to-back make the second wait on the first's
+        // animation. Intermediate goals still banner normally.
+        bool isFinalGoal = goalIndex + 1 >= goals.Count;
+
         player.SendTunneled(new QuestObjectiveCompletePacket
         {
             QuestId = quest.QuestId,
             ObjectiveId = goals[goalIndex].NameId,
             Percent = 1f,
-            Silent = false // real completion -> show the "Goal complete!" banner
+            Silent = isFinalGoal
         });
 
         int done = goalIndex + 1;
@@ -345,6 +489,7 @@ public sealed class QuestManager : IQuestManager
             if (dbQuest is not null)
             {
                 dbQuest.GoalProgress = done;
+                dbQuest.GoalCount = 0; // moving to the next goal - clear any collect count from the finished one
                 db.SaveChanges();
             }
         }
@@ -507,13 +652,30 @@ public sealed class QuestManager : IQuestManager
         // Activate the current goal (the first not-yet-done one).
         if (done < goals.Count)
         {
+            var activeGoal = goals[done];
+
             player.SendTunneled(new QuestObjectiveActivatedPacket
             {
                 QuestId = quest.QuestId,
-                ObjectiveId = goals[done].NameId,
-                RequiredCount = goals[done].RequiredCount,
+                ObjectiveId = activeGoal.NameId,
+                RequiredCount = activeGoal.RequiredCount,
                 Unknown2 = false
             });
+
+            // If it's a Collect goal with restored progress (relog mid-collect), show the current count so the
+            // tracker reads e.g. 3/8 instead of 0/8. Activated only sets the "required" half.
+            if (activeGoal.Type == QuestGoalType.Collect
+                && player.QuestCollectProgress.TryGetValue(quest.QuestId, out var collected) && collected > 0)
+            {
+                int req = activeGoal.RequiredCount > 0 ? activeGoal.RequiredCount : activeGoal.CollectSpawns.Count;
+                player.SendTunneled(new QuestObjectiveUpdatePacket
+                {
+                    QuestId = quest.QuestId,
+                    ObjectiveId = activeGoal.NameId,
+                    CurrentCount = collected,
+                    CompletedPercentage = req > 0 ? (float)collected / req : 0f
+                });
+            }
         }
 
         // Point the tracker + "Take Me There" breadcrumb at the active goal's target NPC.

@@ -14,9 +14,9 @@
     "IconId": 43278,                    // The quest's icon (journal/tracker/end screen).
     "GiverGuid": 100000002045,          // NPC that OFFERS the quest (shows the "!" badge). Here: Samantha.
     "TargetGuid": 100000002049,         // NPC you TALK TO / TURN IN at. Here: Ricky Danger.
-    "RewardCoins": 5,                   // Coins granted on completion (shown in the offer/end-screen reward preview).
-    "RewardExperience": 50,             // Job XP (RewardBundleBase +0x48) granted to the active job on completion and shown as XP in the reward preview.
-    "RewardItems": [1180, 2939],        // Item definition ids added to the bags + shown as icons in "Show Details". Here: a boombox (1180 Realms Roll) + a transform food (2939 Brewery Corned Beef). Add/remove any item ids.
+    "RewardCoins": 999999999,                   // Coins granted on completion (shown in the offer/end-screen reward preview).
+    "RewardExperience": 999999999,             // Job XP (RewardBundleBase +0x48) granted to the active job on completion and shown as XP in the reward preview.
+    "RewardItems": [1180, 75110],       // Item definition ids added to the bags + shown as icons in "Show Details". Here: a boombox (1180 Realms Roll) + a ninja sword (75110 Ninja's Shadow Blade of Dragonstrike). Add/remove any item ids.
     "PrerequisiteQuestId": 0,           // Quest that must be completed before this is offered (0 = none).
     "NextQuestId": 1801,                // Quest that becomes offerable once this completes (0 = none). Refreshes that giver's "!" badge.
     "NotificationAvailable": 2,         // World badge icon when the quest is AVAILABLE (2 = "!" exclamation).
@@ -33,8 +33,8 @@
     "IconId": 43278,
     "GiverGuid": 100000002049,
     "TargetGuid": 100000003018,
-    "RewardCoins": 25,
-    "RewardExperience": 150,
+    "RewardCoins": 999999999,
+    "RewardExperience": 999999999,
     "RewardItems": [8185, 3007, 2969],
     "PrerequisiteQuestId": 2563,
     "NextQuestId": 0,
@@ -50,7 +50,7 @@
       {
         "NameId": 94511,
         "DescriptionId": 94512,
-        "DialogueId": 94261,
+        "DialogueId": 94257,
         "TargetGuid": 100000002049
       }
     ]
@@ -66,12 +66,108 @@
     "IconId": 43278,
     "GiverGuid": 100000002912,
     "TargetGuid": 100000002889,
-    "RewardCoins": 10,
-    "RewardExperience": 75,
+    "RewardCoins": 999999999,
+    "RewardExperience": 999999999,
     "RewardItems": [56774, 4011, 4045],
     "PrerequisiteQuestId": 0,
     "NextQuestId": 0,
     "NotificationAvailable": 2,
     "NotificationActive": 6
+  },
+  {
+    // === Nomi's Little Brother (Sanctuary) ===  real FR quest; precursor to the collect quest below.
+    // Talk quest: Nomi asks you to find her brother Hasti at the Wildwood Speedway, then report back.
+    // All text ids are the REAL Global.Text ids (reversed from en_us_data.dat via Jenkins lookup2).
+    "QuestId": 3001,
+    "TitleId": 46280,                 // "Nomi's Little Brother"
+    "DescriptionId": 46621,           // offer body: "Find Hasti"
+    "GiverDialogueId": 46279,         // Nomi: "My little brother Hasti ran off... look for him at the Wildwood Speedway..."
+    "ObjectiveDescriptionId": 46621,  // objective: "Find Hasti"
+    "SubGoalId": 46621,
+    "TargetDialogueId": 73239,        // Nomi's turn-in line
+    "IconId": 43278,
+    "GiverGuid": 100000002335,        // Nomi (Sanctuary)
+    "TargetGuid": 100000002335,       // turn in back at Nomi
+    "RewardCoins": 999999999,
+    "RewardExperience": 999999999,
+    "RewardItems": [],
+    "PrerequisiteQuestId": 0,
+    "NextQuestId": 3002,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6,
+    "Goals": [
+      {
+        "NameId": 46621,              // "Find Hasti"
+        "DialogueId": 140679,         // Hasti: "Ah jeez, tell Nomi I'll be home in a bit..."
+        "TargetGuid": 100000003016    // Hasti (Wildwood Speedway)
+      },
+      {
+        "NameId": 74455,              // "Return to Nomi"
+        "DialogueId": 73239,          // Nomi's line at turn-in
+        "TargetGuid": 100000002335    // Nomi
+      }
+    ]
+  },
+  {
+    // === Hasti's Homework Heist
+    // Nomi's homework was scattered by Hasti; gather the 8 pages around Sanctuary and return them to Nomi.
+    // Demonstrates the Collect goal type. All text ids are the REAL Global.Text ids (reversed from
+    // en_us_data.dat). NOTE: the 8 pickup positions are approximate (clustered near Nomi) - the retail
+    // quest scatters them at named landmarks; nudge the coords to taste.
+    "QuestId": 3002,
+    "TitleId": 74437,                 // "Hasti's Homework Heist"
+    "DescriptionId": 74456,           // offer body: "Return all the homework pages you found to Nomi in Sanctuary."
+    "GiverDialogueId": 74436,         // Nomi: "Grrrr! That little twerp! Hasti... ran off with my homework! ...will you help me find all the pages?"
+    "ObjectiveDescriptionId": 74456,  // objective / tracker header
+    "SubGoalId": 46489,               // "Missing Homework"
+    "TargetDialogueId": 72906,        // Nomi at turn-in: "Have you found all of my homework...?"
+    "IconId": 43278,
+    "GiverGuid": 100000002335,        // Nomi (Sanctuary)
+    "TargetGuid": 100000002335,       // turn in back at Nomi
+    "RewardCoins": 99999999,
+    "RewardExperience": 100000,
+    "RewardItems": [69834],
+    "PrerequisiteQuestId": 3001,      // after "Nomi's Little Brother"
+    "NextQuestId": 0,
+    "NotificationAvailable": 2,
+    "NotificationActive": 6,
+    "Goals": [
+      {
+        // GOAL 1 - Collect: gather 8 of "Nomi's Papers". Interacting with each pickup credits the goal and
+        // animates the tracker's 0/8 -> 8/8 counter; at 8 the goal ticks off and Goal 2 activates.
+        "NameId": 46489,              // goal-row: "Missing Homework"
+        "DescriptionId": 74456,
+        "Type": 2,                    // QuestGoalType.Collect
+        "RequiredCount": 8,
+        "CollectModelId": 584,        // sg_papers_01.adr (Models.txt id 584)
+        "CollectNameId": 74449,       // pickup hover name: "Nomi's Papers"
+        // TESTING: clustered tightly near Nomi so all 8 are easy to collect in one spot.
+        // Real retail landmark positions (swap back in when done testing):
+        //   [-1090.0, 5.40, 384.0]  near Sir Whittington
+        //   [-1072.0, 5.30, 348.0]  at the Town Hall (approx)
+        //   [-938.0, 4.75, 230.0]   by Steelbloom
+        //   [-1000.0, 6.40, 202.0]  by Anura
+        //   [-1005.0, 6.40, 198.0]  by Anura (2nd)
+        //   [-1099.0, 5.19, 225.0]  at the Post Office (mailbox)
+        //   [-1115.0, 5.17, 306.0]  just south of Nomi
+        //   [-1052.0, 4.63, 307.0]  in front of the Royal Palace (Queen Valerian)
+        "CollectSpawns": [
+          [-1112.0, 5.2, 330.0],
+          [-1128.0, 5.2, 322.0],
+          [-1100.0, 5.2, 326.0],
+          [-1120.0, 5.2, 342.0],
+          [-1138.0, 5.2, 316.0],
+          [-1096.0, 5.2, 336.0],
+          [-1106.0, 5.2, 352.0],
+          [-1132.0, 5.2, 305.0]
+        ]
+      },
+      {
+        // GOAL 2 - Return: talk to Nomi to turn the quest in (TalkToNpc, the default type).
+        "NameId": 74455,              // "Return to Nomi"
+        "DialogueId": 72906,          // Nomi's closing line at turn-in
+        "TargetGuid": 100000002335
+      }
+    ]
   }
 ]

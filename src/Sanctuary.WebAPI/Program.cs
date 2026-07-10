@@ -73,5 +73,6 @@ app.UseHttpLogging();
 
 app.MapAuthEndpoints();
 app.MapPortraitEndpoints();
+app.MapManifestEndpoints();
 
 app.Run();

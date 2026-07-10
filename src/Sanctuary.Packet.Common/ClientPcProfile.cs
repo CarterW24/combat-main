@@ -30,6 +30,12 @@ public class ClientPcProfile : ISerializableType
     public int StarsEarned;
     public int Unknown20;
 
+    /// <summary>
+    /// Raw XP accrued into the CURRENT level. Not serialized to the client (<see cref="RankPercent"/>
+    /// carries the 0-100 progress bar); persisted via DbProfile.LevelXP.
+    /// </summary>
+    public int LevelXpRaw;
+
     public Dictionary<int, ProfileItem> Items = new();
 
     public int Unknown21;

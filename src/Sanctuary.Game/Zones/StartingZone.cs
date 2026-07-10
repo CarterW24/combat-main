@@ -129,6 +129,34 @@ public sealed class StartingZone : BaseZone
 
             spawnedCount++;
         }
+
+        SpawnQuestCollectibles();
+    }
+
+    // Collect-goal pickups (Quests.json goals of Type=Collect): interactable world objects the player clicks
+    // to gather. Shared across players; per-player credit + hide are handled in QuestManager.OnCollectInteract.
+    private void SpawnQuestCollectibles()
+    {
+        foreach (var collectible in _resourceManager.Quests.CollectibleSpawns)
+        {
+            if (!TryCreateNpc(collectible.Guid, out var npc))
+                continue;
+
+            npc.ModelId = collectible.ModelId;
+            npc.NameId = collectible.NameId;
+            npc.Static = true;
+            npc.Scale = _resourceManager.Models.TryGetValue(collectible.ModelId, out var model) && model.Scale != 0f
+                ? model.Scale
+                : 1f;
+            npc.Visible = true;
+            npc.CursorId = 17; // hand cursor so it's clickable
+
+            var questCollectible = npc;
+            npc.InteractAction = interactingPlayer => _questManager.OnCollectInteract(interactingPlayer, questCollectible);
+
+            npc.UpdatePosition(collectible.Position, System.Numerics.Quaternion.Identity);
+            GetTileFromPosition(collectible.Position).Entities.TryAdd(npc.Guid, npc);
+        }
     }
 
     #region Client Is Ready
@@ -139,23 +167,9 @@ public sealed class StartingZone : BaseZone
 
         SendPointOfInterests(player);
 
-        SendUpdateStat(player);
-
-        var clientUpdatePacketHitpoints = new ClientUpdatePacketHitpoints
-        {
-            CurrentHitpoints = player.CurrentHitpoints,
-            MaxHitpoints = player.Stats[CharacterStatId.MaxHealth].Int
-        };
-
-        player.SendTunneled(clientUpdatePacketHitpoints);
-
-        var clientUpdatePacketMana = new ClientUpdatePacketMana
-        {
-            CurrentMana = player.CurrentMana,
-            MaxMana = player.Stats[CharacterStatId.MaxMana].Int
-        };
-
-        player.SendTunneled(clientUpdatePacketMana);
+        // Level-scaled character stats for the active job, plus full HP/mana. This also caches the stats
+        // on the player and sends the hitpoints + mana packets.
+        player.RecalculateStats(refill: true);
 
         SendReferenceData(player);
 
@@ -214,40 +228,6 @@ public sealed class StartingZone : BaseZone
         packetPointOfInterestDefinitionReply.Payload = writer.Buffer;
 
         player.SendTunneled(packetPointOfInterestDefinitionReply);
-    }
-
-    private void SendUpdateStat(Player player)
-    {
-        var clientUpdatePacketUpdateStat = new ClientUpdatePacketUpdateStat();
-
-        clientUpdatePacketUpdateStat.Guid = player.Guid;
-
-        // TODO
-        clientUpdatePacketUpdateStat.Stats.AddRange(
-        [
-            new CharacterStat(CharacterStatId.MaxHealth, 2500),
-            new CharacterStat(CharacterStatId.MaxMovementSpeed, 8f),
-            new CharacterStat(CharacterStatId.WeaponRange, 5f),
-            new CharacterStat(CharacterStatId.HitPointRegen, 25),
-            new CharacterStat(CharacterStatId.MaxMana, 100),
-            new CharacterStat(CharacterStatId.ManaRegen, 4),
-            new CharacterStat(CharacterStatId.MeleeChanceToHit, 100),
-            new CharacterStat(CharacterStatId.MeleeWeaponDamageMultiplier, 1f),
-            new CharacterStat(CharacterStatId.MeleeHandToHandDamage, 1),
-            new CharacterStat(CharacterStatId.EquippedMeleeWeaponDamage, 1),
-            new CharacterStat(CharacterStatId.MeleeAttackIntervalMs, 2000),
-            new CharacterStat(CharacterStatId.DamageMultiplier, 1f),
-            new CharacterStat(CharacterStatId.HealingMultiplier, 1f),
-            new CharacterStat(CharacterStatId.AbilityCriticalHitMultiplier, 1f),
-            new CharacterStat(CharacterStatId.HeadInflationPercent, 100),
-            new CharacterStat(CharacterStatId.RangeMultiplier, 1f),
-            new CharacterStat(CharacterStatId.FactoryProductionModifier, 1f),
-            new CharacterStat(CharacterStatId.FactoryYieldModifier, 1f),
-            new CharacterStat(CharacterStatId.InCombatHitPointRegen, 6),
-            new CharacterStat(CharacterStatId.InCombatManaRegen, 4)
-        ]);
-
-        player.SendTunneled(clientUpdatePacketUpdateStat);
     }
 
     private void SendReferenceData(Player player)

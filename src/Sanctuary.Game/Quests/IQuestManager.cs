@@ -18,6 +18,12 @@ public interface IQuestManager
     /// <summary>Player interacted with a quest NPC: turn in an active objective, or offer an available quest.</summary>
     void OnNpcInteract(Player player, Npc npc);
 
+    /// <summary>
+    /// Player interacted with a Collect-goal pickup (a spawned collectible world object): credit the active
+    /// Collect goal's count and, at the required count, tick the goal off and advance to the return step.
+    /// </summary>
+    void OnCollectInteract(Player player, Npc npc);
+
     /// <summary>Player accepted a quest offer (QuestReply, Accepted = true).</summary>
     void AcceptQuest(Player player, int questId);
 

@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Sanctuary.Game.Resources.Definitions;
 
 /// <summary>
@@ -52,7 +54,24 @@ public class QuestGoal
 
     /// <summary>
     /// For count goals (<see cref="QuestGoalType.Collect"/>/<see cref="QuestGoalType.Kill"/>): how many
-    /// of the thing are required. 0/1 = a single step. Not yet wired.
+    /// of the thing are required. 0 falls back to <see cref="CollectSpawns"/>.Count (collect them all).
+    /// The tracker renders "current/required" as the player collects.
     /// </summary>
     public int RequiredCount { get; set; }
+
+    /// <summary>
+    /// For <see cref="QuestGoalType.Collect"/>: the model (Models.txt id) each collectible world object
+    /// uses - e.g. 93 = bw_collectible_mushrooms_01. Spawned as interactable pickups the player clicks.
+    /// </summary>
+    public int CollectModelId { get; set; }
+
+    /// <summary>For <see cref="QuestGoalType.Collect"/>: the collectible's hover/name text id (Global.Text).</summary>
+    public int CollectNameId { get; set; }
+
+    /// <summary>
+    /// For <see cref="QuestGoalType.Collect"/>: world positions ([x, y, z] each) where the collectible
+    /// pickups spawn. Interacting with one credits the goal; at <see cref="RequiredCount"/> the goal ticks
+    /// off and the next goal (the "return" step) activates. Place at least <see cref="RequiredCount"/>.
+    /// </summary>
+    public List<float[]> CollectSpawns { get; set; } = new();
 }
