@@ -341,11 +341,9 @@ public sealed class StartingZone : BaseZone
             npc.ImageSetId = 0;
             npc.ShowHealthBar = false;      // MaxHealth stays 0 => not damageable
 
-            // Out in Snowhill, EAST of Gerold (35.7, 23.4, 345.6) — matching the quest text "knock out
-            // Frostfang Growlers to the east of Gerold". +0.6 on Y: the wolf model's origin sits above its
-            // feet, so at exact ground Y it half-sinks. (Ground height here is an estimate — verify with
-            // !arena and nudge if it floats/sinks.)
-            var pos = new Vector4(75f, 24.0f, 345.6f, 1f);
+            // Out in Snowhill, east of Gerold (150.9, 23.7, 381.4) — matching the quest text "knock out
+            // Frostfang Growlers to the east of Gerold". Position measured in-game via !arena.
+            var pos = new Vector4(202.2f, 34.6f, 504.7f, 1f);
             npc.UpdatePosition(pos, SpawnRotation);
 
             _growlerWolf = npc;
