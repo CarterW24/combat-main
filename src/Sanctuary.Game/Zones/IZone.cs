@@ -22,6 +22,15 @@ public interface IZone
     void OnClientFinishedLoading(Player entity);
     void RefreshPlayerCustomizations(Player player);
 
+    /// <summary>COMBAT: called when an NPC in this zone is killed, so the zone decides the consequence
+    /// (training dummy resets; encounter wolves despawn and advance the encounter; etc.).</summary>
+    void OnNpcKilled(Player killer, Npc npc);
+
+    /// <summary>COMBAT: called after every non-fatal hit lands on an NPC (post-ApplyDamage, when it did
+    /// NOT die), so the zone can react to HP thresholds — e.g. the Frostfang Alpha flees at low health
+    /// instead of dying. Default: no-op.</summary>
+    void OnNpcDamaged(Player attacker, Npc npc);
+
     #endregion
 
     #region Entities

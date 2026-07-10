@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Sanctuary.Core.Helpers;
 using Sanctuary.Database;
 using Sanctuary.Game;
+using Sanctuary.Game.Combat;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common;
 using Sanctuary.Packet.Common.Attributes;
@@ -162,6 +163,16 @@ public static class InventoryPacketEquipByGuidHandler
         playerUpdatePacketEquipItemChange.WieldType = itemClass.WieldType;
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange);
+
+        // COMBAT WIP: equipping a weapon (slot 7) on a Ninja refreshes the ability toolbar to match the new
+        // weapon's granted ability (item-driven abilities — see Sanctuary.Game.Combat.NinjaWeaponAbilities).
+        if (packet.Slot == 7 && connection.Player.ActiveProfileId == NinjaWeaponAbilities.NinjaProfileId)
+        {
+            connection.SendTunneled(NinjaWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
+
+            _logger.LogInformation("Refreshed Ninja ability toolbar after equipping weapon definition {def}.",
+                clientItemDefinition.Id);
+        }
 
         // Update the Weapon composite effect if we have a Flair Shard equipped.
         if (packet.Slot == 13)

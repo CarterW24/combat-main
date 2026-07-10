@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 
 using Sanctuary.Core.IO;
 using Sanctuary.Game;
+using Sanctuary.Game.Combat;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common.Attributes;
 
@@ -16,6 +17,7 @@ public static class CommandPacketSetProfileHandler
 {
     private static ILogger _logger = null!;
     private static IZoneManager _zoneManager = null!;
+    private static IResourceManager _resourceManager = null!;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
     {
@@ -23,6 +25,7 @@ public static class CommandPacketSetProfileHandler
         _logger = loggerFactory.CreateLogger(nameof(CommandPacketSetProfileHandler));
 
         _zoneManager = serviceProvider.GetRequiredService<IZoneManager>();
+        _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
     }
 
     public static bool HandlePacket(GatewayConnection connection, ReadOnlySpan<byte> data)
@@ -59,6 +62,15 @@ public static class CommandPacketSetProfileHandler
         clientUpdatePacketActivateProfile.CompositeEffect = 4005; // PFX_Job_Swirl
 
         connection.SendTunneled(clientUpdatePacketActivateProfile);
+
+        // COMBAT WIP: on swap to Ninja (profile 2), populate the ability toolbar from the EQUIPPED WEAPON
+        // (same builder zone-load + equip use). No Shadow Blade equipped => an empty bar.
+        if (profile.Id == NinjaWeaponAbilities.NinjaProfileId)
+        {
+            connection.SendTunneled(NinjaWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
+
+            _logger.LogInformation("Sent weapon-driven Ninja SetDefinition on swap to profile {id}.", profile.Id);
+        }
 
         var playerUpdatePacketEquippedItemsChange = new PlayerUpdatePacketEquippedItemsChange();
 

@@ -47,25 +47,11 @@ public static class CommandPacketAddFriendRequestHandler
         if (dbCharacter is null)
             return true;
 
-        var targetGuid = GuidHelper.GetPlayerGuid(dbCharacter.Id);
-
-        if (!_zoneManager.TryGetPlayer(targetGuid, out var player))
-        {
-            // TODO: Implement proper "friend target offline"
-
-            return true;
-        }
-
-        if (player.Guid == connection.Player.Guid)
+        if (!_zoneManager.TryGetPlayer(GuidHelper.GetPlayerGuid(dbCharacter.Id), out var player))
             return true;
 
         if (player.Ignores.Any(x => x.Guid == connection.Player.Guid))
             return true;
-
-        if (player.Friends.Any(x => x.Guid == connection.Player.Guid))
-            return true;
-
-        player.IncomingFriendRequests.TryAdd(connection.Player.Guid);
 
         var friendMessagePacket = new FriendMessagePacket();
 

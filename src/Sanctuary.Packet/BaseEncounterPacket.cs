@@ -20,5 +20,11 @@ public class BaseEncounterPacket
     {
         writer.Write(OpCode);
         writer.Write(SubOpCode);
+
+        // The client's header reader (BaseEncounterPacket::sub_8D6690) expects these two ints — without
+        // them every encounter packet is 8 bytes short and the client rejects it. (Likely an encounter
+        // id/instance; 0 is fine for global combat-state toggles.)
+        writer.Write(Unknown);
+        writer.Write(Unknown2);
     }
 }

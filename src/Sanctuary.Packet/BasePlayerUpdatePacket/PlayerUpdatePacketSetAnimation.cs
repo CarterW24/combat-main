@@ -2,27 +2,22 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Server -> client "play an animation on an entity" (opcode 35 / sub-opcode 8). Reverse-engineered from
-/// the client's PlayerUpdate dispatcher (FUN_0092f460 case 8) -> deserializer FUN_00908a50 -> field reader
-/// FUN_008e5dd0. The client resolves <see cref="Guid"/> to the entity and drives its animation mixer
-/// (FUN_0096c780 - logs "play anim %d", applies to the "upperbody"/full body).
-///
-/// Wire (after the 4-byte header short OpCode(35) + short SubOpCode(8)):
-///   ulong Guid       - target entity (client field +0x10/+0x14)
-///   int   AnimationId - the animation to play (+0x18); the "%d" in the client's "play anim %d"
-///   int   Unknown1c   - secondary param (+0x1c); blend/duration-ish, 0 works
-///   byte  Flags       - (+0x20) bit0: 1 = set the entity's base/idle anim (stored at entity+0x51c),
-///                       0 = play the animation now. Use 0 to play a one-shot/looping animation.
-/// </summary>
+// op35 sub8 "SetAnimation" — play an animation on an entity. Wire format (21 bytes, pcap-verified
+// 2026-07-02 against logs/2014-03-25.pcap AND RE'd from the client dispatcher FUN_0092f460 case 8):
+//   [int16 35][int16 8][ulong Guid][int32 AnimationId][int32 Unknown=0][byte PlayType]
+// The LIVE 2014 SOE server streams these alongside op125 position updates — THIS is how real NPCs
+// play locomotion/action clips while the movement manager slides their transform (without it: the
+// "wolves glide without running" bug). Live AnimationIds are full animation-group ids (e.g. 0xCF4).
+// PlayType (client +0x20): live samples are constant 2 = play now; bit0 set (1) = set the entity's
+// BASE/IDLE animation instead (stored at entity+0x51c) — used by the boombox continuous dances.
 public class PlayerUpdatePacketSetAnimation : BasePlayerUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 8;
 
     public ulong Guid;
     public int AnimationId;
-    public int Unknown1c;
-    public byte Flags;
+    public int Unknown;
+    public byte PlayType = 2; // constant 2 across all live samples; 1 = set as base/idle anim
 
     public PlayerUpdatePacketSetAnimation() : base(OpCode)
     {
@@ -32,12 +27,12 @@ public class PlayerUpdatePacketSetAnimation : BasePlayerUpdatePacket, ISerializa
     {
         using var writer = new PacketWriter();
 
-        base.Write(writer); // opcode 35 + sub-opcode 8
+        Write(writer); // [op 35][sub 8]
 
         writer.Write(Guid);
         writer.Write(AnimationId);
-        writer.Write(Unknown1c);
-        writer.Write(Flags);
+        writer.Write(Unknown);
+        writer.Write(PlayType);
 
         return writer.Buffer;
     }

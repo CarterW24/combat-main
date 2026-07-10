@@ -59,6 +59,10 @@ public class PlayerUpdatePacketAddNpc : BasePlayerUpdatePacket, ISerializablePac
 
     public string? Name;
 
+    // LIVE-PROVEN SEMANTICS (2026-07-03 A/B, builds 12 vs 13): sending TRUE here HIDES the overhead
+    // nameplate; FALSE shows it. Upstream's name is CORRECT. (The IDA struct annotation
+    // "m_bShowNamePlate" @0xBC is a bad label from an earlier RE pass — do NOT trust it; build 13
+    // trusted it, flipped the value, and the Alpha's name vanished.)
     public bool HideNamePlate;
 
     public float Unknown22;
@@ -103,7 +107,9 @@ public class PlayerUpdatePacketAddNpc : BasePlayerUpdatePacket, ISerializablePac
     [JsonConverter(typeof(Vector4JsonConverter))]
     public Vector4 Tilt;
 
-    public float NameColor;
+    // ARGB int (client reads m_nNameColor as int32; live hostiles send 0xFFFF0000 = opaque red).
+    // Was declared float here — an int color assigned through a float conversion mangles the bits.
+    public int NameColor;
 
     public int AreaDefinitionId;
 

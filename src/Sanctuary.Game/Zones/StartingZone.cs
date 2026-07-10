@@ -2,11 +2,14 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Threading.Tasks;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 using Sanctuary.Core.Extensions;
 using Sanctuary.Core.IO;
+using Sanctuary.Game.Combat;
 using Sanctuary.Game.Entities;
 using Sanctuary.Game.Resources.Definitions.Zones;
 using Sanctuary.Packet;
@@ -177,7 +180,17 @@ public sealed class StartingZone : BaseZone
 
         SendAdventurersJournalInfo(player);
 
-        SendWelcomeInfo(player);
+        // LOGIN ONLY — not on re-zone. This handler runs on EVERY zone-in to the overworld (including
+        // the return from the Frostfang arena), and PacketLoadWelcomeScreen makes the client pop the
+        // Welcome screen each time it arrives — on the return trip it opened OVER the encounter's
+        // victory score screen (user report 2026-07-04). Returning from a battle is a plain re-zone,
+        // not a fresh login. (The other reference-data sends above are invisible/idempotent — left
+        // alone to keep this change minimal.)
+        if (!player.LoginBurstSent)
+        {
+            player.LoginBurstSent = true;
+            SendWelcomeInfo(player);
+        }
 
         SendPlayerCustomizations(player);
 
@@ -200,7 +213,387 @@ public sealed class StartingZone : BaseZone
         // Repopulate the Hero's Journal + tracker for any in-progress quest after a relog (the client's
         // quest UI starts empty; player.Quests is restored from the DB but the packets must be replayed).
         _questManager.RestoreJournal(player);
+
+        SpawnTrainingDummy(player);
+
+        SpawnGrowlerWolf(player);
+
+        // COMBAT WIP: populate the left ability toolbar on zone load (so we don't have to swap jobs to
+        // trigger it). Replays the captured Ninja SetDefinition. Combat/"fighting" state is NOT set here —
+        // it's set on the first attack (in the StartAbility handler) so job swaps still work until you swing.
+        SendNinjaAbilityToolbar(player);
     }
+
+    // COMBAT WIP: fill the Ninja ability toolbar from the player's EQUIPPED WEAPON (see Combat/
+    // NinjaWeaponAbilities). Each "Ninja's Shadow Blade of X" grants the X ability; no Shadow Blade equipped
+    // => an empty bar. This is the zone-load populate (so no away-and-back job swap is needed).
+    private void SendNinjaAbilityToolbar(Player player)
+    {
+        if (player.ActiveProfileId != NinjaWeaponAbilities.NinjaProfileId) // Ninja
+            return;
+
+        var weaponDefId = player.GetEquippedWeaponDefinitionId();
+        var weapon = NinjaWeaponAbilities.GetEquippedWeapon(player);
+
+        _logger.LogInformation(
+            "Ninja toolbar on zone-load: equipped weapon def={def}, mapped={mapped} ({melee}/{special}).",
+            weaponDefId, weapon is not null, weapon?.Melee.Name ?? "-", weapon?.Special.Name ?? "-");
+
+        player.SendTunneled(NinjaWeaponAbilities.BuildToolbar(player, _resourceManager));
+    }
+
+    // COMBAT WIP: spawn a single hostile "training dummy" NPC near the spawn point so we have a
+    // target to select + attack while building ability resolution. Pushed directly to the readying
+    // player; the tile-visibility system shows it to anyone else nearby. (See docs/STATUS.md.)
+    private Npc? _trainingDummy;
+
+    // High HP so the bar visibly drains over many hits instead of dying every ~10 hits and respawning
+    // full (which made it look like only the last couple hits registered). Bumped to 50000 because the real
+    // ninja ability damage (from the wiki: 2609 melee .. 10674 special) would otherwise one-shot a 5000 dummy.
+    private const int TrainingDummyMaxHealth = 50000;
+
+    private void SpawnTrainingDummy(Player player)
+    {
+        if (_trainingDummy is null)
+        {
+            if (!TryCreateNpc(out var npc))
+                return;
+
+            npc.ModelId = 4;                // robgoblin_m_basic.adr — tagged "Combat NPC" in Models.txt
+                                            // (the crab 1667 is a passive critter; may not get a combat
+                                            //  health bar). Testing whether a real enemy model fixes it.
+            npc.Name = "Training Dummy";
+            npc.NameId = 0;
+            npc.Disposition = 0;            // 0 = Hostile
+            npc.ActiveProfile = 1;          // ★ non-default -> AddNpc apply runs SetProfileId -> color
+                                            // resolver re-runs post-disposition -> hostile = RED name
+                                            // (user-found 2026-07-03; default 0 skips the resolve)
+            npc.Scale = 1f;
+            npc.IsInteractable = false;     // no "Press X to talk" prompt — it's a combat target, not an NPC
+            npc.Visible = true;
+            npc.CursorId = 11;              // cursor_interaction_fight.cur -> crossed-swords attack cursor.
+                                            // (was 1 "cursor_interaction_combat" which renders NO cursor in this client)
+
+            // COMBAT WIP: make it damageable + show a health bar so abilities have a visible effect.
+            npc.MaxHealth = TrainingDummyMaxHealth;
+            npc.Health = TrainingDummyMaxHealth;
+            npc.ShowHealthBar = true;
+
+            // A few units off the zone spawn point so it stands in front of the player.
+            var pos = new Vector4(SpawnPosition.X + 5f, SpawnPosition.Y, SpawnPosition.Z, SpawnPosition.W);
+            npc.UpdatePosition(pos, SpawnRotation);
+
+            _trainingDummy = npc;
+        }
+
+        // Make sure this player sees it immediately (don't wait on tile movement).
+        player.OnAddVisibleNpcs(_trainingDummy);
+
+        // Mark it attackable (combat cursor) so the client lets the player select it as a target.
+        SendNpcRelevance(player, _trainingDummy);
+
+        // RED-NAME TEST (2026-07-03): the AddNpc Disposition int is IGNORED client-side (the apply uses
+        // the global arena flag; ctor default = 2 ALLY -> bluish name). op35/sub28 UpdateDisposition is
+        // the real per-NPC lever: Disposition 0 HOSTILE -> the color resolver (sub_966460) paints the
+        // overhead name RED (0xFFFF0000) as long as no static NameColor is set.
+        // (2026-07-03 red-name experiments removed — the dummy's blue name is correct client behavior
+        // for a non-arena zone; the nameplate color is resolved once at spawn. See docs/STATUS.md.)
+
+        // Initialize its health bar on the client.
+        SendNpcHealth(player, _trainingDummy);
+    }
+
+    // INSTANCE WIP (Frostfang Fury, step 1): the "Frostfang Growler" wolf NPC = the adventure-giver. For now
+    // (per user) he stands next to the HOME spawn so we can iterate — the icy cave-mouth POI (id 59,
+    // 92.81789,66.33743,554.8647) is NOT the video spot; the Sunrise video shows him out in the green grove, so
+    // the real overworld location is still TBD. Neutral + interactable (clicking opens the future offer popup).
+    private Npc? _growlerWolf;
+
+    private void SpawnGrowlerWolf(Player player)
+    {
+        if (_growlerWolf is null)
+        {
+            if (!TryCreateNpc(out var npc))
+                return;
+
+            npc.ModelId = 176;              // wolf.adr (basic wolf). Tint/swap to the white "frostfang" look later.
+            npc.Name = "Frostfang Growler";
+            npc.NameId = 0;
+            npc.Disposition = 1;            // Neutral — friendly adventure-giver, NOT a combat target
+            npc.Scale = 1f;
+            npc.IsInteractable = true;
+            npc.Visible = true;
+            npc.CursorId = 11;              // cursor_interaction_fight.cur — the crossed-swords FIGHT cursor.
+                                            // (cursor 1 "cursor_interaction_combat" renders NOTHING in this client
+                                            // — that's why the dummy showed no cursor. 11 is the real swords one.)
+                                            // ⚠️ VERIFY ON TEST: if the fight cursor turns the wolf into an attack
+                                            // target and breaks click-to-open, fall back to 5 (talk) + the marker.
+            // The purple crossed-swords encounter badge ABOVE the head is NOT a nameplate field at
+            // all — it's a NOTIFICATION (op35/sub10 AddNotifications -> OverHeadBitmapElement at
+            // offset (0,-0.9,0)); see the badge push after OnAddVisibleNpcs below.
+            npc.NameplateImageId = 0;
+            npc.ImageSetId = 0;
+            npc.ShowHealthBar = false;      // MaxHealth stays 0 => not damageable
+
+            // Next to the home spawn (the training dummy sits at X+5; put the wolf on the other side at X-6).
+            // +0.6 on Y: the wolf model's origin sits above its feet, so at exact ground Y it half-sinks.
+            var pos = new Vector4(SpawnPosition.X - 6f, SpawnPosition.Y + 0.6f, SpawnPosition.Z, SpawnPosition.W);
+            npc.UpdatePosition(pos, SpawnRotation);
+
+            _growlerWolf = npc;
+        }
+
+        player.OnAddVisibleNpcs(_growlerWolf);
+
+        // Same recipe the training dummy uses to be clickable: tell the client it has a cursor (relevance).
+        SendNpcRelevance(player, _growlerWolf);
+
+        SendGrowlerBadge(player);
+    }
+
+    // The reference video's crossed-swords badge floating ABOVE the Growler's head. RE'd 2026-07-02:
+    // op35/sub10 AddNotifications (byte-exact vs live 2014 pcap) -> client attaches an
+    // OverHeadBitmapElement above the character. ImageId 24 in NotificationImages.txt =
+    // tint-circle + circle + crossed-swords icon 1345 (the combat-encounter badge art).
+    //
+    // ★ RED BADGE + RED MINIMAP DOT, BLUE NAME (2026-07-05): the color is driven by the notification's
+    // Type field, NOT the NPC disposition — so we get the red combat look while the name stays neutral
+    // blue. GROUND TRUTH: in BOTH 2014 captures the img-24 combat-encounter badge is sent with
+    // Type = 3 (the "combat" category) + Unknown3 = 7, and EVERY red minimap-dot notification is Type 3
+    // (04-01 idx 1928/4291). Our old badge used the default Type = 1 (a quest category) -> the blue
+    // bubble/dot the user saw. Type 3 tints the bubble (NotificationImages layer 369, APPLY_TINT) and
+    // the minimap blip (layer 1345) red without any disposition change.
+    private void SendGrowlerBadge(Player player)
+    {
+        if (_growlerWolf is null)
+            return;
+
+        var badge = new PlayerUpdatePacketAddNotifications();
+        badge.Notifications.Add(new NotificationInfo
+        {
+            Guid = _growlerWolf.Guid,
+            ImageId = 24,
+            Type = 3,        // COMBAT category -> red badge tint + red minimap dot (live img-24 value)
+            Unknown3 = 7,    // live combat-badge value (was default 1)
+            Unknown10 = true // constant 1 across all live samples
+        });
+
+        player.SendTunneled(badge);
+    }
+
+    /// <summary>INSTANCE WIP: the Frostfang Growler adventure-giver wolf.</summary>
+    public Npc? GrowlerWolf => _growlerWolf;
+
+    /// <summary>Re-push the Growler wolf to a player (e.g. after a "!grove" teleport re-zone).</summary>
+    public void ShowGrowlerWolf(Player player)
+    {
+        if (_growlerWolf is not null)
+        {
+            player.OnAddVisibleNpcs(_growlerWolf);
+            SendGrowlerBadge(player);
+        }
+    }
+
+    // (SendNpcRelevance / SendNpcHealth moved to BaseZone — shared with the Frostfang arena zone.)
+
+    /// <summary>COMBAT WIP: the live combat target (training dummy).</summary>
+    public Npc? TrainingDummy => _trainingDummy;
+
+    // COMBAT WIP: eternal training dummy — instead of despawn/respawn (which stacked extra dummies
+    // across relogs), just reset it to full HP and refresh the bar so it's always there to hit.
+    public void ResetTrainingDummy()
+    {
+        var dummy = _trainingDummy;
+
+        if (dummy is null)
+            return;
+
+        dummy.Health = dummy.MaxHealth;
+
+        foreach (var zonePlayer in Players)
+            SendNpcHealth(zonePlayer, dummy);
+    }
+
+    // COMBAT: kill routing for this zone — the only killable NPC here is the eternal training dummy.
+    // (The Frostfang encounter wolves live in FrostfangArenaZone, which has its own override.)
+    public override void OnNpcKilled(Player killer, Npc npc)
+    {
+        if (ReferenceEquals(npc, _trainingDummy))
+            ResetTrainingDummy();
+    }
+
+    // COMBAT WIP: Shadow Army special — spawn temporary "shadow clone" NPCs around the caster, each using the
+    // caster's own model, wearing a shadow aura, appearing/vanishing in a puff of black ninja smoke, then
+    // despawning after a few seconds. (Customization/outfit copy is a client TODO, so clones are the base body
+    // + the shadow aura for now.) FX ids from ActorCompositeEffectDefinitions.xml.
+    private const int ShadowCloneModelId = 945;    // human_m_ninja_ghost.adr (Models.txt) — a clothed, ghostly shadow ninja
+    private const int ShadowCloneSmokePoof = 21;   // PFX_smoke_black_explosion (ninja appear/vanish poof)
+    // Clone AI: run to the enemy, then swing at it on a cooldown (the clones "help you fight").
+    private const int CloneTickMs = 300;           // movement/AI tick (client interpolates between updates)
+    private const int CloneAttackCooldownMs = 1400;
+    private const int CloneAttackAnimation = 1021; // com_1hs_attack_01 — sword swing
+    private const int CloneAttackDamage = 200;
+    private const int CloneHitFx = 15999;          // PFX_ninja-shadowblade_impact (shadow-blade hit on target)
+    private const float CloneMoveSpeed = 9f;       // units/sec toward the target
+    private const float CloneAttackRange = 2.5f;   // stop & swing within this distance
+    private const int CloneRunAnim = 3;            // loc_run · walk=2 · stand=1 (AnimationGroups.xml)
+
+    public void SummonShadowClones(Player summoner, int count, int lifetimeSeconds)
+    {
+        // small arc around the caster
+        (float dx, float dz)[] offsets = [(-2f, -2f), (2f, -2f), (0f, -3f), (-3f, 1f), (3f, 1f)];
+
+        var clones = new List<Npc>(count);
+
+        for (var i = 0; i < count; i++)
+        {
+            if (!TryCreateNpc(out var clone))
+                break;
+
+            var (dx, dz) = offsets[i % offsets.Length];
+            var pos = new Vector4(summoner.Position.X + dx, summoner.Position.Y, summoner.Position.Z + dz, summoner.Position.W);
+
+            clone.ModelId = ShadowCloneModelId; // clothed ghostly shadow ninja (fixes "naked" base body)
+            clone.Name = "Shadow Ninja";        // nameplate text (matches the real ability)
+            clone.NameId = 0;
+            clone.HideNamePlate = false;        // show the "Shadow Ninja" nameplate
+            clone.Disposition = 2;              // Ally (your shadow ninjas)
+            clone.Scale = 1f;
+            clone.IsInteractable = false;
+            clone.CursorId = 0;
+            clone.CompositeEffectId = 0;        // ghost model is already shadowy; NO persistent (_loop) aura -> nothing lingers
+            clone.RunAnimId = CloneRunAnim;     // play the run clip while moving to the enemy
+            clone.WalkAnimId = 2;               // loc_walk
+            clone.StandAnimId = 1;              // loc_stand
+            clone.Visible = true;
+            clone.UpdatePosition(pos, summoner.Rotation);
+
+            summoner.OnAddVisibleNpcs(clone);   // make it appear for the caster
+            clone.OnAddVisiblePlayers(summoner); // track the caster so Dispose() removes it from their client
+
+            // ninja smoke poof at the spawn spot
+            summoner.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+            {
+                Guid = clone.Guid,
+                CompositeEffectId = ShadowCloneSmokePoof,
+                Position = pos,
+            });
+
+            clones.Add(clone);
+        }
+
+        if (clones.Count == 0)
+            return;
+
+        _logger.LogInformation("Shadow Army: summoned {n} clones for {sec}s (model {model}).",
+            clones.Count, lifetimeSeconds, summoner.Model);
+
+        // despawn after the lifetime (off-thread, mirrors the damage-resolve pattern)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // CLONE AI: run to the dummy (re-targeting its position each tick = chase), then swing on a
+                // cooldown once in range. Position updates each tick; the client interpolates -> smooth run.
+                var totalMs = lifetimeSeconds * 1000;
+                var nextAttackMs = new int[clones.Count]; // per-clone next-attack time (ms since start)
+
+                for (var elapsed = 0; elapsed < totalMs; elapsed += CloneTickMs)
+                {
+                    await Task.Delay(CloneTickMs);
+
+                    var dummy = _trainingDummy;
+                    if (dummy is null)
+                        continue;
+
+                    var target = new Vector3(dummy.Position.X, dummy.Position.Y, dummy.Position.Z);
+
+                    for (var i = 0; i < clones.Count; i++)
+                    {
+                        var clone = clones[i];
+                        var here = new Vector3(clone.Position.X, clone.Position.Y, clone.Position.Z);
+                        var toTarget = target - here;
+                        var dist = toTarget.Length();
+
+                        // face the dummy (yaw about Y)
+                        var yaw = (float)Math.Atan2(toTarget.X, toTarget.Z);
+                        var rot = Quaternion.CreateFromYawPitchRoll(yaw, 0f, 0f);
+
+                        if (dist > CloneAttackRange)
+                        {
+                            // step toward the dummy
+                            var step = Math.Min(CloneMoveSpeed * (CloneTickMs / 1000f), dist - CloneAttackRange);
+                            var dir = toTarget / dist;
+                            var np = here + dir * step;
+                            var newPos = new Vector4(np.X, np.Y, np.Z, clone.Position.W);
+
+                            clone.UpdatePosition(newPos, rot);
+                            summoner.SendTunneled(new PlayerUpdatePacketUpdatePosition
+                            {
+                                Guid = clone.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
+                            });
+                        }
+                        else
+                        {
+                            // in range: hold, face the dummy, swing on cooldown
+                            clone.UpdatePosition(clone.Position, rot);
+                            summoner.SendTunneled(new PlayerUpdatePacketUpdatePosition
+                            {
+                                Guid = clone.Guid, Position = clone.Position, Rotation = rot, State = 0, Unknown = 0,
+                            });
+
+                            if (elapsed >= nextAttackMs[i] && dummy.IsAlive)
+                            {
+                                nextAttackMs[i] = elapsed + CloneAttackCooldownMs;
+
+                                // swing (StartCasting animates the clone's guid)
+                                summoner.SendTunneled(new AbilityPacketStartCasting
+                                {
+                                    Unknown = clone.Guid, Unknown2 = dummy.Guid, CompositeEffectId = 0,
+                                    Animation = CloneAttackAnimation, AbilityId = 0, ActionTime = 0.3f, HasActionProgress = false,
+                                });
+
+                                // damage + shadow-blade hit on the dummy
+                                var killed = dummy.ApplyDamage(CloneAttackDamage);
+                                summoner.SendTunneled(new CombatPacketAttackProcessed
+                                {
+                                    AttackerGuid = clone.Guid,
+                                    TargetGuid = dummy.Guid,
+                                    Damage = CloneAttackDamage,
+                                    MaxHealth = dummy.MaxHealth,
+                                    CompositeEffectId = CloneHitFx,
+                                    CurrentHealth = dummy.Health,
+                                });
+
+                                if (killed)
+                                    ResetTrainingDummy();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Shadow Army clone AI failed.");
+            }
+            finally
+            {
+                // poof out + remove every clone
+                foreach (var clone in clones)
+                {
+                    summoner.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+                    {
+                        Guid = clone.Guid,
+                        CompositeEffectId = ShadowCloneSmokePoof,
+                        Position = clone.Position,
+                    });
+
+                    clone.Dispose(); // RemovePlayer to the caster + clears zone tile + zone registration
+                }
+            }
+        });
+    }
+
 
     private void SendQuickChatData(Player player)
     {

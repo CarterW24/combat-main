@@ -1,28 +1,98 @@
+using System.Collections.Generic;
+
 using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
+// COMBAT WIP: BaseAbilityPacket (op36) sub-opcode 5 = AbilityPacketSetDefinition — populates a profile's
+// ability toolbar. Parameterized reconstruction (replaces the raw capture replay) so WE define the slots.
+//
+// Wire format CONFIRMED from IDA (AbilitySet::SerializeForClient + Ability::sub_8E6760):
+//   [op36][sub5][int ProfileId][int Count][Slot * Count]
+// Slot (Ability::sub_8E6760): int Type; if Type!=0: (Type 1/3 -> int Unknown2, int ManaCost; Type 2 ->
+//   int ItemDefinitionId) then int IconId, int NameId, int Unknown7, float Unknown8, int Unknown9,
+//   int AbilityDefinitionId, int Unknown11, bool Unknown12. Type 0 = empty slot (just the int).
+// Reproducing the captured Ninja set (Count=8, 2 full + 6 empty) yields the exact 118-byte capture.
 public class AbilityPacketSetDefinition : BaseAbilityPacket, ISerializablePacket
 {
     public new const short OpCode = 5;
 
-    public int AbilityId;
-    public int CooldownRemainingMs;
-    public int TotalCooldownMs;
+    public class Slot
+    {
+        public int Type = 3;          // 0 empty, 1/3 ability (AbilityDefinition), 2 item
+        public int Unknown2;          // capture: == AbilityDefinitionId
+        public int ManaCost;
+        public int ItemDefinitionId;  // Type 2 only
+        public int IconId;
+        public int NameId;
+        public int Unknown7 = 4;
+        public float Unknown8;
+        public int Unknown9 = 1;
+        public int AbilityDefinitionId;
+        public int Unknown11;
+        public bool Unknown12 = true;
+
+        public void Serialize(PacketWriter writer)
+        {
+            writer.Write(Type);
+
+            if (Type == 0)
+                return;
+
+            if (Type == 1 || Type == 3)
+            {
+                writer.Write(Unknown2);
+                writer.Write(ManaCost);
+            }
+            else if (Type == 2)
+            {
+                writer.Write(ItemDefinitionId);
+            }
+
+            writer.Write(IconId);
+            writer.Write(NameId);
+            writer.Write(Unknown7);
+            writer.Write(Unknown8);
+            writer.Write(Unknown9);
+            writer.Write(AbilityDefinitionId);
+            writer.Write(Unknown11);
+            writer.Write(Unknown12);
+        }
+    }
+
+    public int ProfileId;
+    public int SlotCount = 8;
+    public List<Slot?> Slots = new();
 
     public AbilityPacketSetDefinition() : base(OpCode)
     {
+    }
+
+    // COMBAT WIP: the toolbar is built by Sanctuary.Game.Combat.NinjaWeaponAbilities from the equipped weapon
+    // (slot 0 = common melee, slot 1 = the weapon's "of X" special). SlotCount stays 8 (matches the captured
+    // Ninja set: full slots + empties) so the packet keeps the wire shape the client accepts.
+    // CreateEmpty is sent when no ability-granting weapon is equipped.
+    public static AbilityPacketSetDefinition CreateEmpty(int profileId)
+    {
+        return new AbilityPacketSetDefinition { ProfileId = profileId, SlotCount = 8 };
     }
 
     public byte[] Serialize()
     {
         using var writer = new PacketWriter();
 
-        Write(writer);
+        base.Write(writer); // [op36][sub5]
 
-        writer.Write(AbilityId);
-        writer.Write(CooldownRemainingMs);
-        writer.Write(TotalCooldownMs);
+        writer.Write(ProfileId);
+        writer.Write(SlotCount);
+
+        for (var i = 0; i < SlotCount; i++)
+        {
+            if (i < Slots.Count && Slots[i] is { } slot)
+                slot.Serialize(writer);
+            else
+                writer.Write(0); // empty slot (Type = 0)
+        }
 
         return writer.Buffer;
     }

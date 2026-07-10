@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Sanctuary.Game.Entities;
 using Sanctuary.Game.Resources.Definitions;
 using Sanctuary.Game.Resources.Definitions.Zones;
+using Sanctuary.Packet;
 using Sanctuary.Packet.Common;
 using Sanctuary.UdpLibrary;
 
@@ -23,7 +24,7 @@ namespace Sanctuary.Game.Zones;
 [DebuggerDisplay("{Name} ({Id})")]
 public abstract class BaseZone : IZone, IDisposable
 {
-    private readonly ILogger _logger;
+    protected readonly ILogger _logger;
     private readonly IResourceManager _resourceManager;
     private readonly BaseZoneDefinition _zoneDefinition;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
@@ -85,6 +86,57 @@ public abstract class BaseZone : IZone, IDisposable
 
     public virtual void RefreshPlayerCustomizations(Player player)
     {
+    }
+
+    /// <summary>COMBAT: an NPC in this zone was killed — zones override to decide the consequence.</summary>
+    public virtual void OnNpcKilled(Player killer, Npc npc)
+    {
+    }
+
+    /// <summary>COMBAT: an NPC took a non-fatal hit — zones override to react to HP thresholds.</summary>
+    public virtual void OnNpcDamaged(Player attacker, Npc npc)
+    {
+    }
+
+    #endregion
+
+    #region Combat helpers
+
+    // COMBAT: tell the client this NPC has a cursor (attack/talk) so it is selectable as a target.
+    public void SendNpcRelevance(Player player, Npc npc)
+    {
+        if (npc.CursorId == 0)
+            return;
+
+        var relevance = new PlayerUpdatePacketNpcRelevance();
+
+        relevance.Entries.Add(new PlayerUpdatePacketNpcRelevance.Entry
+        {
+            Guid = npc.Guid,
+            Unknown = true,        // "has cursor" (provisional)
+            CursorId = npc.CursorId,
+        });
+
+        player.SendTunneled(relevance);
+    }
+
+    // COMBAT: push an NPC's current/max health to a player so its nameplate health bar renders.
+    public void SendNpcHealth(Player player, Npc npc)
+    {
+        if (!npc.IsDamageable)
+            return;
+
+        var updateStat = new ClientUpdatePacketUpdateStat { Guid = npc.Guid };
+        updateStat.Stats.Add(new CharacterStat(CharacterStatId.MaxHealth, npc.MaxHealth));
+        player.SendTunneled(updateStat);
+
+        var updateHitpoints = new PlayerUpdatePacketUpdateHitpoints
+        {
+            Guid = npc.Guid,
+            Hitpoints = npc.Health,
+            MaxHitpoints = npc.MaxHealth
+        };
+        player.SendTunneled(updateHitpoints);
     }
 
     #endregion

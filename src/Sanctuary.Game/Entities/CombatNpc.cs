@@ -258,12 +258,17 @@ public class CombatNpc : Npc
 
         CurrentHitpoints = Math.Max(0, CurrentHitpoints - amount);
 
-        // Broadcast HP modification (floating combat number)
+        // Broadcast HP modification (floating combat number). Field mapping per the IDA-confirmed
+        // wire format: Guid = ATTACKER, Guid2 = VICTIM, Unknown2 = max HP, Unknown3 = current HP
+        // after the hit, Unknown4 = delta (-damage = the floating number).
         var hpMod = new PlayerUpdatePacketHitPointModification
         {
-            TargetGuid = Guid,
-            Amount = -amount,
-            SourceGuid = source.Guid
+            Guid = source.Guid,
+            Guid2 = Guid,
+            Unknown = true,
+            Unknown2 = MaxHitpoints,
+            Unknown3 = CurrentHitpoints,
+            Unknown4 = -amount
         };
 
         foreach (var player in VisiblePlayers.Values)
@@ -407,7 +412,7 @@ public class CombatNpc : Npc
         var hpUpdate = new PlayerUpdatePacketUpdateHitpoints
         {
             Guid = Guid,
-            CurrentHitpoints = CurrentHitpoints,
+            Hitpoints = CurrentHitpoints,
             MaxHitpoints = MaxHitpoints
         };
 

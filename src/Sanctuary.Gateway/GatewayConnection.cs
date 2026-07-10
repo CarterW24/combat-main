@@ -218,13 +218,16 @@ public class GatewayConnection : UdpConnection
         Player.ModelCustomization = dbCharacter.ModelCustomization;
         Player.ModelCustomizationId = dbCharacter.ModelCustomizationId ?? 0;
 
-        var position = dbCharacter.PositionX.HasValue && dbCharacter.PositionY.HasValue && dbCharacter.PositionZ.HasValue
-            ? new Vector4(dbCharacter.PositionX.Value, dbCharacter.PositionY.Value, dbCharacter.PositionZ.Value, 1f)
-            : startingZone.SpawnPosition;
-
-        var rotation = dbCharacter.RotationX.HasValue && dbCharacter.RotationZ.HasValue
-            ? new Quaternion(dbCharacter.RotationX.Value, 0f, dbCharacter.RotationZ.Value, 0f)
-            : startingZone.SpawnRotation;
+        // COMBAT/INSTANCE WIP: always spawn at the starting-zone spawn (right by the training dummy) on login,
+        // ignoring the saved DB position. During the encounter/instance RE we constantly teleport-probe to test
+        // coords (e.g. !frostfang) which can persist a floorless position and make the next login fall through
+        // the map. Forcing the spawn makes login a reliable recovery point. (Revert to the saved-position logic
+        // below once instance entry is stable.)
+        //   var position = dbCharacter.PositionX.HasValue && dbCharacter.PositionY.HasValue && dbCharacter.PositionZ.HasValue
+        //       ? new Vector4(dbCharacter.PositionX.Value, dbCharacter.PositionY.Value, dbCharacter.PositionZ.Value, 1f)
+        //       : startingZone.SpawnPosition;
+        var position = startingZone.SpawnPosition;
+        var rotation = startingZone.SpawnRotation;
 
         Player.UpdatePosition(position, rotation);
 
@@ -234,7 +237,6 @@ public class GatewayConnection : UdpConnection
         Player.Coins = dbCharacter.Coins;
 
         Player.Birthday = dbCharacter.Created;
-        Player.PlayTime = dbCharacter.PlayTime;
 
         Player.MembershipStatus = dbCharacter.MembershipStatus;
         Player.ShowMemberNagScreen = _options.ShowMemberNagScreen;
@@ -282,6 +284,26 @@ public class GatewayConnection : UdpConnection
                     };
 
                     clientPcProfile.Items.Add(clientItemDefinition.Slot, profileItem);
+                }
+            }
+
+            // COMBAT WIP: combat jobs (Type 2) ship with an empty ability list, so the client shows
+            // no ability bar. Populate the first few slots with functional TEST abilities (Type 3 =
+            // AbilityDefinition) so the bar renders and clicking one fires a StartAbility packet our
+            // handler logs. IconId/NameId reuse known-valid resource ids; AbilityDefinitionId is a
+            // placeholder until we mine real ids. (See docs/STATUS.md.)
+            if (profileData.Type == 2)
+            {
+                for (var i = 0; i < clientPcProfile.Abilities.Count; i++)
+                {
+                    clientPcProfile.Abilities[i] = new Ability
+                    {
+                        Type = i < 4 ? 3 : 0,          // first 4 slots populated, rest empty
+                        ManaCost = 0,                  // 0 cost so the client's energy check passes & it actually sends StartAbility
+                        IconId = 1334,
+                        NameId = 2836,
+                        AbilityDefinitionId = i + 1,   // placeholder ids 1..4
+                    };
                 }
             }
 

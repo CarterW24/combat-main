@@ -832,7 +832,7 @@ public sealed class QuestManager : IQuestManager
 
         // Reward-earned celebration (coins + XP fly-in with sound).
         if (coins > 0 || experience > 0)
-            player.SendTunneled(new RewardBundlePacket { RewardCoins = coins, RewardExperience = experience });
+            player.SendTunneled(new RewardBundlePacket { Coins = coins, Xp = experience });
 
         // Item rewards - defined per quest in Resources/Quests.json ("RewardItems": [id, ...]).
         foreach (var itemDefinitionId in quest.RewardItems)

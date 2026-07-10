@@ -37,6 +37,19 @@ public sealed class Player : ClientPcData, IEntity
     /// </summary>
     public DateTime LastQuestAcceptedAt { get; set; }
 
+    /// <summary>True once the login-only zone-in burst (Welcome screen etc.) has been sent this
+    /// session. The overworld's OnClientIsReady runs on EVERY zone-in — including the return from a
+    /// combat instance — and re-sending PacketLoadWelcomeScreen there re-opens the client's Welcome
+    /// popup (Main.wndWelcomeHandler) ON TOP of the encounter's victory screen (live bug 2026-07-04).</summary>
+    public bool LoginBurstSent { get; set; }
+
+    /// <summary>LOOT WHEEL: the prize the victory wheel was told to land on (set when the encounter
+    /// sends MiniGameLootWheelSetItemToLandOn; consumed by the C2S LootWheelOnRotationStopped handler,
+    /// which grants it). Null = no spin pending. A null prize with PendingWheelCoins &gt; 0 = the
+    /// COINS slice.</summary>
+    public Sanctuary.Packet.RewardEntry? PendingWheelPrize { get; set; }
+    public int PendingWheelCoins { get; set; }
+
     public IZone Zone { get; set; }
     public ZoneTile ZoneTile { get; private set; } = ZoneTile.Empty;
     public ConcurrentDictionary<ulong, Npc> VisibleNpcs { get; } = [];
@@ -119,7 +132,6 @@ public sealed class Player : ClientPcData, IEntity
     public System.Action? PendingQuestEndAction { get; set; }
 
     public void Disconnect() => _connection.Disconnect();
-
 
     public Vector4 StartingZonePosition { get; set; }
     public Quaternion StartingZoneRotation { get; set; }
@@ -469,7 +481,7 @@ public sealed class Player : ClientPcData, IEntity
         SendTunneledToVisible(new PlayerUpdatePacketUpdateHitpoints
         {
             Guid = Guid,
-            CurrentHitpoints = CurrentHitpoints,
+            Hitpoints = CurrentHitpoints,
             MaxHitpoints = maxHealth
         }, sendToSelf: true);
 
@@ -532,6 +544,17 @@ public sealed class Player : ClientPcData, IEntity
     }
 
     public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation)
+    {
+        // Preserve the original hardcoded values for existing (deep-mines test) callers.
+        TeleportToZone(zone, position, rotation, "sky_deep_mines.xml", 214);
+    }
+
+    // INSTANCE (Frostfang Fury): overload with explicit sky/geometry so real zone transfers (e.g. the
+    // sg_random_encounter_clearing arena) can use the destination world's own sky (null) instead of the
+    // deep-mines test values. This is the PROPER server-side zone handoff — tiles/visibility rebuilt,
+    // OverrideUpdateRadius=true (the client's case-31 handler feeds this to ActorManager::SetOverrideUpdateRadius;
+    // without it NPCs in the new world get distance-culled -> the "invisible wolves" bug).
+    public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation, string? sky, int geometryId)
     {
         if (Zone == zone)
         {
@@ -601,9 +624,9 @@ public sealed class Player : ClientPcData, IEntity
             Name = Zone.Name,
             Position = position,
             Rotation = rotation,
-            Sky = "sky_deep_mines.xml",
+            Sky = sky,
             Id = Zone.Id,
-            GeometryId = 214,
+            GeometryId = geometryId,
             OverrideUpdateRadius = true
         };
 
@@ -810,6 +833,24 @@ public sealed class Player : ClientPcData, IEntity
 
                 SendTunneled(playerUpdatePacketRemovePlayerGracefully);
             }
+            else if (npc.GracefulRemoval is { } graceful)
+            {
+                // Live-server despawn (04-01 capture): the ONE graceful-remove packet carries the whole
+                // death presentation — Animate=true plays the model's own death clip client-side, the
+                // composite effect (5017 poof) fires and the actor despawns after Delay ms. No separate
+                // SetAnimation / PlayCompositeEffect packets are needed (the real server sends none).
+                var packet = new PlayerUpdatePacketRemovePlayerGracefully();
+
+                packet.Guid = npc.Guid;
+
+                packet.Animate = graceful.Animate;
+                packet.Delay = graceful.Delay;
+                packet.EffectDelay = graceful.EffectDelay;
+                packet.CompositeEffectId = graceful.EffectId;
+                packet.Duration = graceful.Duration;
+
+                SendTunneled(packet);
+            }
             else
             {
                 var playerUpdatePacketRemovePlayer = new PlayerUpdatePacketRemovePlayer();
@@ -903,6 +944,18 @@ public sealed class Player : ClientPcData, IEntity
         }
 
         return list;
+    }
+
+    // COMBAT WIP: the item-definition id of the weapon currently equipped in the weapon slot (7), or 0 if
+    // none. Used to drive the ability toolbar off the equipped weapon (see Combat/NinjaWeaponAbilities).
+    public int GetEquippedWeaponDefinitionId()
+    {
+        if (!ActiveProfile.Items.TryGetValue(7, out var profileItem))
+            return 0;
+
+        var clientItem = Items.FirstOrDefault(x => x.Id == profileItem.Id);
+
+        return clientItem?.Definition ?? 0;
     }
 
     public CharacterAttachmentData? GetAttachment(int slot)
@@ -1012,7 +1065,7 @@ public sealed class Player : ClientPcData, IEntity
             TemporaryAppearanceExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(durationMs);
 
         if (effectId != 0)
-            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = effectId, Position = Position, Clear = false }, true);
+            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = effectId, Position = Position }, true);
 
         SendTunneledToVisible(new PlayerUpdatePacketUpdateTemporaryAppearance { Guid = Guid, TemporaryAppearance = modelId }, true);
     }
@@ -1024,7 +1077,7 @@ public sealed class Player : ClientPcData, IEntity
 
         if (_temporaryAppearanceEffectId != 0)
         {
-            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = _temporaryAppearanceEffectId, Position = Position, Clear = false }, true);
+            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = _temporaryAppearanceEffectId, Position = Position }, true);
             _temporaryAppearanceEffectId = 0;
         }
 
@@ -1065,11 +1118,16 @@ public sealed class Player : ClientPcData, IEntity
 
     public void Dispose()
     {
-        Mount?.Dispose();
-        Mount = null;
-
         foreach (var visiblePlayer in VisiblePlayers)
             visiblePlayer.Value.OnRemoveVisiblePlayers([this]);
+
+        if (Mount is not null)
+        {
+            Mount.ZoneTile.Entities.Remove(Mount.Guid, out _);
+
+            Zone.TryRemoveNpc(Mount.Guid);
+            Mount = null;
+        }
 
         ZoneTile.Entities.Remove(Guid, out _);
 

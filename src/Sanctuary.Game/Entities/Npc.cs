@@ -25,10 +25,27 @@ public class Npc : IEntity
 
     public int NameId { get; set; }
     public string? Name { get; set; }
+
+    /// <summary>Nameplate text color (AddNpc.NameColor; 0 = client default). Bosses in the reference
+    /// video render RED names — first candidate mechanism alongside op32/sub9 EnableBossDisplay.</summary>
+    public int NameColor { get; set; }
     public int SubTextNameId { get; set; }
+    /// <summary>HIDE the overhead nameplate. LIVE-PROVEN 2026-07-03 (builds 12 vs 13): true hides,
+    /// false shows — upstream's name is correct; the IDA "m_bShowNamePlate" annotation is wrong.</summary>
     public bool HideNamePlate { get; set; }
+
+    /// <summary>AddNpc ActiveProfile. MUST be non-default (we use 1) for the nameplate color to
+    /// resolve from disposition (red hostiles) — see the notes on <see cref="Disposition"/> and in
+    /// GetAddNpcPacket. 0 = client keeps the ctor-baked ally blue. LIVE-CONFIRMED 2026-07-03.
+    /// POLICY: leave 0 (default) on normal NPCs; set non-zero ONLY on mobs/bosses (hostiles).</summary>
+    public int ActiveProfile { get; set; }
     public int NameplateImageId { get; set; }
     public float VerticalOffset { get; set; }
+
+    /// <summary>Overhead name text SCALE. RE'd 2026-07-03: ProxiedCharacter::Process @0x973200 does
+    /// `if (m_fNameScale != 0) Display_EliteNameScale = m_fNameScale` — so this AddNpc field directly
+    /// sets the name text size. 0 = client default (~normal); &gt;1 = bigger letters (the video's boss).</summary>
+    public float NameScale { get; set; }
 
     public int ModelId { get; set; }
     public int TerrainObjectId { get; set; }
@@ -43,11 +60,69 @@ public class Npc : IEntity
     /// 0 - Hostile
     /// 1 - Neutral
     /// 2 - Ally
+    ///
+    /// HOW DISPOSITION DRIVES THE NAMEPLATE COLOR (RE'd + live-proven 2026-07-03):
+    /// the client colors overhead names in ONE place, the resolver ProxiedCharacter::sub_966460.
+    /// When NameColor == 0 it picks the color from disposition: 0 (hostile) = RED (0xFFFF0000),
+    /// anything else = the bluish NPC default (0xFF6699CC). BUT the resolver only runs from the
+    /// ProxiedCharacter ctor / SetProfileId / SetIsMember — and the ctor runs BEFORE the packet's
+    /// disposition is applied (ctor default = 2 Ally = blue). There is no post-spawn recolor packet
+    /// (op35/sub28 sets disposition but never repaints), so a hostile only renders red if the
+    /// resolver RE-runs after the AddNpc apply writes disposition — which is what a non-default
+    /// <see cref="ActiveProfile"/> triggers. In short: red name = Disposition 0 + NameColor 0
+    /// + ActiveProfile != 0, all at spawn time.
     /// </summary>
     public int Disposition { get; set; } = 1;
     public System.Action<Player>? InteractAction { get; set; }
 
+    // COMBAT WIP: server-side health so abilities can damage/kill this NPC.
+    // MaxHealth == 0 means "not damageable" (no health bar). See docs/STATUS.md.
+    public int MaxHealth { get; set; }
+    public int Health { get; set; }
+
+    /// <summary>Render a nameplate health bar (maps to AddNpc.Unknown41).</summary>
+    public bool ShowHealthBar { get; set; }
+
+    public bool IsHostile => Disposition == 0;
+    public bool IsDamageable => MaxHealth > 0 && !Invulnerable;
+    public bool IsAlive => MaxHealth == 0 || Health > 0;
+
+    /// <summary>Damage immunity toggle (e.g. the defeated Frostfang Alpha while he runs off —
+    /// the reference video shows he can't be hit once he breaks).</summary>
+    public bool Invulnerable { get; set; }
+
+    /// <summary>When set, Dispose()'s remove packet is the GRACEFUL form with these live-wire params
+    /// (op35/sub3 RemovePlayerGracefully). GROUND TRUTH (04-01 capture): a dying pack wolf is removed
+    /// with (Animate=true, Delay=2000, fx 5017, Duration=1000) and NOTHING else — Animate makes the
+    /// client play the model's own death clip, then the composite effect + despawn after Delay ms.
+    /// The defeated Alpha uses Delay=10000 (he visibly runs off for 10s instead). Null = abrupt remove.</summary>
+    public (bool Animate, int Delay, int EffectDelay, int EffectId, int Duration)? GracefulRemoval { get; set; }
+
+    /// <summary>Apply damage; returns true if this hit killed the NPC.</summary>
+    public bool ApplyDamage(int amount)
+    {
+        if (!IsAlive)
+            return false;
+
+        Health -= amount;
+
+        if (Health <= 0)
+        {
+            Health = 0;
+            return true;
+        }
+
+        return false;
+    }
+
     public int Animation { get; set; } = 1;
+
+    // Locomotion animation group ids. -1 = "use the model's own clips" — the live 2014 server sends
+    // -1 on EVERY NPC (370/370 AddNpc packets in the 2014-03-25 capture). 0 or a guessed id replaces
+    // the model's run clip with an invalid one and the actor slides un-animated.
+    public int WalkAnimId { get; set; } = -1;
+    public int RunAnimId { get; set; } = -1;
+    public int StandAnimId { get; set; } = -1;
 
     public int CompositeEffectId { get; set; }
 
@@ -55,7 +130,25 @@ public class Npc : IEntity
     public int InteractRange { get; set; } = 5;
     public bool IsInteractable { get; set; } = true;
 
+    // MOVEMENT (client OnPlayerUpdatePosition @0x90DE90, RE'd 2026-07-02): the client applies op125
+    // position updates ONLY when the actor's MovementType is 1 (CONTROLLER: ClientMovementManager
+    // interpolates to the sent position at ExpectedSpeed) or 2 (PHYSICS: network-player style with
+    // gravity/fall states). Type 0 = static scenery — updates are parsed then silently DROPPED
+    // (that was the "wolves frozen at spawn in the treetops" bug).
     public int MovementType { get; set; }
+
+    /// <summary>Movement speed baked into AddNpc (feeds the client's ExpectedSpeed for this actor —
+    /// at 0 a CONTROLLER/PHYSICS actor has no speed to move with).</summary>
+    public float Speed { get; set; }
+
+    /// <summary>Rider gate: OnPlayerUpdatePosition ignores actors whose rider != the invalid-guid
+    /// sentinel (0xFFFFFFFFFFFFFFFF). Send the sentinel for AI NPCs ("no rider").</summary>
+    public ulong RiderGuid { get; set; }
+
+    // AddNpc bool #38. GROUND TRUTH (2014-03-25 capture): set to 1 on every red-name attackable camp
+    // hostile (nameId 440711/440712, disp 0, nameColor FFFF0000) and 0 on every friendly — the
+    // "render as enemy" status flag that goes with the red name.
+    public bool EnemyStatus { get; set; }
 
     public int AreaDefinitionId { get; set; }
 
@@ -69,10 +162,6 @@ public class Npc : IEntity
     public IResourceManager? ResourceManager { get; set; }
     public int NotificationImageSetId { get; set; }
     public int Unknown68 { get; set; }
-    public float NameScale { get; set; }
-    public int ActiveProfile { get; set; }
-    public float Speed { get; set; }
-    public int StandAnimId { get; set; }
 
     public List<CharacterAttachmentData> Attachments { get; set; } = [];
 
@@ -201,15 +290,15 @@ public class Npc : IEntity
 
             TerrainObjectId = TerrainObjectId,
 
-            Speed = default,
+            Speed = Speed,
 
             Unknown28 = default,
 
             InteractRange = InteractRange,
 
-            WalkAnimId = default, // Walk GroupAnimId
-            RunAnimId = default, // Sprint GroupAnimId
-            StandAnimId = default, // Idle GroupAnimId
+            WalkAnimId = WalkAnimId, // Walk GroupAnimId
+            RunAnimId = RunAnimId, // Sprint GroupAnimId
+            StandAnimId = StandAnimId, // Idle GroupAnimId
 
             Unknown33 = default,
             Unknown34 = default,
@@ -220,10 +309,10 @@ public class Npc : IEntity
             TemporaryAppearance = default,
 
 
-            Unknown38 = default,
+            Unknown38 = EnemyStatus,
             Unknown39 = default,
             Unknown40 = default,
-            Unknown41 = default,
+            Unknown41 = ShowHealthBar, // Health bar
             Unknown42 = default,
 
             HasTilt = default,
@@ -231,7 +320,7 @@ public class Npc : IEntity
 
             Tilt = default,
 
-            NameColor = default,
+            NameColor = NameColor,
 
             AreaDefinitionId = AreaDefinitionId,
 
@@ -239,7 +328,7 @@ public class Npc : IEntity
 
             IsInteractable = IsInteractable,
 
-            RiderGuid = default,
+            RiderGuid = RiderGuid,
 
             MovementType = MovementType,
 
@@ -265,6 +354,13 @@ public class Npc : IEntity
 
             FlyByEffectId = default,
 
+            // ★ THE RED-NAME KEY (user-found, 2026-07-03): ActiveProfile must be NON-DEFAULT. The
+            // client's AddNpc apply calls SetProfileId(packet.ActiveProfile) AFTER writing the NPC's
+            // disposition — and SetProfileId is what re-runs the nameplate COLOR RESOLVER (sub_966460).
+            // But SetProfileId guards on change: ActiveProfile == the ctor default means it short-
+            // circuits, the resolver never re-runs, and the name keeps the ctor-baked ALLY blue.
+            // A non-default profile makes the resolver run with the REAL disposition -> hostile
+            // (Disposition 0) + NameColor 0 = RED name. Order of operations, nothing more.
             ActiveProfile = ActiveProfile,
 
             NotificationImageSetId = NotificationImageSetId,

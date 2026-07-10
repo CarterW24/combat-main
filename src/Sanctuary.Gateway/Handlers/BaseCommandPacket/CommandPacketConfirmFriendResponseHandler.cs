@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -42,11 +43,10 @@ public static class CommandPacketConfirmFriendResponseHandler
 
         _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(CommandPacketConfirmFriendResponse), packet);
 
-        if (!connection.Player.IncomingFriendRequests.TryRemove(packet.Guid))
-            return true;
-
         if (!_zoneManager.TryGetPlayer(packet.Guid, out var player))
             return true;
+
+        Debug.WriteLine($"Inviter: {player.Name.FullName}, Invitee: {connection.Player.Name.FullName}");
 
         var friendMessagePacket = new FriendMessagePacket();
 

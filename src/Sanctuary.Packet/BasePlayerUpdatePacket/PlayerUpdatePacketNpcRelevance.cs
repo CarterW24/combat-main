@@ -19,6 +19,7 @@ public class PlayerUpdatePacketNpcRelevance : BasePlayerUpdatePacket, ISerializa
         /// </summary>
         public byte CursorId;
 
+        /// <summary>True when the NPC should be selectable/clickable (quest NPCs send true).</summary>
         public bool HasCursor;
 
         public void Serialize(PacketWriter writer)
@@ -26,9 +27,7 @@ public class PlayerUpdatePacketNpcRelevance : BasePlayerUpdatePacket, ISerializa
             writer.Write(Guid);
 
             writer.Write(Unknown);
-
             writer.Write(CursorId);
-
             writer.Write(HasCursor);
         }
     }
