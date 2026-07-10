@@ -6,9 +6,9 @@
     "ModelId": 967,
     "ModelFileName": "human_m_harold.agr",
     "SpawnPosition": [
-      33.0,
-      31.0,
-      345.0
+      35.7,
+      23.4,
+      345.6
     ],
     "SpawnHeading": 1.487
   },
@@ -20,7 +20,7 @@
     "ModelFileName": "human_m_freestyle_09.agr",
     "SpawnPosition": [
       63.0,
-      31.0,
+      23.4,
       378.0
     ],
     "SpawnHeading": -1.6
