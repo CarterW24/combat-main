@@ -43,6 +43,12 @@ public sealed class Player : ClientPcData, IEntity
     /// popup (Main.wndWelcomeHandler) ON TOP of the encounter's victory screen (live bug 2026-07-04).</summary>
     public bool LoginBurstSent { get; set; }
 
+    /// <summary>Set once the Hero's Journal has been repopulated this session. The client keeps the
+    /// journal across a re-zone (e.g. the Frostfang arena round-trip), so re-sending QuestAdd on every
+    /// overworld entry APPENDS duplicate rows the client never dedupes - and completion can only clear
+    /// one, leaving finished quests stuck in the helper. Gate the restore to login only.</summary>
+    public bool JournalRestored { get; set; }
+
     /// <summary>LOOT WHEEL: the prize the victory wheel was told to land on (set when the encounter
     /// sends MiniGameLootWheelSetItemToLandOn; consumed by the C2S LootWheelOnRotationStopped handler,
     /// which grants it). Null = no spin pending. A null prize with PendingWheelCoins &gt; 0 = the

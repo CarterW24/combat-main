@@ -218,7 +218,13 @@ public sealed class StartingZone : BaseZone
 
         // Repopulate the Hero's Journal + tracker for any in-progress quest after a relog (the client's
         // quest UI starts empty; player.Quests is restored from the DB but the packets must be replayed).
-        _questManager.RestoreJournal(player);
+        // LOGIN ONLY: the client keeps the journal across a re-zone (e.g. returning from the Frostfang
+        // arena), so re-sending here would append duplicate rows that completion can't fully clear.
+        if (!player.JournalRestored)
+        {
+            player.JournalRestored = true;
+            _questManager.RestoreJournal(player);
+        }
 
         SpawnTrainingDummy(player);
 
