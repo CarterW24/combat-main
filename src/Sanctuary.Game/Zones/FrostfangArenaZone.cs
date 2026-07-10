@@ -275,10 +275,14 @@ public sealed class FrostfangArenaZone : BaseZone
         new() { Hidden = true,  IconId = 973,  TintId = -1,  NameId = 6666,   ItemDefId = 10482 }, // Battle Item Mystery Pack
     ];
     // Real preview bundle values, IDA-verified 2026-07-04 (bundle U2 = Num Coins, U3 = Experience):
-    // 10 coins, 0 XP. The encounter's XP (10) was granted by the GOAL's own reward bundle on live —
-    // wire that up with the real XP/level system (backburner task, see STATUS.md).
+    // 10 coins, 0 XP. The encounter's XP was granted by the GOAL's own reward bundle on live — that's
+    // EncounterXp below, granted for real in WinEncounter via the job XP/level system.
     public const int PrizeCoins = 10;
     public const int PrizeXp = 0;
+
+    /// <summary>Job XP granted at the encounter win (live: 10, delivered by the goal's own reward
+    /// bundle rather than the wheel preview — the popup preview correctly keeps showing 0 XP).</summary>
+    public const int EncounterXp = 10;
 
     // ARCHER set — the REFERENCE VIDEO's ground truth (its player was an archer; popup frame at 0:09
     // shows exactly these three): Power Shard of Vitality I / Ring of Regeneration I / Bow of Volleys —
@@ -1276,6 +1280,12 @@ public sealed class FrostfangArenaZone : BaseZone
         //    + op47/sub3 (the Goals-window row flips to done). Live sends no per-kill ticks before this.
         player.SendTunneled(new ObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
         player.SendTunneled(new UiObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
+
+        // 2b) Goal reward: the encounter XP (live: 10, from the goal's own reward bundle). AwardXp
+        //     drives the ACTIVE job's real level bar (+ level-up celebration when it tips); the
+        //     RewardBundlePacket is the coins/XP fly-in banner the live goal bundle produced.
+        player.AwardXp(EncounterXp);
+        player.SendTunneled(new RewardBundlePacket { Xp = EncounterXp });
 
         // 3) ★ LOOT WHEEL (real end flow, 04-01 capture + client RE — see MiniGameLootWheelPackets).
         // Pick the prize SERVER-SIDE (the spin is theater): uniform over the 5 preview items + the
