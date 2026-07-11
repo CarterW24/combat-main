@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -64,15 +65,29 @@ public static class BaseGroupPacketHandler
                 return HandleInvite(connection, reader.Span);
 
             case GroupLeave:
-                // Format-independent: the sender leaves whatever party they're in.
-                _partyManager.Leave(connection.Player);
+                // The "x" on your OWN portrait. LeaveParty disbands the whole party if you're the
+                // leader, else just removes you + refreshes the remaining roster.
+                LeaveParty(connection.Player);
+                return true;
+
+            case GroupAccept:
+                // ★ NATIVE ✓ BUTTON (captured 2026-07-11): the invite popup's accept button sends
+                // op40/sub4 with the leader's guid. The sender is the invitee accepting — join them to
+                // whichever party invited them (PartyManager.Accept finds it), same as !paccept did.
+                AcceptInvite(connection.Player);
                 return true;
 
             case GroupInviteReply:
-            case GroupAccept:
+                // The popup's ✗ decline button (capture its exact payload to confirm); clear any
+                // pending invite for the sender so a re-invite is possible.
+                _partyManager.Decline(connection.Player);
+                return true;
+
             case GroupKick:
-                // TODO(party): accept/kick carry a target guid we still need to capture. Finalize the
-                // parse from the logged payload, then drive _partyManager.Accept/Kick + roster push.
+                // The leader clicked the "x" on ANOTHER member's portrait. Captured wire format
+                // (2026-07-11): the client sends the target's NAME (guid is 0), so kick BY NAME.
+                if (GroupPacketGroupKick.TryDeserialize(reader.Span, out var kick))
+                    KickMemberByName(connection.Player, kick.TargetFullName);
                 return true;
 
             default:
@@ -116,9 +131,16 @@ public static class BaseGroupPacketHandler
             return true;
         }
 
-        // The native invite popup needs the S2C GroupInvite byte layout (RE in progress — the
-        // serialize method isn't in the packet's vtable slots). INTERIM: surface the invite via a
-        // System chat message the client already renders. The target joins with "!paccept".
+        // ★ NATIVE INVITE POPUP (RE experiment 2026-07-11): the S2C GroupInvite is the same packet
+        // class the client serializes for C2S, so mirror that 97-byte shape back to the invitee with
+        // the inviter's name/guid. If the client raises its invite popup, we've cracked the S2C format.
+        target.SendTunneled(new GroupPacketGroupInvite
+        {
+            InviterGuid = inviter.Guid,
+            InviterName = inviter.Name, // NameData — the "Group with <name>" popup label
+        });
+
+        // INTERIM fallback (until the native popup is confirmed): the System chat message + !paccept.
         SendSystem(target, $"{inviter.Name?.FullName ?? "A player"} invited you to their party. Type !paccept to join.");
         SendSystem(inviter, $"You invited {target.Name?.FullName ?? packet.TargetName} to your party.");
 
@@ -127,8 +149,8 @@ public static class BaseGroupPacketHandler
         return true;
     }
 
-    /// <summary>The target accepts a pending party invite (via the "!paccept" chat command until the
-    /// native accept packet's byte format is captured). Announces the join to the whole party.</summary>
+    /// <summary>The target accepts a pending party invite (native ✓ button = op40/sub4, or the
+    /// "!paccept" fallback). Announces the join + pushes the live roster to every member.</summary>
     public static void AcceptInvite(Player player)
     {
         var party = _partyManager.Accept(player);
@@ -140,9 +162,12 @@ public static class BaseGroupPacketHandler
 
         foreach (var member in party.Members)
             SendSystem(member, $"{player.Name?.FullName ?? "A player"} joined the party. ({party.Count}/{Sanctuary.Game.Party.Party.MaxMembers})");
+
+        PushRoster(party);
     }
 
-    /// <summary>Leave the player's current party (via "!pleave").</summary>
+    /// <summary>Leave the player's current party — the "x" on your OWN portrait. If you're the LEADER,
+    /// the whole party disbands; otherwise just you leave and the remaining roster refreshes.</summary>
     public static void LeaveParty(Player player)
     {
         var party = _partyManager.GetParty(player);
@@ -152,14 +177,167 @@ public static class BaseGroupPacketHandler
             return;
         }
 
-        var others = party.Members;
-        _partyManager.Leave(player);
-        SendSystem(player, "You left the party.");
-        foreach (var member in others)
+        // Snapshot the members BEFORE removal (so we can notify + clear everyone on a disband).
+        var membersBefore = party.Members;
+
+        if (party.IsLeader(player))
         {
-            if (member.Guid != player.Guid)
-                SendSystem(member, $"{player.Name?.FullName ?? "A player"} left the party.");
+            // ★ LEADER LEAVES -> DISBAND THE ENTIRE PARTY.
+            _partyManager.DisbandParty(party);
+            foreach (var member in membersBefore)
+            {
+                SendSystem(member, "The party has been disbanded.");
+                ClearRoster(member);
+            }
+            return;
         }
+
+        // A non-leader member leaves.
+        var stillStanding = _partyManager.RemoveMember(player);
+        SendSystem(player, "You left the party.");
+        ClearRoster(player);
+
+        if (stillStanding is not null)
+        {
+            foreach (var member in stillStanding.Members)
+                SendSystem(member, $"{player.Name?.FullName ?? "A player"} left the party.");
+            PushRoster(stillStanding);
+        }
+        else
+        {
+            // The party collapsed to one member — tell + clear the leftover leader.
+            foreach (var member in membersBefore)
+            {
+                if (member.Guid == player.Guid) continue;
+                SendSystem(member, "The party has been disbanded.");
+                ClearRoster(member);
+            }
+        }
+    }
+
+    /// <summary>The leader kicks a member — the "x" on ANOTHER member's portrait (op40/sub6). Removes
+    /// that member and refreshes everyone's roster.</summary>
+    public static void KickMember(Player leader, ulong memberGuid)
+    {
+        var party = _partyManager.GetParty(leader);
+        if (party is null || !party.IsLeader(leader) || memberGuid == leader.Guid)
+            return;
+
+        KickResolved(leader, party, party.Members.FirstOrDefault(m => m.Guid == memberGuid));
+    }
+
+    /// <summary>Kick BY NAME — the captured op40/sub6 payload identifies the target by name (guid 0).</summary>
+    public static void KickMemberByName(Player leader, string targetFullName)
+    {
+        if (string.IsNullOrWhiteSpace(targetFullName))
+            return;
+
+        var party = _partyManager.GetParty(leader);
+        if (party is null || !party.IsLeader(leader))
+            return;
+
+        var kicked = party.Members.FirstOrDefault(m =>
+            m.Guid != leader.Guid &&
+            string.Equals(m.Name?.FullName, targetFullName, StringComparison.OrdinalIgnoreCase));
+
+        KickResolved(leader, party, kicked);
+    }
+
+    private static void KickResolved(Player leader, Sanctuary.Game.Party.Party party, Player? kicked)
+    {
+        if (kicked is null || kicked.Guid == leader.Guid)
+            return;
+
+        var membersBefore = party.Members;
+        var stillStanding = _partyManager.RemoveMember(kicked);
+
+        SendSystem(kicked, "You were removed from the party.");
+        ClearRoster(kicked);
+
+        if (stillStanding is not null)
+        {
+            foreach (var member in stillStanding.Members)
+                SendSystem(member, $"{kicked.Name?.FullName ?? "A player"} was removed from the party.");
+            PushRoster(stillStanding);
+        }
+        else
+        {
+            foreach (var member in membersBefore)
+            {
+                if (member.Guid == kicked.Guid) continue;
+                SendSystem(member, "The party has been disbanded.");
+                ClearRoster(member);
+            }
+        }
+    }
+
+    /// <summary>Close a player's group/roster window. Sends op40/sub3 GroupLeave — the client's group
+    /// processor (FUN_0093daf0 case 3) frees its group state and hides the window on this. An empty sub-8
+    /// GroupUpdate does NOT close the window, which is why a disbanded/left party's UI used to linger.</summary>
+    private static void ClearRoster(Player player) =>
+        player.SendTunneled(new GroupPacketGroupLeave
+        {
+            Guid = player.Guid,
+            Name = player.Name ?? new NameData(),
+        });
+
+    /// <summary>★ Push the live GroupUpdate (sub-8 roster) to every party member — this is what fills
+    /// the group/combat-group window (Frida-verified 2026-07-11: {guid, NameData} per member; the
+    /// client resolves job/level from its own player cache). Call whenever membership changes.</summary>
+    public static void PushRoster(Sanctuary.Game.Party.Party party)
+    {
+        var members = party.Members;
+
+        var update = new GroupPacketGroupUpdate { LeaderGuid = party.LeaderGuid };
+        foreach (var m in members)
+        {
+            update.Members.Add(new GroupPacketGroupUpdate.Member
+            {
+                Guid = m.Guid,
+                Name = m.Name ?? new NameData(),
+                ProfileId = m.ActiveProfileId,      // int0 — job
+                ProfileRank = GetLevel(m),          // int1 — the active job's real level
+                Online = true,
+            });
+        }
+
+        foreach (var m in members)
+            m.SendTunneled(update);
+
+        // Push each member's portrait (Fotomat PlayerImageData) to everyone so the roster headshots fill.
+        // A same-zone member's portrait cache entry is a HIT, so the client never sends a PortraitDataRequest
+        // for it — without this unsolicited push the entry stays an empty stub (silhouette). Frida-verified
+        // 2026-07-11: the group row looks up the member's player guid (e.g. 0x1a1) and never fetches it.
+        foreach (var recipient in members)
+        {
+            foreach (var subject in members)
+            {
+                // ★ Provider MUST be "Headshot" — the client's Fotomat receive handler (FUN_00bd4a50)
+                // fills the Headshot portrait slot ONLY when the provider string matches "Headshot"
+                // (the group roster reads that slot). A null/empty provider is silently discarded, which
+                // is why earlier pushes never rendered.
+                try
+                {
+                    var img = PacketPortraitDataRequestHandler.BuildImageData(subject, "Headshot", includeAttachments: false);
+                    var bytes = img.Serialize();
+                    _logger.LogInformation("PORTRAIT push -> {to} for {subj} ({bytes} bytes)",
+                        recipient.Name?.FullName, subject.Name?.FullName, bytes.Length);
+                    recipient.SendTunneled(img);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "PORTRAIT push failed for {subj} -> {to}",
+                        subject.Name?.FullName, recipient.Name?.FullName);
+                }
+            }
+        }
+    }
+
+    /// <summary>The active job's level (Rank), guarded — ActiveProfile throws if there's no active profile.</summary>
+    private static int GetLevel(Player player)
+    {
+        try { return player.ActiveProfile.Rank; }
+        catch { return 1; }
     }
 
     private static void SendSystem(Player player, string message) =>

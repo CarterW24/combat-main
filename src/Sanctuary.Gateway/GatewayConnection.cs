@@ -77,6 +77,18 @@ public class GatewayConnection : UdpConnection
         if (Player is null)
             return;
 
+        // Leaving the world leaves any party: a member auto-leaves (roster refreshes for the rest), and
+        // if the leader logs off the whole party is disbanded. Guarded so a send to this dying connection
+        // can't derail the rest of the disconnect cleanup.
+        try
+        {
+            BaseGroupPacketHandler.LeaveParty(Player);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Party cleanup on disconnect failed for {player}.", Player.Name);
+        }
+
         SendFriendOffline();
 
         _loginClient.SendCharacterLogout(GuidHelper.GetPlayerId(Player.Guid));

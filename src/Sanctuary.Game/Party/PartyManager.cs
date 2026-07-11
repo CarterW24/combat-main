@@ -122,11 +122,29 @@ public sealed class PartyManager : IPartyManager
         }
     }
 
-    /// <summary>Drop every remaining member's mapping (a sub-two party is torn down completely).</summary>
-    private void Disband(Party party)
+    public Party? RemoveMember(Player player)
+    {
+        if (!_partyByPlayer.TryRemove(player.Guid, out var party))
+            return null;
+
+        var collapsed = party.Remove(player); // true if <2 members remain
+        _logger.LogInformation("Party: {player} removed.", player.Name);
+
+        if (collapsed)
+        {
+            DisbandParty(party);
+            return null;
+        }
+        return party;
+    }
+
+    public void DisbandParty(Party party)
     {
         foreach (var member in party.Members)
             _partyByPlayer.TryRemove(member.Guid, out _);
         _logger.LogInformation("Party disbanded (leader {leader}).", party.LeaderGuid);
     }
+
+    /// <summary>Drop every remaining member's mapping (a sub-two party is torn down completely).</summary>
+    private void Disband(Party party) => DisbandParty(party);
 }

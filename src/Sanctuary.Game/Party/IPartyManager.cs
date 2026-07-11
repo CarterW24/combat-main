@@ -29,4 +29,11 @@ public interface IPartyManager
 
     /// <summary>The leader kicks a member by guid.</summary>
     void Kick(Player leader, ulong memberGuid);
+
+    /// <summary>Remove one member's party mapping + membership. Returns the party if it still stands
+    /// (2+ members), or null if it collapsed to fewer than two (caller should treat as disbanded).</summary>
+    Party? RemoveMember(Player player);
+
+    /// <summary>Disband the entire party — drop every member's mapping. Used when the LEADER leaves.</summary>
+    void DisbandParty(Party party);
 }

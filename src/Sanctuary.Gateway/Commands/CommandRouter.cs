@@ -143,6 +143,34 @@ public static class CommandRouter
                 BaseGroupPacketHandler.LeaveParty(conn.Player);
                 return true;
 
+            // PARTY UI RE (2026-07-11): "!ptest" sends the runner a candidate S2C GroupInvite so we
+            // can Frida-watch their OWN client parse it + (hopefully) raise the invite popup, then
+            // refine the wire format. Self-targeted so a single client can iterate.
+            case "ptest":
+                conn.Player.SendTunneled(new GroupPacketGroupInvite
+                {
+                    InviterGuid = conn.Player.Guid,
+                    InviterName = new Sanctuary.Packet.Common.NameData { FirstName = "Test", LastName = "Inviter" },
+                });
+                SendSystem(conn, "!ptest -> sent a candidate S2C GroupInvite to you (watch Frida).");
+                return true;
+
+            // PARTY UI RE: "!proster" sends the runner a candidate S2C GroupUpdate (sub-8 roster) with
+            // themselves + a fake member, so Frida can capture the sub-8 handler + how the client parses
+            // the member list, and (hopefully) show the group/combat-group window.
+            case "proster":
+                conn.Player.SendTunneled(new GroupPacketGroupUpdate
+                {
+                    LeaderGuid = conn.Player.Guid,
+                    Members =
+                    {
+                        new GroupPacketGroupUpdate.Member { Guid = conn.Player.Guid, Name = conn.Player.Name, ProfileId = conn.Player.ActiveProfileId, ProfileRank = 1 },
+                        new GroupPacketGroupUpdate.Member { Guid = conn.Player.Guid + 1, Name = new Sanctuary.Packet.Common.NameData { FirstName = "Party", LastName = "Member" }, ProfileId = conn.Player.ActiveProfileId, ProfileRank = 1 },
+                    },
+                });
+                SendSystem(conn, "!proster -> sent a candidate S2C GroupUpdate (watch Frida).");
+                return true;
+
             default:
                 SendSystem(conn, $"Unknown command '{verb}'. Try /help.");
                 return true;
