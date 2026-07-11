@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 
 using Sanctuary.Core.IO;
 using Sanctuary.Game;
+using Sanctuary.Game.Entities;
+using Sanctuary.Game.Zones;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common.Attributes;
 
@@ -24,6 +26,7 @@ public static class EncounterParticipantRequestEntranceHandler
 {
     private static ILogger _logger = null!;
     private static IZoneManager _zoneManager = null!;
+    private static Sanctuary.Game.Party.IPartyManager _partyManager = null!;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
     {
@@ -31,38 +34,85 @@ public static class EncounterParticipantRequestEntranceHandler
         _logger = loggerFactory.CreateLogger(nameof(EncounterParticipantRequestEntranceHandler));
 
         _zoneManager = serviceProvider.GetRequiredService<IZoneManager>();
+        _partyManager = serviceProvider.GetRequiredService<Sanctuary.Game.Party.IPartyManager>();
     }
 
     public static bool HandlePacket(GatewayConnection connection, PacketReader reader)
     {
-        // Keep logging the raw GO! bytes (the body carries the encounter id — useful once there are
-        // multiple encounters to route).
         _logger.LogInformation("EncounterParticipantRequestEntrance (GO! pressed) | body={hex}",
             Convert.ToHexString(reader.Span));
 
-        EnterFrostfangArena(connection);
+        // The body's first int is the encounter/activity id ([int encounterId][int unk2][ulong
+        // playerGuid], client ctor sub_8B6E70) — route to the right arena. Unparseable/unknown ids
+        // fall back to Frostfang (the pre-routing behavior).
+        reader.TryRead(out int encounterId);
+
+        if (encounterId == TormentedSpiritsArenaZone.EncounterId)
+            EnterSpiritArena(connection);
+        else
+            EnterFrostfangArena(connection);
 
         return true;
     }
 
     /// <summary>The one true GO!-&gt;arena entry: proper server-side zone transfer + the minigame
-    /// GameStart ack (op39/sub17) that drives the client's minigame state machine.</summary>
+    /// GameStart ack (op39/sub17) that drives the client's minigame state machine. CO-OP: the leader's
+    /// whole party is pulled into the Frostfang instance (which has the multi-player encounter
+    /// lifecycle — see FrostfangArenaZone).</summary>
     public static void EnterFrostfangArena(GatewayConnection connection)
     {
         var arena = _zoneManager.GetOrCreateFrostfangArena();
 
-        // VIDEO GROUND TRUTH (frame audit 2026-07-03, youtu.be/MB2zn8Um8g8): the arena is a BRIGHT GREEN
-        // daytime clearing — NOT the dark "gloam" fog we were forcing. Edges are just the tree canopy +
-        // a mild vignette; the ground/lighting is normal daytime. Use the world's natural sky (null) so
-        // the sg_random_encounter_clearing default renders — matching the video. (The old
-        // sky_shrouded_gloam.xml made it always-night, way too dark vs the reference.)
-        connection.Player.TeleportToZone(arena, arena.EffectiveSpawn, arena.SpawnRotation,
-            sky: null, geometryId: 0);
+        void Enter(Player player)
+        {
+            // Sky = null so the world's natural bright-green daytime renders (VIDEO GROUND TRUTH
+            // 2026-07-03; the old gloam sky was too dark).
+            player.TeleportToZone(arena, arena.EffectiveSpawn, arena.SpawnRotation, sky: null, geometryId: 0);
+            player.SendTunneled(new MiniGameGameStartPacket(0, -1, -1));
+            _logger.LogInformation("GO! -> TeleportToZone {zone} ({id}) for {name} at {pos}.",
+                arena.Name, arena.Id, player.Name, arena.EffectiveSpawn);
+        }
 
-        // MiniGame lifecycle: the game has started (StateId<=0 targets the client's current MiniGameState —
-        // the one our offer popup created). Also the packet that clears m_bWaitForZoneReadyPacket if set.
-        connection.SendTunneled(new MiniGameGameStartPacket(0, -1, -1));
+        EnterWithParty(connection.Player, Enter);
+    }
 
-        _logger.LogInformation("GO! -> TeleportToZone {zone} ({id}) at {pos}.", arena.Name, arena.Id, arena.EffectiveSpawn);
+    /// <summary>GO! -&gt; the Tormented Spirits graveyard arena (same transfer recipe as Frostfang).
+    /// CO-OP: the leader's whole party is pulled in (the spirit arena now has the same multi-player
+    /// encounter lifecycle as Frostfang).</summary>
+    public static void EnterSpiritArena(GatewayConnection connection)
+    {
+        var arena = _zoneManager.GetOrCreateSpiritArena();
+
+        void Enter(Player player)
+        {
+            // Stash the overworld spot so the exit door returns each member to where THEY were standing
+            // in the Blackspore graveyard (not the world spawn).
+            player.EncounterReturnPosition = player.Position;
+            player.TeleportToZone(arena, arena.SpawnPosition, arena.SpawnRotation, sky: null, geometryId: 0);
+            player.SendTunneled(new MiniGameGameStartPacket(0, -1, -1));
+            _logger.LogInformation("GO! -> TeleportToZone {zone} ({id}) for {name} at {pos}.",
+                arena.Name, arena.Id, player.Name, arena.SpawnPosition);
+        }
+
+        EnterWithParty(connection.Player, Enter);
+    }
+
+    /// <summary>Enter the leader, then pull every other party member through the same enter action
+    /// (co-op). For a soloist this is just the single enter.</summary>
+    private static void EnterWithParty(Player leader, Action<Player> enter)
+    {
+        enter(leader);
+
+        var party = _partyManager.GetParty(leader);
+        if (party is null || !party.IsLeader(leader))
+            return;
+
+        foreach (var member in party.Members)
+        {
+            if (member.Guid == leader.Guid)
+                continue;
+            _logger.LogInformation("GO! -> pulling party member {name} into the arena.", member.Name);
+            enter(member);
+        }
     }
 }

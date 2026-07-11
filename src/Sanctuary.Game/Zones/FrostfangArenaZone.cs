@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+using Sanctuary.Core.IO;
 using Sanctuary.Game.Combat;
 using Sanctuary.Game.Entities;
 using Sanctuary.Game.Resources.Definitions.Zones;
@@ -247,6 +249,14 @@ public sealed class FrostfangArenaZone : BaseZone
     private bool _won;
     private int _encounterRun; // bumped every StartEncounter; stops stale AI loops
 
+    // PARTY CO-OP: the players currently in this arena instance. The encounter runs ONCE (started by
+    // the first entrant = the party leader who pressed GO!); co-entrants join the running fight rather
+    // than resetting it. Every shared encounter packet is Broadcast to all of them, so a solo player
+    // (party of one) behaves exactly as before. The AI still ANCHORS on the first entrant (_anchor)
+    // for wolf targeting — v1 co-op: wolves chase the leader, the whole party fights them.
+    private readonly List<Player> _activePlayers = [];
+    private Player? _anchor;
+
     // Knockout counter/limit — top-left combat HUD (op39/sub23 MiniGameKnockOut, Max=5 ground-truthed
     // from the 2014-04-01 burst idx 28043/28060/28071). Solo = 5 on live.
     private const int KnockoutLimit = 5;
@@ -368,16 +378,69 @@ public sealed class FrostfangArenaZone : BaseZone
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
 
-        // Keep the weapon-driven ability toolbar alive in the arena.
-        if (player.ActiveProfileId == NinjaWeaponAbilities.NinjaProfileId)
-            player.SendTunneled(NinjaWeaponAbilities.BuildToolbar(player, _resourceManager));
+        // Keep the weapon-driven ability toolbar alive in the arena (any kit job — ninja or archer),
+        // warming the FX cache so first casts render (see JobWeaponAbilities.PreloadAbilityEffects).
+        JobWeaponAbilities.SendToolbarWithFxPreload(player, _resourceManager);
     }
 
     // The load screen has actually dropped (this is the handler that flips Player.Visible=true), so the
     // client accepts AddNpc from here on. This is the encounter's true start line.
     public override void OnClientFinishedLoading(Player player)
     {
-        StartEncounter(player);
+        // Prune anyone who has already left (so a solo re-entry resets a stale instance cleanly).
+        ActivePlayers();
+
+        bool first;
+        lock (_stateLock)
+        {
+            if (!_activePlayers.Any(p => p.Guid == player.Guid))
+                _activePlayers.Add(player);
+            first = _activePlayers.Count == 1;
+        }
+
+        if (first)
+        {
+            // First entrant (the party leader who pressed GO!) — spawn the encounter + start the AI.
+            _anchor = player;
+            StartEncounter(player);
+        }
+        else
+        {
+            // A party member joining the running fight: don't reset it — deliver the combat gate +
+            // goals to THEM, and push the currently-alive encounter NPCs so they see the fight.
+            _logger.LogInformation("Frostfang arena: {name} joined the party fight (member #{n}).",
+                player.Name, _activePlayers.Count);
+            DeliverEntrySequence(player, _encounterRun);
+            PushLiveEncounterTo(player);
+        }
+    }
+
+    /// <summary>Broadcast a shared encounter packet to every player currently in this arena instance.
+    /// For a solo player this is exactly the old per-player send; for a party it drives everyone.</summary>
+    private void Broadcast(ISerializablePacket packet)
+    {
+        foreach (var p in ActivePlayers())
+            p.SendTunneled(packet);
+    }
+
+    /// <summary>Push the currently-alive encounter NPCs (wolves/alpha/hearts/door) to a player who
+    /// just joined mid-fight, so the running encounter is visible to them.</summary>
+    private void PushLiveEncounterTo(Player player)
+    {
+        List<Npc> live = [];
+        lock (_stateLock)
+        {
+            live.AddRange(_wolves);
+            if (_alpha is not null) live.Add(_alpha);
+            live.AddRange(_hearts);
+            if (_exitDoor is not null) live.Add(_exitDoor);
+        }
+        foreach (var npc in live)
+        {
+            player.OnAddVisibleNpcs(npc);
+            npc.OnAddVisiblePlayers(player);
+            SendNpcRelevance(player, npc);
+        }
     }
 
     #endregion
@@ -413,12 +476,22 @@ public sealed class FrostfangArenaZone : BaseZone
             SpawnRoamer(player);
         }
 
-        // THE COMBAT GATE (RE'd — see PacketEncounterDataCommon) + Goals. LIVE TEST 12: sending these
-        // in the same instant as ClientFinishedLoading did NOT take effect (no combat camera/bars/
-        // numbers/goals), while the SAME packets sent mid-session (exit path) worked — the client's
-        // zone-in tail evidently resets encounter/UI state right after FinishedLoading. So deliver the
-        // encounter state a beat AFTER the load settles.
-        var run = _encounterRun;
+        // THE COMBAT GATE + Goals — delivered per-player (each member needs their own MiniGameState).
+        DeliverEntrySequence(player, _encounterRun);
+
+        _logger.LogInformation("Frostfang arena: encounter start for {name} — roamer out, {waves} waves queued.",
+            player.Name, WaveSizes.Length);
+
+        StartWolfAi(player, _encounterRun);
+    }
+
+    /// <summary>The per-player combat gate + goals burst (RE'd — see PacketEncounterDataCommon). Sent a
+    /// beat after the load settles (LIVE TEST 12: the client's zone-in tail resets encounter/UI state
+    /// right after FinishedLoading, so same-instant delivery is dropped). Called for the anchor at
+    /// StartEncounter AND for every party member who joins the running fight, so each gets their own
+    /// MiniGameState (without which op45 goal packets are silently dropped and the goals pane never shows).</summary>
+    private void DeliverEntrySequence(Player player, int run)
+    {
         _ = Task.Run(async () =>
         {
             try
@@ -428,13 +501,10 @@ public sealed class FrostfangArenaZone : BaseZone
                 if (player.Zone != this || run != _encounterRun)
                     return;
 
-                // MASTER GATE (RE'd 2026-07-02, client case 114 @0xaa3dcf): the LAUNCH form of the
-                // details packet creates the client's MiniGameState (ClientMiniGameManager::sub_9BB2D0).
-                // While m_MiniGameStates is empty, EVERY op45 objective packet is silently dropped
-                // (goals panel never renders) and IsInMiniGame() stays false. The offer popup's state
-                // does not reliably survive the zone-in, so re-launch it here before the goal packets.
-                // Type MUST be COMBAT (4): the client's minigame status handler only shows/populates
-                // the objective pane when currentMiniGameType == COMBAT (RE'd via IDA MINI_GAME_TYPE).
+                // MASTER GATE (RE'd 2026-07-02): the LAUNCH form of the details packet creates the
+                // client's MiniGameState. While it's empty, every op45 objective packet is dropped and
+                // IsInMiniGame() stays false. Type MUST be COMBAT (4) — the status handler only
+                // populates the objective pane for a combat-type minigame.
                 EncounterDetailsResponsePacket MakeLaunch() => new()
                 {
                     Unknown = EncounterId,          // live header ints = [encounterId][instanceId]
@@ -444,14 +514,8 @@ public sealed class FrostfangArenaZone : BaseZone
                     Difficulty = 1,
                     IconId = 1345,
                     MiniGameType = CombatMiniGameType,   // 4 = COMBAT — the goals-pane gate
-                    // ZoneContext deliberately left 0 (the 2026-07-03 ARENA=6 red-name experiment
-                    // failed; the AddNpc apply path doesn't run that arena-disposition branch).
                     Launch = true,
                     Objectives = [.. EncounterObjectives],
-                    // Prizes + job category + activity id — all ground-truthed against the real 04-01
-                    // launch packet (2026-07-04 decode; see NinjaPrizePreview). The preview bundle in the
-                    // LAUNCH copy is what the victory score screen's loot wheel spins from. Set is picked
-                    // for the player's ACTIVE JOB server-side (live behavior — no profile id on the wire).
                     PreviewRewards = GetPrizePreviewFor(player),
                     PreviewCoins = PrizeCoins,
                     PreviewXp = PrizeXp,
@@ -466,12 +530,10 @@ public sealed class FrostfangArenaZone : BaseZone
                     PlayerGuid = guid,
                 };
 
-                // ★ EXACT REAL-SERVER ENTRY SEQUENCE (2014-04-01 capture idx 28043-28224). The critical
-                // structure: the real server sends the LAUNCH details TWICE with a PlayerEnter BETWEEN
-                // them (the first Populate fires before the status handler exists; the PlayerEnter brings
-                // the HUD up; the second launch re-fires Populate into the now-live handler). The op47
-                // goal row must be in the DS BEFORE the PlayerEnter (ObjectiveListPopulate hides the
-                // window if the DS is empty at show time). Full notes in docs/STATUS.md.
+                // ★ EXACT REAL-SERVER ENTRY SEQUENCE (2014-04-01 capture idx 28043-28224): LAUNCH twice
+                // with a PlayerEnter between them (the first Populate fires before the status handler
+                // exists; the PlayerEnter brings the HUD up; the second re-fires Populate). The op47 goal
+                // row must be in the DS before the PlayerEnter (else ObjectiveListPopulate hides it).
                 UiObjectiveAddPacket ScareWolvesRow() => new()
                 {
                     ObjectiveId = GoalScareWolves,
@@ -494,7 +556,6 @@ public sealed class FrostfangArenaZone : BaseZone
                 player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules()); // 28122 — op62
                 player.SendTunneled(MakeEnter(player.Guid)); // 28224 — PlayerEnter (player guid)
 
-                // Our world-combat toggles + the running encounter state (kept from our combat wiring).
                 player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
                 player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
                 player.SendTunneled(new EncounterStatePacket
@@ -504,21 +565,14 @@ public sealed class FrostfangArenaZone : BaseZone
                     State = 6,
                 });
 
-                // Wave 1 is NOT on a timer — it's gated on the roamer's howl, which fires when the player
-                // walks up to the roamer (proximity, in the AI loop) or hits it (OnNpcDamaged). The lone
-                // roamer ambles until then. Live order: howl packets -> wave-1 AddNpc, same tick.
-                _logger.LogInformation("Frostfang arena: real entry sequence delivered (run {run}).", run);
+                _logger.LogInformation("Frostfang arena: entry sequence delivered to {name} (run {run}).",
+                    player.Name, run);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Frostfang arena: delayed encounter-state delivery failed.");
+                _logger.LogError(ex, "Frostfang arena: entry-sequence delivery failed.");
             }
         });
-
-        _logger.LogInformation("Frostfang arena: encounter start for {name} — roamer out, {waves} waves queued.",
-            player.Name, WaveSizes.Length);
-
-        StartWolfAi(player, _encounterRun);
     }
 
     // ── Spawning ─────────────────────────────────────────────────────────────────────────────────────
@@ -540,7 +594,7 @@ public sealed class FrostfangArenaZone : BaseZone
         };
 
         // The roamer walks from the start (live ES 3.0 shortly after spawn).
-        player.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = roamer.Guid, ExpectedSpeed = RoamSpeed });
+        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = roamer.Guid, ExpectedSpeed = RoamSpeed });
         SendWolfMinimapMarkers(player, [roamer.Guid]);
     }
 
@@ -621,8 +675,9 @@ public sealed class FrostfangArenaZone : BaseZone
     }
 
     /// <summary>Live: one op35/sub10 AddNotifications per wave — a short "combat" entry per wolf,
-    /// which is what paints the red enemy dots on the minimap.</summary>
-    private static void SendWolfMinimapMarkers(Player player, IReadOnlyList<ulong> guids)
+    /// which is what paints the red enemy dots on the minimap. Broadcast so every party member's
+    /// minimap shows the pack (the <paramref name="player"/> arg is kept for call-site symmetry).</summary>
+    private void SendWolfMinimapMarkers(Player player, IReadOnlyList<ulong> guids)
     {
         if (guids.Count == 0)
             return;
@@ -630,7 +685,7 @@ public sealed class FrostfangArenaZone : BaseZone
         var badge = new PlayerUpdatePacketAddNotifications();
         foreach (var guid in guids)
             badge.Notifications.Add(new NotificationInfo { Guid = guid, Combat = true, Type = 3, Unknown10 = true });
-        player.SendTunneled(badge);
+        Broadcast(badge);
     }
 
     private Npc? CreateWolf(Player player, int modelId, int nameId, string textureAlias, string tintAlias,
@@ -674,31 +729,43 @@ public sealed class FrostfangArenaZone : BaseZone
 
         npc.UpdatePosition(pos, Quaternion.Identity);
 
-        // Push directly so the player sees it immediately (the tile system covers everyone else).
-        player.OnAddVisibleNpcs(npc);
-        npc.OnAddVisiblePlayers(player);
-
-        // Live post-spawn burst, in order: UpdateMana(100,800,800) then CharacterState baseline.
-        player.SendTunneled(new PlayerUpdatePacketUpdateMana { Guid = npc.Guid });
-        player.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
+        // Push directly so EVERY party member in the arena sees it immediately (co-op). For a solo
+        // player this loop runs once = the old single-player push.
+        foreach (var p in ActivePlayers())
         {
-            Guid = npc.Guid,
-            Status = (CharacterStatus)CharState_Baseline,
-        });
+            p.OnAddVisibleNpcs(npc);
+            npc.OnAddVisiblePlayers(p);
 
-        // Clickable attack target (cursor via relevance — same recipe as the training dummy).
-        SendNpcRelevance(player, npc);
+            // Live post-spawn burst, in order: UpdateMana then CharacterState baseline.
+            p.SendTunneled(new PlayerUpdatePacketUpdateMana { Guid = npc.Guid });
+            p.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
+            {
+                Guid = npc.Guid,
+                Status = (CharacterStatus)CharState_Baseline,
+            });
 
-        // Belt-and-suspenders hostile mark (op35/sub28). NOTE: live does NOT send this for wolves
-        // (disposition rides in the AddNpc), but our builds have always shipped it and the red-name
-        // behavior is proven with it — keep until a live test confirms it's redundant.
-        player.SendTunneled(new PlayerUpdatePacketUpdateDisposition
-        {
-            Guid = npc.Guid,
-            Disposition = 0,
-        });
+            // Clickable attack target (cursor via relevance — same recipe as the training dummy).
+            SendNpcRelevance(p, npc);
+
+            // Belt-and-suspenders hostile mark (op35/sub28).
+            p.SendTunneled(new PlayerUpdatePacketUpdateDisposition { Guid = npc.Guid, Disposition = 0 });
+        }
 
         return npc;
+    }
+
+    /// <summary>Snapshot of the players currently in this arena instance (co-op recipients). Filters
+    /// out any who have left (teleported to another zone) and prunes them so a departed member never
+    /// receives encounter packets and the instance can reset once it truly empties.</summary>
+    private Player[] ActivePlayers()
+    {
+        lock (_stateLock)
+        {
+            _activePlayers.RemoveAll(p => p.Zone != this);
+            if (_anchor is not null && _anchor.Zone != this)
+                _anchor = _activePlayers.Count > 0 ? _activePlayers[0] : null;
+            return [.. _activePlayers];
+        }
     }
 
     // ── AI ───────────────────────────────────────────────────────────────────────────────────────────
@@ -820,7 +887,8 @@ public sealed class FrostfangArenaZone : BaseZone
 
                             wolf.UpdatePosition(newPos, rot);
                             // State bit0 SET means "no speed" client-side (RE'd) -> send 0 while MOVING.
-                            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+                            // Broadcast so every party member sees the wolf move (solo = one recipient).
+                            Broadcast(new PlayerUpdatePacketUpdatePosition
                             {
                                 Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 0, Unknown = 0,
                             });
@@ -830,21 +898,22 @@ public sealed class FrostfangArenaZone : BaseZone
                             var newPos = new Vector4(here.X, newY, here.Z, wolf.Position.W);
 
                             wolf.UpdatePosition(newPos, rot);
-                            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+                            Broadcast(new PlayerUpdatePacketUpdatePosition
                             {
                                 Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
                             });
 
                             // Bites — live pacing is sparse (~1 per 2.7s across the whole pack), each
                             // one a CombatPacketAttackProcessed: wolf attacker (plays the bite clip),
-                            // player target (incoming number/recoil), fx 5409 / crit 5622.
+                            // player target (incoming number/recoil), fx 5409 / crit 5622. The wolves
+                            // anchor on the leader; broadcast so all members see the bite land on them.
                             if (now >= state.NextBiteTicks && now - lastPackBite >= BiteGlobalGapMs)
                             {
                                 state.NextBiteTicks = now + BiteCooldownMs;
                                 lastPackBite = now;
 
                                 var crit = _rng.Next(100) < BiteCritPercent;
-                                player.SendTunneled(new CombatPacketAttackProcessed
+                                Broadcast(new CombatPacketAttackProcessed
                                 {
                                     AttackerGuid = wolf.Guid,
                                     TargetGuid = player.Guid,
@@ -893,7 +962,7 @@ public sealed class FrostfangArenaZone : BaseZone
             // Arrived — stand for 1.5-3.5s (send one stopped update so the client halts locomotion).
             state.WanderTarget = null;
             state.WanderPauseUntil = now + 1500 + _rng.Next(2000);
-            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+            Broadcast(new PlayerUpdatePacketUpdatePosition
             {
                 Guid = wolf.Guid, Position = wolf.Position, Rotation = new Quaternion(0f, 0f, 1f, 0f),
                 State = 1, Unknown = 0,
@@ -908,7 +977,7 @@ public sealed class FrostfangArenaZone : BaseZone
         var rot = new Quaternion(dir.X, 0f, dir.Y, 0f);
 
         wolf.UpdatePosition(newPos, rot);
-        player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+        Broadcast(new PlayerUpdatePacketUpdatePosition
         {
             Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 0, Unknown = 0,
         });
@@ -922,12 +991,12 @@ public sealed class FrostfangArenaZone : BaseZone
         state.Charging = true;
         state.NextBiteTicks = Environment.TickCount64 + 1000 + _rng.Next(1500);
 
-        player.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = wolf.Guid, ExpectedSpeed = RoamSpeed });
-        player.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = wolf.Guid, ExpectedSpeed = ChaseSpeed });
+        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = wolf.Guid, ExpectedSpeed = RoamSpeed });
+        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = wolf.Guid, ExpectedSpeed = ChaseSpeed });
 
         if (!ReferenceEquals(wolf, _alpha))
         {
-            player.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
+            Broadcast(new PlayerUpdatePacketUpdateCharacterState
             {
                 Guid = wolf.Guid,
                 Status = (CharacterStatus)CharState_Charging,
@@ -953,19 +1022,19 @@ public sealed class FrostfangArenaZone : BaseZone
             var faceLen = facePlayer.Length();
             var faceDir = faceLen > 0.01f ? facePlayer / faceLen : new Vector2(0f, 1f);
             var howlRot = new Quaternion(faceDir.X, 0f, faceDir.Y, 0f);
-            player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+            Broadcast(new PlayerUpdatePacketUpdatePosition
             {
                 Guid = roamer.Guid, Position = roamer.Position, Rotation = howlRot, State = 1, Unknown = 0,
             });
 
             // The howl — animation and composite together (EffectDelay 0 keeps the FX in sync with the
             // pose; the live 2000 fired the rings ~2s late, which read as "the FX only went as he charged").
-            player.SendTunneled(new PlayerUpdatePacketSetAnimation
+            Broadcast(new PlayerUpdatePacketSetAnimation
             {
                 Guid = roamer.Guid,
                 AnimationId = RoamerHowlAnimId,
             });
-            player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+            Broadcast(new PlayerUpdatePacketPlayCompositeEffect
             {
                 Guid = roamer.Guid,
                 Unknown2 = player.Guid,
@@ -1003,7 +1072,7 @@ public sealed class FrostfangArenaZone : BaseZone
                     return; // already handled
                 _fleeingAlpha = null;
             }
-            player.SendTunneled(new PlayerUpdatePacketRemoveNotifications { Guids = { alpha.Guid } });
+            Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { alpha.Guid } });
             alpha.GracefulRemoval = (false, 0, 0, DeathPoofFxId, 1000); // quiet poof once he's in the fog
             alpha.Dispose();
             _logger.LogInformation("Frostfang arena: the fled Alpha reached the fog -> despawned.");
@@ -1024,7 +1093,7 @@ public sealed class FrostfangArenaZone : BaseZone
         var rot = new Quaternion(dir.X, 0f, dir.Y, 0f);
 
         alpha.UpdatePosition(newPos, rot);
-        player.SendTunneled(new PlayerUpdatePacketUpdatePosition
+        Broadcast(new PlayerUpdatePacketUpdatePosition
         {
             Guid = alpha.Guid, Position = newPos, Rotation = rot, State = 0, Unknown = 0,
         });
@@ -1183,9 +1252,10 @@ public sealed class FrostfangArenaZone : BaseZone
             }
         }
 
-        // Clear the minimap combat marker, then the ONE live death packet: RemovePlayerGracefully
-        // (Animate=true -> the client plays the wolf's own death clip, 5017 poof after Delay).
-        killer.SendTunneled(new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } });
+        // Clear the minimap combat marker for everyone, then the ONE live death packet:
+        // RemovePlayerGracefully (Animate=true -> the client plays the wolf's death clip). The graceful
+        // removal itself reaches all members via npc.Dispose (the wolf's visible set = all members).
+        Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } });
 
         if (!alphaDown)
         {
@@ -1219,7 +1289,7 @@ public sealed class FrostfangArenaZone : BaseZone
             _fleeingAlpha = npc;
             _alphaFleeUntilTicks = Environment.TickCount64 + AlphaFleeMs;
         }
-        killer.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = npc.Guid, ExpectedSpeed = FleeSpeed });
+        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = npc.Guid, ExpectedSpeed = FleeSpeed });
 
         WinEncounter(killer, alphaPos);
     }
@@ -1264,74 +1334,65 @@ public sealed class FrostfangArenaZone : BaseZone
         }
         foreach (var straggler in stragglers)
         {
-            player.SendTunneled(new PlayerUpdatePacketRemoveNotifications { Guids = { straggler.Guid } });
+            Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { straggler.Guid } });
             straggler.GracefulRemoval = (true, WolfDeathHoldMs, 0, DeathPoofFxId, 1000);
             straggler.Dispose();
         }
 
-        // 1) The Alpha's parting drops at his EXACT defeat spot (live: heart + coin pile both at his
-        //    last position, e.g. 116.85,-0.45,180.32 — heart at ground, coins popped up). The coin
-        //    pile POPS outward (Knockback) with a burst effect and vanishes (pure theater; the actual
-        //    coin grant is the reward banner / wheel). On live these two are born from a death-ability
-        //    the Alpha "casts" (StartCasting self + LaunchAndLand + DetonateProjectile arc) — that
-        //    projectile flourish is omitted here (would need 2 more packet classes for a cosmetic arc);
-        //    spawning them directly at the death spot reproduces the on-screen result.
+        // 1) The Alpha's parting drops at his EXACT defeat spot — heart + coin pop (pure theater; the
+        //    real reward is the wheel/XP below). Spawned once at the death spot.
         SpawnHeart(player, alphaPos);
         SpawnCoinPop(player, alphaPos);
 
-        // 2) Goal complete — BOTH live packets: op45/sub3 (the green-check "Goal Complete!" announce)
-        //    + op47/sub3 (the Goals-window row flips to done). Live sends no per-kill ticks before this.
-        player.SendTunneled(new ObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
-        player.SendTunneled(new UiObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
-
-        // 2b) Goal reward: the encounter XP (live: 10, from the goal's own reward bundle). AwardXp
-        //     drives the ACTIVE job's real level bar (+ level-up celebration when it tips); the
-        //     RewardBundlePacket is the coins/XP fly-in banner the live goal bundle produced.
-        player.AwardXp(EncounterXp);
-        player.SendTunneled(new RewardBundlePacket { Xp = EncounterXp });
-
-        // 2c) Credit any quest whose active goal is "win THIS encounter" (EncounterComplete, id 174) -
-        //     e.g. Brawler: Growler Encroachment. This is what makes the dungeon a quest objective.
-        _questManager.OnEncounterComplete(player, EncounterId);
-
-        // 3) ★ LOOT WHEEL (real end flow, 04-01 capture + client RE — see MiniGameLootWheelPackets).
-        // Pick the prize SERVER-SIDE (the spin is theater): uniform over the 5 preview items + the
-        // coins slice. These packets must go out while the MiniGameState is still alive (the landing
-        // apply matches the prize NameId against the state's stored preview rows); the Lua keeps the
-        // resolved index, so the player can spin any time. MUST be the same job set the launch packet
-        // advertised (NameId matching — see GetPrizePreviewFor).
-        var prizes = GetPrizePreviewFor(player);
-        var slice = _rng.Next(prizes.Count + 1); // 0..4 = items, 5 = coins
-        var wheel = new MiniGameLootWheelSetItemToLandOnPacket();
-        if (slice < prizes.Count)
-        {
-            player.PendingWheelPrize = prizes[slice];
-            player.PendingWheelCoins = 0;
-            wheel.Entries.Add(prizes[slice]);
-            _logger.LogInformation("Frostfang arena: wheel will land on {item} (def {def}).",
-                prizes[slice].NameId, prizes[slice].ItemDefId);
-        }
-        else
-        {
-            player.PendingWheelPrize = null;
-            player.PendingWheelCoins = PrizeCoins;
-            wheel.Coins = PrizeCoins; // no entry + coins>0 -> the client resolves the COINS slice
-            _logger.LogInformation("Frostfang arena: wheel will land on the COINS slice ({coins}).", PrizeCoins);
-        }
-
-        // Score rows (op39/sub47, live points model: 300/enemy, 5000 per knockout remaining).
+        // ★ CO-OP: award the win to EVERY party member in the arena (each gets their own goal
+        // complete, XP, quest credit, and loot-wheel prize). For a solo player this loops once.
         var enemies = _killedSnarlers;
         var knockoutsLeft = KnockoutLimit; // player HP pool is cosmetic for now -> never knocked out
-        var score = new MiniGameGameEndScorePacket();
-        score.Rows.Add(new MiniGameScoreRow { Name = "scoreEnemiesDefeated", Order = 0, Value = enemies, Points = enemies * 300 });
-        score.Rows.Add(new MiniGameScoreRow { Name = "scorePlayerKnockouts", Order = 3, Value = knockoutsLeft, Max = KnockoutLimit, Points = knockoutsLeft * 5000 });
-        score.Rows.Add(new MiniGameScoreRow { Name = "scoreTotalScore", Order = 4, Points = enemies * 300 + knockoutsLeft * 5000 });
+        MiniGameGameEndScorePacket MakeScore()
+        {
+            var s = new MiniGameGameEndScorePacket();
+            s.Rows.Add(new MiniGameScoreRow { Name = "scoreEnemiesDefeated", Order = 0, Value = enemies, Points = enemies * 300 });
+            s.Rows.Add(new MiniGameScoreRow { Name = "scorePlayerKnockouts", Order = 3, Value = knockoutsLeft, Max = KnockoutLimit, Points = knockoutsLeft * 5000 });
+            s.Rows.Add(new MiniGameScoreRow { Name = "scoreTotalScore", Order = 4, Points = enemies * 300 + knockoutsLeft * 5000 });
+            return s;
+        }
 
-        player.SendTunneled(wheel);
-        player.SendTunneled(score);
+        foreach (var member in ActivePlayers())
+        {
+            // Goal complete — op45/sub3 (green-check announce) + op47/sub3 (Goals-window row done).
+            member.SendTunneled(new ObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
+            member.SendTunneled(new UiObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
 
-        // 4) THE EXIT DOOR — replaces the old 6-second auto-kick. The player spins the wheel and
-        //    leaves whenever they like by clicking the door (live cursor 17 + minimap exit badge).
+            // Goal reward XP (drives the member's active-job level bar) + the fly-in banner.
+            member.AwardXp(EncounterXp);
+            member.SendTunneled(new RewardBundlePacket { Xp = EncounterXp });
+
+            // Credit any quest whose active goal is "win THIS encounter" (EncounterComplete id 174).
+            _questManager.OnEncounterComplete(member, EncounterId);
+
+            // Loot wheel — each member spins their OWN prize (server picks it; the spin is theater).
+            // Must be the member's own active-job set (NameId matching — see GetPrizePreviewFor).
+            var prizes = GetPrizePreviewFor(member);
+            var slice = _rng.Next(prizes.Count + 1); // 0..N-1 = items, N = coins
+            var wheel = new MiniGameLootWheelSetItemToLandOnPacket();
+            if (slice < prizes.Count)
+            {
+                member.PendingWheelPrize = prizes[slice];
+                member.PendingWheelCoins = 0;
+                wheel.Entries.Add(prizes[slice]);
+            }
+            else
+            {
+                member.PendingWheelPrize = null;
+                member.PendingWheelCoins = PrizeCoins;
+                wheel.Coins = PrizeCoins;
+            }
+
+            member.SendTunneled(wheel);
+            member.SendTunneled(MakeScore());
+        }
+
+        // THE EXIT DOOR — spawned once, visible + clickable to all members (each leaves on their own).
         SpawnExitDoor(player);
 
         _logger.LogInformation("Frostfang arena: encounter WON — wheel armed, exit door out ({kills} kills).", enemies);
@@ -1422,23 +1483,6 @@ public sealed class FrostfangArenaZone : BaseZone
         door.RiderGuid = ulong.MaxValue;
         door.UpdatePosition(new Vector4(DoorSpawn.X, GroundY, DoorSpawn.Z, 1f), Quaternion.Identity);
 
-        player.OnAddVisibleNpcs(door);
-        door.OnAddVisiblePlayers(player);
-
-        // Live companion burst: SetDisposition(neutral), baseline state, cursor, minimap badge.
-        player.SendTunneled(new PlayerUpdatePacketUpdateDisposition { Guid = door.Guid, Disposition = 1 });
-        // NO op35/sub9 vitals packet for the door: it RENDERS AN OVERHEAD BAR regardless of value (a full
-        // 100/100/100 still shows a full bar — user-confirmed). The door is a static interactable with no
-        // health, so it must not get vitals at all (the heart/coins don't either, and show no bar). The
-        // live server did send it 100/100/100, but we skip it here — the door works purely off its
-        // NpcRelevance cursor + the interact handler, and the user wants no bar on it.
-        player.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
-        {
-            Guid = door.Guid,
-            Status = (CharacterStatus)CharState_Baseline,
-        });
-        SendNpcRelevance(player, door);
-
         var badge = new PlayerUpdatePacketAddNotifications();
         badge.Notifications.Add(new NotificationInfo
         {
@@ -1454,7 +1498,25 @@ public sealed class FrostfangArenaZone : BaseZone
             CompositeEffectId = 0,
             Unknown10 = true                // constant 1 across all live samples
         });
-        player.SendTunneled(badge);
+
+        // CO-OP: the door must be visible + clickable to EVERY party member so each can leave. For a
+        // solo player this loops once.
+        foreach (var p in ActivePlayers())
+        {
+            p.OnAddVisibleNpcs(door);
+            door.OnAddVisiblePlayers(p);
+
+            // Live companion burst: SetDisposition(neutral), baseline state, cursor relevance, badge.
+            // NO vitals packet (the door renders an overhead bar for any value — user-confirmed).
+            p.SendTunneled(new PlayerUpdatePacketUpdateDisposition { Guid = door.Guid, Disposition = 1 });
+            p.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
+            {
+                Guid = door.Guid,
+                Status = (CharacterStatus)CharState_Baseline,
+            });
+            SendNpcRelevance(p, door);
+            p.SendTunneled(badge);
+        }
 
         lock (_stateLock)
             _exitDoor = door;

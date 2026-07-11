@@ -103,6 +103,7 @@ builder.ConfigureServices((hostBuilderContext, serviceCollection) =>
     serviceCollection.AddSingleton<IResourceManager, ResourceManager>();
     serviceCollection.AddSingleton<IInteractionManager, InteractionManager>();
     serviceCollection.AddSingleton<Sanctuary.Game.Quests.IQuestManager, Sanctuary.Game.Quests.QuestManager>();
+    serviceCollection.AddSingleton<Sanctuary.Game.Party.IPartyManager, Sanctuary.Game.Party.PartyManager>();
 });
 
 builder.ConfigureLogging((hostBuilderContext, loggingBuilder) =>

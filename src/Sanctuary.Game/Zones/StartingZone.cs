@@ -131,6 +131,15 @@ public sealed class StartingZone : BaseZone
             if (_resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId))
                 MakeQuestHostile(npc);
 
+            // INSTANCE (Tormented Spirits!): the wandering graveyard spirits are the encounter 146
+            // entries — clicking one opens the offer popup (routed by NameId in
+            // CommandPacketInteractRequestHandler). Swords cursor + a comfortable click range.
+            if (definition.NameId == TormentedSpiritsArenaZone.EntryNpcNameId)
+            {
+                npc.CursorId = 11;
+                npc.InteractRange = 15;
+            }
+
             npc.UpdatePosition(definition.Position, definition.Rotation);
 
             var tile = GetTileFromPosition(definition.Position);
@@ -231,27 +240,36 @@ public sealed class StartingZone : BaseZone
         SpawnGrowlerWolf(player);
 
         // COMBAT WIP: populate the left ability toolbar on zone load (so we don't have to swap jobs to
-        // trigger it). Replays the captured Ninja SetDefinition. Combat/"fighting" state is NOT set here —
-        // it's set on the first attack (in the StartAbility handler) so job swaps still work until you swing.
-        SendNinjaAbilityToolbar(player);
+        // trigger it). Combat/"fighting" state is NOT set here — it's set on the first attack (in the
+        // StartAbility handler) so job swaps still work until you swing.
+        SendJobAbilityToolbar(player);
     }
 
-    // COMBAT WIP: fill the Ninja ability toolbar from the player's EQUIPPED WEAPON (see Combat/
-    // NinjaWeaponAbilities). Each "Ninja's Shadow Blade of X" grants the X ability; no Shadow Blade equipped
-    // => an empty bar. This is the zone-load populate (so no away-and-back job swap is needed).
-    private void SendNinjaAbilityToolbar(Player player)
+    // The load screen has dropped — the client reliably accepts everything from here (the Frostfang
+    // AddNpc lesson: packets sent during the load screen can be discarded).
+    public override void OnClientFinishedLoading(Player player)
     {
-        if (player.ActiveProfileId != NinjaWeaponAbilities.NinjaProfileId) // Ninja
-            return;
+        // EVERY overworld entry (not just login): re-point the tracker arrow at the tracked quest's
+        // ACTIVE goal. A goal that completes inside a battle instance activates its next goal there,
+        // where the next goal's NPC isn't spawned — that in-arena target update is skipped, so a
+        // returning player kept the stale pre-dungeon arrow (live 2026-07-10: still on the entry
+        // spirit instead of "Return to Chloe" after winning the Tormented Spirits dungeon).
+        _questManager.RefreshObjectiveTarget(player);
+    }
 
-        var weaponDefId = player.GetEquippedWeaponDefinitionId();
-        var weapon = NinjaWeaponAbilities.GetEquippedWeapon(player);
+    // COMBAT: fill the ability toolbar from the player's EQUIPPED WEAPON for any job with a
+    // weapon-ability kit (ninja Shadow Blades, archer Bows — see Combat/JobWeaponAbilities). Each
+    // "of X" weapon grants the X special; no kit weapon equipped => an empty bar. This is the
+    // zone-load populate (so no away-and-back job swap is needed).
+    private void SendJobAbilityToolbar(Player player)
+    {
+        // Sends the bar + warms the client's FX cache (first-cast effects are otherwise invisible
+        // while the on-demand asset load streams — see JobWeaponAbilities.PreloadAbilityEffects).
+        if (!JobWeaponAbilities.SendToolbarWithFxPreload(player, _resourceManager))
+            return; // the active job has no weapon-ability kit
 
-        _logger.LogInformation(
-            "Ninja toolbar on zone-load: equipped weapon def={def}, mapped={mapped} ({melee}/{special}).",
-            weaponDefId, weapon is not null, weapon?.Melee.Name ?? "-", weapon?.Special.Name ?? "-");
-
-        player.SendTunneled(NinjaWeaponAbilities.BuildToolbar(player, _resourceManager));
+        _logger.LogInformation("Job toolbar on zone-load: profile={profile}, equipped weapon def={def}.",
+            player.ActiveProfileId, player.GetEquippedWeaponDefinitionId());
     }
 
     // COMBAT WIP: spawn a single hostile "training dummy" NPC near the spawn point so we have a
@@ -395,6 +413,22 @@ public sealed class StartingZone : BaseZone
 
     /// <summary>INSTANCE WIP: the Frostfang Growler adventure-giver wolf.</summary>
     public Npc? GrowlerWolf => _growlerWolf;
+
+    /// <summary>INSTANCE (Tormented Spirits!): a wandering Tormented Spirit — the encounter 146
+    /// entry NPC the tracker arrow / breadcrumb points at for EncounterComplete(146) goals.</summary>
+    public Npc? TormentedSpiritEntry()
+    {
+        foreach (var (id, definition) in _resourceManager.Npcs)
+        {
+            if (definition.NameId != TormentedSpiritsArenaZone.EntryNpcNameId)
+                continue;
+
+            if (TryGetNpc(NpcGuidBase + (ulong)id, out var npc))
+                return npc;
+        }
+
+        return null;
+    }
 
     /// <summary>Re-push the Growler wolf to a player (e.g. after a "!grove" teleport re-zone).</summary>
     public void ShowGrowlerWolf(Player player)

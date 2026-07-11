@@ -27,6 +27,10 @@ public class ZoneManager : IZoneManager
     private FrostfangArenaZone? _frostfangArena;
     private readonly object _frostfangArenaLock = new();
 
+    // INSTANCE (Tormented Spirits!): the Blackspore graveyard arena, same lazy pattern.
+    private TormentedSpiritsArenaZone? _spiritArena;
+    private readonly object _spiritArenaLock = new();
+
     public ZoneManager(
         ILoggerFactory loggerFactory,
         IResourceManager resourceManager,
@@ -97,6 +101,26 @@ public class ZoneManager : IZoneManager
             }
 
             return _frostfangArena;
+        }
+    }
+
+    public TormentedSpiritsArenaZone GetOrCreateSpiritArena()
+    {
+        lock (_spiritArenaLock)
+        {
+            if (_spiritArena is null)
+            {
+                _spiritArena = new TormentedSpiritsArenaZone(_serviceProvider)
+                {
+                    Id = _uniqueId++
+                };
+
+                _zones.TryAdd(_spiritArena.Id, _spiritArena);
+
+                _logger.LogInformation("Created Tormented Spirits arena zone {name} ({id}).", _spiritArena.Name, _spiritArena.Id);
+            }
+
+            return _spiritArena;
         }
     }
 

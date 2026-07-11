@@ -47,6 +47,12 @@ public static class CommandPacketInteractRequestHandler
             return true;
         }
 
+        if (player.Zone is TormentedSpiritsArenaZone spiritArena && spiritArena.IsExitDoor(packet.Guid))
+        {
+            spiritArena.UseExitDoor(player);
+            return true;
+        }
+
         if (!player.Zone.TryGetEntity(packet.Guid, out var entity))
             return true;
 
@@ -126,6 +132,57 @@ public static class CommandPacketInteractRequestHandler
                 {
                     EncounterId = FrostfangArenaZone.EncounterId,
                     InstanceId = FrostfangArenaZone.EncounterInstanceId,
+                    State = 5,
+                });
+            });
+
+            return true;
+        }
+
+        // INSTANCE (Tormented Spirits!): clicking a Tormented Spirit wandering the Blackspore
+        // graveyard opens the encounter 146 offer popup — the same wandering-encounter pattern as
+        // the Growler wolf, keyed by NameId (any of the world spirits is an entry).
+        if (player.Zone is StartingZone
+            && entity is Npc { NameId: TormentedSpiritsArenaZone.EntryNpcNameId })
+        {
+            _logger.LogInformation("InteractRequest: Tormented Spirit ({guid}) clicked -> sending offer popup.",
+                packet.Guid);
+
+            foreach (var state in new[] { 2, 3, 4 })
+            {
+                connection.SendTunneled(new EncounterStatePacket
+                {
+                    EncounterId = TormentedSpiritsArenaZone.EncounterId,
+                    InstanceId = TormentedSpiritsArenaZone.EncounterInstanceId,
+                    State = state,
+                });
+            }
+
+            connection.SendTunneled(new EncounterDetailsResponsePacket
+            {
+                Unknown = TormentedSpiritsArenaZone.EncounterId,
+                Unknown2 = TormentedSpiritsArenaZone.EncounterInstanceId,
+                NameId = TormentedSpiritsArenaZone.TitleNameId,           // "Tormented Spirits!"
+                DescriptionId = TormentedSpiritsArenaZone.DescriptionId,  // "...put them to rest!"
+                Difficulty = TormentedSpiritsArenaZone.Difficulty,
+                IconId = TormentedSpiritsArenaZone.IconId,
+                MiniGameType = 4, // COMBAT
+                PreviewRewards = FrostfangArenaZone.GetPrizePreviewFor(player),
+                PreviewCoins = FrostfangArenaZone.PrizeCoins,
+                PreviewXp = FrostfangArenaZone.PrizeXp,
+                ProfileType = FrostfangArenaZone.CombatProfileType,
+                ActivityId = TormentedSpiritsArenaZone.EncounterId,
+            });
+
+            // Same auto-ready handshake as the Growler popup (spinner -> green GO!).
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(600);
+                connection.SendTunneled(new EncounterZoneIsReadyPacket());
+                connection.SendTunneled(new EncounterStatePacket
+                {
+                    EncounterId = TormentedSpiritsArenaZone.EncounterId,
+                    InstanceId = TormentedSpiritsArenaZone.EncounterInstanceId,
                     State = 5,
                 });
             });

@@ -116,6 +116,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // Combat.NinjaWeaponAbilities): slot 0 = common melee, slot 1 = the weapon's "of X" special. Damage /
     // swing animation 1099 / hit composite effect all come from that table.
 
+    /// <summary>Unique effect-tag ids for the lingering cast-FX plays (start high to stay clear of
+    /// the zones' heal-shower tag range).</summary>
+    private static int _castFxTagCounter = 5000;
+
     // COMBAT WIP: live animation probe. When set via "!anim <id>", EVERY ability key-press plays this
     // animation instead of the ability's own — so you can spam your ability keys (no chat flood) to find the
     // right per-ability move and see it replay in sequence. null = abilities use their own anim. "!anim 0"
@@ -295,13 +299,14 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             // (not the first-in-list) makes it hit the wolf that's actually on you. No facing cone: the
             // client only sends the player's facing while MOVING, so a cone whiffs when you stand still
             // to fight the swarm (that was the "spotty" hit detection).
-            // Horizontal (X/Z) radius, height ignored. 7 units ≈ a few body-lengths (player capsule
-            // ~1.9 tall; wolves bite from ~2.6). GROUND-CHECK (04-01 capture, 37 player->enemy hits):
-            // real hit distances ran 0.6–9.2, median 2.3, mean 2.7 — the bulk ≤ ~4 (basic swings), the
-            // 5–9 tail almost certainly the AoE special. 7 sits inside SOE's envelope: forgiving of the
-            // 300ms tick lag without grabbing far wolves. Tune toward ~5 if it feels grabby.
-            const float meleeReach = 7f;
-            var reach2 = meleeReach * meleeReach;
+            // Horizontal (X/Z) radius, height ignored. MELEE = 7 units ≈ a few body-lengths (player
+            // capsule ~1.9 tall; wolves bite from ~2.6). GROUND-CHECK (04-01 capture, 37 player->enemy
+            // hits): real hit distances ran 0.6–9.2, median 2.3, mean 2.7 — the bulk ≤ ~4 (basic
+            // swings), the 5–9 tail almost certainly the AoE special. 7 sits inside SOE's envelope:
+            // forgiving of the 300ms tick lag without grabbing far wolves. Tune toward ~5 if it feels
+            // grabby. ARCHERS shoot at range — their reach is the bow envelope (JobWeaponAbilities).
+            var attackReach = JobWeaponAbilities.AutoTargetReach(player);
+            var reach2 = attackReach * attackReach;
             var best2 = reach2;
 
             foreach (var n in zone.Npcs)
@@ -322,8 +327,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         var targetGuid = targetNpc?.Guid ?? (packet.Guid != 0 ? packet.Guid : player.Guid);
 
-        // Resolve the ability from the pressed slot + equipped weapon (slot 0 = melee, slot 1 = weapon special).
-        var ability = NinjaWeaponAbilities.ResolveAbility(player, packet.Data.Slot);
+        // Resolve the ability from the pressed slot + equipped weapon for the ACTIVE JOB's kit
+        // (slot 0 = basic attack/shot, slot 1 = the weapon's named special).
+        var ability = JobWeaponAbilities.ResolveAbility(player, packet.Data.Slot);
 
         // Basic attack (slot 0) is fast/spammable; specials wind up. This controls both the client-side
         // slot lock (StartCasting.ActionTime) and when the damage number resolves.
@@ -341,22 +347,60 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             _nextBasicSwingTicks[player.Guid] = now + BasicSwingMs;
         }
 
-        // ENERGY GATE (specials only): the slot-1 special costs the full 100 bar. If the player can't
-        // afford it, drop the press (no cast) — matches the real server, which server-gates the special.
+        // ENERGY GATE (non-basic slots): each ability drains its own EnergyCost (weapon specials =
+        // the live-decoded full 100 bar; the archer level abilities = 50 each). Can't afford it =>
+        // drop the press (no cast) — matches the real server, which server-gates the special.
         if (!isBasicMelee)
         {
+            var cost = ability.EnergyCost;
             var energy = GetEnergy(player);
-            if (energy < SpecialEnergyCost)
+            if (energy < cost)
             {
-                _logger.LogInformation("StartAbility: special blocked — energy {e}/{max} < {cost}.",
-                    energy, MaxEnergy, SpecialEnergyCost);
+                _logger.LogInformation("StartAbility: ability blocked — energy {e}/{max} < {cost}.",
+                    energy, MaxEnergy, cost);
                 return true;
             }
 
-            var remaining = energy - SpecialEnergyCost;
+            var remaining = energy - cost;
             _energy[player.Guid] = remaining;
-            SendEnergy(player, remaining);   // op38/sub13: bar drops to 0
+            SendEnergy(player, remaining);   // op38/sub13: bar drops by the cost
             StartEnergyRegen(player);        // begin the +4/sec refill
+        }
+
+        // LINGERING cast FX (CastEffectStopMs > 0 — projectile trails and other loops that never
+        // self-terminate): play via an effect TAG on the caster and remove it after the window, so
+        // the trail flashes with the shot instead of snowing on the player forever. One-shot cast
+        // FX keep riding StartCasting's CompositeEffectId as before.
+        var startCastingFx = ability.CastEffectId;
+        if (startCastingFx > 0 && ability.CastEffectStopMs > 0)
+        {
+            startCastingFx = 0;
+
+            var tagId = System.Threading.Interlocked.Increment(ref _castFxTagCounter);
+            player.SendTunneled(new PlayerUpdatePacketAddEffectTagCompositeEffect
+            {
+                Guid = player.Guid,
+                TagId = tagId,
+                CompositeEffectId = ability.CastEffectId,
+                SourceGuid = player.Guid,
+            });
+            var stopMs = ability.CastEffectStopMs;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(stopMs);
+                    player.SendTunneled(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
+                    {
+                        Guid = player.Guid,
+                        TagId = tagId,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lingering cast-FX stop failed.");
+                }
+            });
         }
 
         // COMBAT WIP: respond to an ability press with a real StartCasting (proven to render a cast bar
@@ -365,7 +409,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         {
             Unknown = player.Guid,            // caster
             Unknown2 = targetGuid,            // target
-            CompositeEffectId = ability.CastEffectId, // FX on the caster during the cast (projectile/aura/ground-AoE)
+            CompositeEffectId = startCastingFx, // one-shot FX on the caster during the cast
             Animation = DebugAnimationOverride ?? ability.Animation, // override via !anim for live probing
             AbilityId = packet.Data.Slot + 1, // cast identifier (not visual-critical)
             ActionTime = actionTime,
@@ -954,6 +998,20 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                         continue; // e.g. died to an earlier hit this same tick
 
                     var killed = target.ApplyDamage(damage);
+
+                    // IMPACT FX on the victim (the ability's EffectId — the explosive-arrow burst, the
+                    // lightning strike, the basic-hit flash...). AttackProcessed used to carry this in
+                    // its CompositeEffectId; the 2026-07-03 switch to HitPointModification (no effect
+                    // field) silently dropped EVERY impact effect — play it explicitly instead.
+                    if (effectId > 0)
+                    {
+                        player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+                        {
+                            Guid = target.Guid,
+                            CompositeEffectId = effectId,
+                            Position = target.Position,
+                        });
+                    }
 
                     // EnemyExtraEffectId plays an ADDITIONAL effect on each victim on top of the hit FX
                     // (e.g. Soul Power's purple ring around the enemy).

@@ -135,6 +135,14 @@ public static class CommandRouter
             case "lua":
                 return HandleLua(conn, message);
 
+            // PARTY (interim accept path until the native accept packet's byte format is captured).
+            case "paccept":
+                BaseGroupPacketHandler.AcceptInvite(conn.Player);
+                return true;
+            case "pleave":
+                BaseGroupPacketHandler.LeaveParty(conn.Player);
+                return true;
+
             default:
                 SendSystem(conn, $"Unknown command '{verb}'. Try /help.");
                 return true;

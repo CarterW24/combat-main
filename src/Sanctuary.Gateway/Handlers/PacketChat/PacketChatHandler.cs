@@ -138,12 +138,12 @@ public static class PacketChatHandler
             return true;
         }
 
-        // COMBAT WIP: "!give" grants the 10 ninja "Shadow Blade of X" weapons (item-def 75110-75119) to the
-        // character's inventory (DB + in-memory) so you can equip them and watch the ability toolbar change.
-        // Abilities are now item-driven: equip a different Shadow Blade -> different ability on the bar.
+        // COMBAT WIP: "!give" grants the ACTIVE JOB's kit weapons (ninja Shadow Blades 75110-75119, or
+        // the 30 archer bows 75000-75029 when played as an Archer) to the character's inventory
+        // (DB + in-memory) so you can equip them and watch the ability toolbar change per weapon.
         if (packet.Message is { } giveMsg && giveMsg.StartsWith("!give"))
         {
-            HandleGiveNinjaWeapons(connection);
+            HandleGiveJobWeapons(connection);
             return true;
         }
 
@@ -207,6 +207,7 @@ public static class PacketChatHandler
             _logger.LogInformation("!ready -> EncounterZoneIsReadyPacket (sub107) sent.");
             return true;
         }
+
 
         // INSTANCE (Frostfang Fury): "!arena" logs your current position (coordinate scouting);
         // "!arena set" pins the arena SPAWN to exactly where you're standing (do it while standing in the
@@ -549,10 +550,10 @@ public static class PacketChatHandler
         connection.SendTunneled(NinjaWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
     }
 
-    // COMBAT WIP — see note above. Grants the ninja Shadow Blade weapons so they can be equipped to test the
-    // item-driven ability toolbar. Adds each missing weapon to the DB + in-memory inventory and pushes an
-    // ItemAdd so it appears immediately. Equip one via the inventory UI -> the toolbar refreshes to its ability.
-    private static void HandleGiveNinjaWeapons(GatewayConnection connection)
+    // COMBAT WIP — see note above. Grants the active job's kit weapons so they can be equipped to test
+    // the item-driven ability toolbar. Adds each missing weapon to the DB + in-memory inventory and
+    // pushes an ItemAdd so it appears immediately. Equip one -> the toolbar refreshes to its abilities.
+    private static void HandleGiveJobWeapons(GatewayConnection connection)
     {
         var characterId = GuidHelper.GetPlayerId(connection.Player.Guid);
 
@@ -568,10 +569,14 @@ public static class PacketChatHandler
             return;
         }
 
+        var weaponDefIds = connection.Player.ActiveProfileId == ArcherWeaponAbilities.ArcherProfileId
+            ? ArcherWeaponAbilities.AllWeaponDefIds
+            : NinjaWeaponAbilities.AllWeaponDefIds;
+
         var nextId = dbCharacter.Items.Count > 0 ? dbCharacter.Items.Max(i => i.Id) : 0;
         var granted = 0;
 
-        foreach (var defId in NinjaWeaponAbilities.AllWeaponDefIds)
+        foreach (var defId in weaponDefIds)
         {
             if (dbCharacter.Items.Any(i => i.Definition == defId))
                 continue; // already owned
@@ -610,7 +615,8 @@ public static class PacketChatHandler
         if (granted > 0)
             dbContext.SaveChanges();
 
-        _logger.LogInformation("!give -> granted {n} ninja weapon(s) to character {id}.", granted, characterId);
+        _logger.LogInformation("!give -> granted {n} kit weapon(s) to character {id} (profile {profile}).",
+            granted, characterId, connection.Player.ActiveProfileId);
     }
 
     // INSTANCE WIP — see note above. Re-zones the client into Frostfang Caverns via PacketClientBeginZoning

@@ -164,14 +164,13 @@ public static class InventoryPacketEquipByGuidHandler
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange);
 
-        // COMBAT WIP: equipping a weapon (slot 7) on a Ninja refreshes the ability toolbar to match the new
-        // weapon's granted ability (item-driven abilities — see Sanctuary.Game.Combat.NinjaWeaponAbilities).
-        if (packet.Slot == 7 && connection.Player.ActiveProfileId == NinjaWeaponAbilities.NinjaProfileId)
+        // COMBAT: equipping a weapon (slot 7) on any kit job (ninja/archer) refreshes the ability
+        // toolbar to match the new weapon's granted abilities (item-driven — see JobWeaponAbilities)
+        // and warms the FX cache so the new weapon's first casts render.
+        if (packet.Slot == 7 && JobWeaponAbilities.SendToolbarWithFxPreload(connection.Player, _resourceManager))
         {
-            connection.SendTunneled(NinjaWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
-
-            _logger.LogInformation("Refreshed Ninja ability toolbar after equipping weapon definition {def}.",
-                clientItemDefinition.Id);
+            _logger.LogInformation("Refreshed ability toolbar after equipping weapon definition {def} (profile {profile}).",
+                clientItemDefinition.Id, connection.Player.ActiveProfileId);
         }
 
         // Update the Weapon composite effect if we have a Flair Shard equipped.

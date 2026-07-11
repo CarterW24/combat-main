@@ -37,6 +37,11 @@ public sealed class Player : ClientPcData, IEntity
     /// </summary>
     public DateTime LastQuestAcceptedAt { get; set; }
 
+    /// <summary>PARTY: last time a group-invite C2S was acted on. The client re-sends GroupInvite
+    /// ~6x/sec while the invite UI is up (like FreeInteractionNpc), so the handler debounces on this
+    /// to fire the invite once per burst.</summary>
+    public DateTime LastPartyInviteAt { get; set; }
+
     /// <summary>True once the login-only zone-in burst (Welcome screen etc.) has been sent this
     /// session. The overworld's OnClientIsReady runs on EVERY zone-in — including the return from a
     /// combat instance — and re-sending PacketLoadWelcomeScreen there re-opens the client's Welcome
@@ -55,6 +60,11 @@ public sealed class Player : ClientPcData, IEntity
     /// COINS slice.</summary>
     public Sanctuary.Packet.RewardEntry? PendingWheelPrize { get; set; }
     public int PendingWheelCoins { get; set; }
+
+    /// <summary>Where the exit door returns the player after a combat instance: the overworld spot
+    /// they stood on when GO! teleported them out (set by the entrance handler, consumed + cleared by
+    /// the arena's ReturnHome). Null = fall back to the zone spawn.</summary>
+    public System.Numerics.Vector4? EncounterReturnPosition { get; set; }
 
     public IZone Zone { get; set; }
     public ZoneTile ZoneTile { get; private set; } = ZoneTile.Empty;

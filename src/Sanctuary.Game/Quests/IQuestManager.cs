@@ -60,4 +60,12 @@ public interface IQuestManager
     /// in-progress quest). Used to build the "Take Me There" path destination.
     /// </summary>
     bool TryGetActiveObjectiveTarget(Player player, out Vector3 targetPosition);
+
+    /// <summary>
+    /// Re-point (or clear) the tracker arrow / mini-map indicator at the tracked quest's ACTIVE goal
+    /// target in the player's CURRENT zone. Call on overworld re-entry: a goal that completes inside a
+    /// battle instance (EncounterComplete) activates its next goal there, where the next goal's NPC
+    /// isn't spawned — so the update is skipped and the arrow stays on the stale pre-dungeon target.
+    /// </summary>
+    void RefreshObjectiveTarget(Player player);
 }

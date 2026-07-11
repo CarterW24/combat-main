@@ -17,4 +17,8 @@ public interface IZoneManager
     /// <summary>INSTANCE (Frostfang Fury): the sg_random_encounter_clearing arena zone — created on first
     /// use and reused (single shared instance for now; per-party instancing later).</summary>
     FrostfangArenaZone GetOrCreateFrostfangArena();
+
+    /// <summary>INSTANCE (Tormented Spirits!): the bs_random_encounter_01 graveyard arena zone —
+    /// same lazy shared-instance model as the Frostfang arena.</summary>
+    TormentedSpiritsArenaZone GetOrCreateSpiritArena();
 }

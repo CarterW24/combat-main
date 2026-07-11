@@ -63,13 +63,12 @@ public static class CommandPacketSetProfileHandler
 
         connection.SendTunneled(clientUpdatePacketActivateProfile);
 
-        // COMBAT WIP: on swap to Ninja (profile 2), populate the ability toolbar from the EQUIPPED WEAPON
-        // (same builder zone-load + equip use). No Shadow Blade equipped => an empty bar.
-        if (profile.Id == NinjaWeaponAbilities.NinjaProfileId)
+        // COMBAT: on swap to any kit job (ninja/archer), populate the ability toolbar from the
+        // EQUIPPED WEAPON (same builder zone-load + equip use, FX cache warmed for first casts).
+        // No kit weapon equipped => empty bar.
+        if (JobWeaponAbilities.SendToolbarWithFxPreload(connection.Player, _resourceManager))
         {
-            connection.SendTunneled(NinjaWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
-
-            _logger.LogInformation("Sent weapon-driven Ninja SetDefinition on swap to profile {id}.", profile.Id);
+            _logger.LogInformation("Sent weapon-driven ability SetDefinition on swap to profile {id}.", profile.Id);
         }
 
         var playerUpdatePacketEquippedItemsChange = new PlayerUpdatePacketEquippedItemsChange();

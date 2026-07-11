@@ -172,12 +172,14 @@
   },
   {
     // === Ninja: That's the Spirit ===  real FR NINJA JOB quest (Blackspore Swamp).
-    // Chloe sends the player to defeat 6 Tormented Spirits at the sinking graveyard south of the swamp.
+    // Chloe sends the player to deal with the Tormented Spirits at the sinking graveyard south of the
+    // swamp — on retail this runs as the "Tormented Spirits!" BATTLE INSTANCE (activity 146, reference
+    // videos 0yGtjJBzmGw + zyWxEY1AcmY): click a wandering spirit -> offer popup -> graveyard arena
+    // (bs_random_encounter_01) with pre-spawned spirits + 3 destroyable tombstones. The world spirits
+    // near the graveyard (Npcs.json NameId 76190) are the ENTRY NPCs, not kill targets.
     // ★ TEXT IDS: the community doc's numbers (31441-31444 etc.) are NOT the client's Global.Text ids -
     // the ids below were reverse-engineered from the client's en_us_data locale (Jenkins lookup2 hash of
-    // "Global.Text.<id>" -> CID -> verified against the .dat text). Demonstrates the Kill goal type: the 5
-    // Tormented Spirit spawns (Npcs.json NameId 76190, near Chloe) become attackable hostiles that respawn
-    // after ~20s so the 6-kill count can complete.
+    // "Global.Text.<id>" -> CID -> verified against the .dat text).
     "QuestId": 31442,
     "TitleId": 78865,                 // "Ninja: That's the Spirit"
     "DescriptionId": 101371,          // menu: "Hone your skills against the tormented spirits ... as a Ninja."
@@ -197,12 +199,11 @@
     "NotificationActive": 6,
     "Goals": [
       {
-        // GOAL 1 - Kill: defeat 6 Tormented Spirits (0/6 counter in the tracker).
+        // GOAL 1 - EncounterComplete: win the "Tormented Spirits!" graveyard battle instance.
         "NameId": 90465,              // "Defeat the tormented spirits"
         "DialogueId": 420695,         // Chloe mid-goal: "You need practice kid! Hone your skills..."
-        "Type": 3,                    // QuestGoalType.Kill
-        "RequiredCount": 6,
-        "KillNpcNameId": 76190        // "Tormented Spirit" (5 world spawns around the graveyard)
+        "Type": 4,                    // QuestGoalType.EncounterComplete
+        "EncounterId": 146            // TormentedSpiritsArenaZone.EncounterId
       },
       {
         // GOAL 2 - Return to Chloe (TalkToNpc, the default type).
@@ -244,7 +245,6 @@
   {
     // === Brawler: Growler Encroachment ===  ★ THE DUNGEON QUEST. Gerold sends the player to defeat the
     // Frostfang Growlers - our Frostfang arena battle instance (activity id 174). Winning the encounter
-    // (click the Growler wolf near spawn -> arena -> defeat the Alpha) credits the EncounterComplete goal.
     "QuestId": 104150,
     "TitleId": 104150,                // "Brawler: Growler Encroachment"
     "DescriptionId": 104171,          // "Dangerous wolves from Frostfang Caverns are in the woods!..."

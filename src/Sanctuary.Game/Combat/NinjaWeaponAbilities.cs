@@ -34,7 +34,15 @@ namespace Sanctuary.Game.Combat;
 // AoeRadius > 0 => the special is an AREA attack: it hits EVERY live hostile within this radius of the
 //   CASTER (not just the selected target). Matches the real server, whose AoE specials land as a sub-0.1s
 //   burst of one HitPointModification per victim in the 04-01 capture.
-public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0, float AoeRadius = 0f);
+// CastEffectStopMs > 0 => the CastEffectId is a LINGERING/looping effect (e.g. a PRJ_* projectile
+//   trail, which retail kills with its projectile — we have no projectiles yet): play it via an
+//   effect TAG (op35/sub41) and remove it (op35/sub42) after this many ms. Such effects are also
+//   excluded from the toolbar FX warm-up (an unstoppable loop under the map snows forever —
+//   user-sighted with the Bow of Blizzards trail, 2026-07-10). 0 = a one-shot, plays normally.
+// EnergyCost = what a NON-BASIC slot press drains from the 100-point energy bar (also the slot's
+//   ManaCost, which drives the client grey-out). Weapon specials keep the live-decoded full bar
+//   (100); extra job abilities can cost less so the bar supports more than one cast.
+public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0, float AoeRadius = 0f, int CastEffectStopMs = 0, int EnergyCost = 100);
 
 public sealed record NinjaWeapon(WeaponAbility Melee, WeaponAbility Special);
 

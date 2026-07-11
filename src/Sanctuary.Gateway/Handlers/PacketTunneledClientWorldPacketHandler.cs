@@ -55,6 +55,7 @@ public static class PacketTunneledClientWorldPacketHandler
             BaseFotomatPacket.OpCode => BaseFotomatPacketHandler.HandlePacket(connection, reader),
             BaseActivityServicePacket.OpCode => BaseActivityServicePacketHandler.HandlePacket(connection, reader, 1),
             WallOfDataBasePacket.OpCode => WallOfDataBasePacketHandler.HandlePacket(connection, reader),
+            BaseGroupPacket.OpCode => BaseGroupPacketHandler.HandlePacket(connection, reader),
             _ => false
         };
 

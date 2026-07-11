@@ -602,8 +602,13 @@ public sealed class QuestManager : IQuestManager
         // bubble with a green-check response button, HTML-rendered (colored <font> tags show), NO details
         // box, NO journal touch (so no duplicate). Camera focuses the NPC (CameraFocusParam) and restores
         // on the button click (client sends 26/6 -> BaseCommandPacketHandler replies with EndDialog).
+        // ONLY TalkToNpc goals complete AT an NPC, so only they get the bubble: Kill/Collect/
+        // EncounterComplete goals fire from field events, their DialogueId is the giver's MID-GOAL
+        // reminder line, and popping it at the trigger moment reads wrong (at the arena win, Gerold's
+        // "I can still hear those Frostfang Growlers howling..." looked like another wave inbound)
+        // while camera-focusing an NPC who may not even be in the player's zone.
         var completedGoal = goals[goalIndex];
-        if (completedGoal.DialogueId != 0)
+        if (completedGoal.DialogueId != 0 && completedGoal.Type == QuestGoalType.TalkToNpc)
         {
             var dialog = new CommandPacketShowDialog
             {
@@ -792,10 +797,16 @@ public sealed class QuestManager : IQuestManager
         var goals = quest.EffectiveGoals;
         if (goalIndex >= 0 && goalIndex < goals.Count
             && goals[goalIndex].Type == QuestGoalType.EncounterComplete
-            && player.Zone is StartingZone startingZone
-            && startingZone.GrowlerWolf is { } growler)
+            && player.Zone is StartingZone startingZone)
         {
-            return growler.Guid;
+            var entry = goals[goalIndex].EncounterId switch
+            {
+                Zones.FrostfangArenaZone.EncounterId => startingZone.GrowlerWolf,
+                Zones.TormentedSpiritsArenaZone.EncounterId => startingZone.TormentedSpiritEntry(),
+                _ => null,
+            };
+            if (entry is not null)
+                return entry.Guid;
         }
 
         return GoalTargetGuid(quest, goalIndex);
@@ -836,9 +847,12 @@ public sealed class QuestManager : IQuestManager
     /// <summary>
     /// Re-points the objective tracker/mini-map indicator at a still-active quest whose target NPC is
     /// present, or clears it entirely (Active=false) when no trackable quest remains. Call after a quest
-    /// leaves the active set (abandon/complete) so a dangling indicator doesn't stay on screen.
+    /// leaves the active set (abandon/complete) so a dangling indicator doesn't stay on screen, and on
+    /// overworld re-entry (a goal completed inside a battle instance points its next goal at an NPC that
+    /// isn't in that zone, so the in-arena update was skipped — e.g. "Return to Chloe" after the
+    /// Tormented Spirits dungeon kept the arrow on the entry spirit).
     /// </summary>
-    private void RefreshObjectiveTarget(Player player)
+    public void RefreshObjectiveTarget(Player player)
     {
         ulong targetGuid = GetTrackedTargetGuid(player);
         if (targetGuid != 0)
