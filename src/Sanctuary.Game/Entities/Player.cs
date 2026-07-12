@@ -385,6 +385,14 @@ public sealed class Player : ClientPcData, IEntity
             Status = CharacterStatus.None,
         }, sendToSelf: true);
 
+        // Clear the overworld "in combat" flags the knockout flow raised for the respawn window. We no longer
+        // stream these during normal combat (that corrupted the client's fire state), so respawn is where the
+        // death-window's flags must be dropped — otherwise the player stays wedged "in combat" after reviving
+        // (menus + ranged auto-fire blocked).
+        _worldCombatActive = false;
+        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+
         // Resurrect animation + revive FX at the player (visible to nearby players too).
         if (ResurrectAnimId > 0)
         {
@@ -456,12 +464,11 @@ public sealed class Player : ClientPcData, IEntity
 
         _lastWorldCombatTicks = Environment.TickCount64;
 
-        if (!_worldCombatActive)
-        {
-            _worldCombatActive = true;
-            SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-            SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
-        }
+        // EXPERIMENT: do NOT stream the op41 encounter combat-state flags in the overworld. They're meant for
+        // instanced encounters; toggling them on/off around free-roam combat appears to corrupt the client's
+        // "can use abilities" state so the ranged auto-fire wedges after a kill and won't re-initiate. The
+        // flag below is kept only to gate XP deferral. (Damage numbers may rely on these — revisit if so.)
+        _worldCombatActive = true;
     }
 
     /// <summary>Per-second: if the overworld combat window has lapsed, drop the fighting flags exactly once.
@@ -475,8 +482,7 @@ public sealed class Player : ClientPcData, IEntity
             return; // still fighting
 
         _worldCombatActive = false;
-        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        // (No op41 combat-state FALSE packets — see EnterWorldCombat. We just drop the flag + flush XP.)
 
         // Combat's over — apply all the XP we buffered during the fight now (feedback + any level-ups). Doing
         // it here instead of mid-combat is what keeps the XP packets from interrupting the auto-fire loop.

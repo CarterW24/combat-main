@@ -818,27 +818,6 @@ public sealed class StartingZone : BaseZone
                 }
             });
 
-            // REFIRE FREEZE FIX (ranged jobs only). The client's ranged auto-fire wedges when its target dies
-            // — completely stuck (not even a re-press works) until the player manually RE-EQUIPS the bow.
-            // Re-equipping resets the client's wield/combat state, so replicate exactly what it sends: the
-            // weapon re-attach (ResendEquippedWeapon) + the ability toolbar rebuild. NOT the profile
-            // re-activation, which is itself what froze firing when it fired mid-combat (the low-level XP bug).
-            // Melee swings at empty air and never wedges, so this is limited to the archer kit. Small delay so
-            // it lands after the client has processed the kill/despawn.
-            if (killer.ActiveProfileId == ArcherWeaponAbilities.ArcherProfileId)
-            {
-                var unfreezePlayer = killer;
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await Task.Delay(300);
-                        unfreezePlayer.ResendEquippedWeapon();
-                        JobWeaponAbilities.SendToolbarWithFxPreload(unfreezePlayer, _resourceManager);
-                    }
-                    catch (Exception ex) { _logger.LogError(ex, "Refire unfreeze failed."); }
-                });
-            }
             return;
         }
 
