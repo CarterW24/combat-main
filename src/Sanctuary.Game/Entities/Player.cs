@@ -474,10 +474,10 @@ public sealed class Player : ClientPcData, IEntity
 
         _lastWorldCombatTicks = Environment.TickCount64;
 
-        // EXPERIMENT: do NOT stream the op41 encounter combat-state flags in the overworld. They're meant for
-        // instanced encounters; toggling them on/off around free-roam combat appears to corrupt the client's
-        // "can use abilities" state so the ranged auto-fire wedges after a kill and won't re-initiate. The
-        // flag below is kept only to gate XP deferral. (Damage numbers may rely on these — revisit if so.)
+        // Overworld combat streams NO op41 encounter combat-state flags — cycling them wedges the ranged
+        // auto-fire (proven: sub132 wedges on level-up; both together wedge after kills). The flag below is
+        // kept only for combat tracking. The in-combat indicator + XP-bar display are driven by this same
+        // corrupting state, so restoring them needs a different, RE'd path — tracked separately.
         _worldCombatActive = true;
     }
 
@@ -492,8 +492,9 @@ public sealed class Player : ClientPcData, IEntity
             return; // still fighting
 
         _worldCombatActive = false;
-        // (No op41 combat-state FALSE packets — see EnterWorldCombat. XP is awarded per kill; this clears the
-        // tracking flag and runs any level-up presentation we deferred out of the fight.)
+        // (No op41 combat-state packets in the overworld — they wedge firing.)
+
+        // XP is awarded per kill; run any level-up presentation we deferred out of the fight.
         if (_pendingLevelUp)
         {
             _pendingLevelUp = false;
