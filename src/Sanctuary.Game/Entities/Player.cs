@@ -231,6 +231,7 @@ public sealed class Player : ClientPcData, IEntity
     public void UpdateEverySecond()
     {
         RegenTick();
+        WorldCombatDecayTick();
 
         var now = DateTimeOffset.UtcNow;
         foreach (var (key, cooldown) in _pendingCooldowns)
@@ -430,18 +431,20 @@ public sealed class Player : ClientPcData, IEntity
     }
 
     // --- Overworld "in combat" state (client op41 sub132 InWorldCombat + sub133 IsFighting) ---
-    // These flags draw the weapon, show enemy HP bars + floating damage numbers, and drive the client's
-    // ranged auto-fire. We enter on ANY overworld combat action — dealing damage, TAKING damage, or pressing
-    // an attack — and drop out OutOfCombatSeconds after the last one. Instanced arenas run their own
-    // fighting-state for the whole encounter, so this no-ops there to avoid stomping them.
+    // These flags draw the weapon, show enemy HP bars + floating damage numbers, AND gate the main menu
+    // (the client blocks menu clicks while fighting). We enter on ANY overworld combat action — dealing
+    // damage, TAKING damage, or pressing an attack — and drop out OutOfCombatSeconds after the last one.
+    // The drop-out is driven by the single-threaded per-second tick (WorldCombatDecayTick), NOT a per-entry
+    // background task: the old task version had a race where a rapid press landing exactly as the task
+    // finished left the flag stuck ON with no task left to ever clear it — the player got wedged "in combat"
+    // out in the world (menus dead). An archer's fast auto-fire hit that window constantly; melee rarely did.
+    // Instanced arenas run their own fighting-state for the whole encounter, so this no-ops there.
     private long _lastWorldCombatTicks;
-    private int _worldCombatActive;       // 0/1, guarded by Interlocked
-    private int _worldCombatDecayRunning; // 0/1, at most one decay loop at a time
+    private volatile bool _worldCombatActive;
 
-    /// <summary>Mark the player as fighting in the overworld and (re)arm the out-of-combat decay. Idempotent
-    /// and cheap — safe to call on every hit and every attack press. Sends the two combat-ready flags on the
-    /// first entry (weapon drawn + enemy HP bars + floating damage numbers) and drops them out
-    /// OutOfCombatSeconds after the last combat action.</summary>
+    /// <summary>Mark the player as fighting in the overworld (weapon drawn + enemy HP bars + floating damage
+    /// numbers) and (re)arm the out-of-combat timer. Idempotent and cheap — safe on every hit/press. The
+    /// actual drop-out happens in <see cref="WorldCombatDecayTick"/> off the per-second tick.</summary>
     public void EnterWorldCombat()
     {
         if (Zone is not StartingZone)
@@ -449,35 +452,27 @@ public sealed class Player : ClientPcData, IEntity
 
         _lastWorldCombatTicks = Environment.TickCount64;
 
-        if (System.Threading.Interlocked.Exchange(ref _worldCombatActive, 1) == 0)
+        if (!_worldCombatActive)
         {
+            _worldCombatActive = true;
             SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
             SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
         }
+    }
 
-        if (System.Threading.Interlocked.Exchange(ref _worldCombatDecayRunning, 1) == 1)
-            return; // a decay loop is already running — it will see the refreshed timestamp
+    /// <summary>Per-second: if the overworld combat window has lapsed, drop the fighting flags exactly once.
+    /// Runs on the zone tick thread so it can never wedge on (unlike a racy per-entry decay task).</summary>
+    private void WorldCombatDecayTick()
+    {
+        if (!_worldCombatActive)
+            return;
 
-        _ = System.Threading.Tasks.Task.Run(async () =>
-        {
-            try
-            {
-                long remaining;
-                while ((remaining = OutOfCombatSeconds * 1000L - (Environment.TickCount64 - _lastWorldCombatTicks)) > 0)
-                    await System.Threading.Tasks.Task.Delay((int)remaining);
+        if (Environment.TickCount64 - _lastWorldCombatTicks < OutOfCombatSeconds * 1000L)
+            return; // still fighting
 
-                System.Threading.Interlocked.Exchange(ref _worldCombatActive, 0);
-                if (Zone is StartingZone)
-                {
-                    SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-                    SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-                }
-            }
-            finally
-            {
-                System.Threading.Interlocked.Exchange(ref _worldCombatDecayRunning, 0);
-            }
-        });
+        _worldCombatActive = false;
+        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
     }
 
     /// <summary>DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
