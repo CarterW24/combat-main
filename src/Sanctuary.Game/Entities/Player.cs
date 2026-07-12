@@ -663,6 +663,45 @@ public sealed class Player : ClientPcData, IEntity
         });
     }
 
+    /// <summary>Re-send the currently-equipped weapon (slot 7) — the ClientUpdatePacketEquipItem +
+    /// PlayerUpdatePacketEquipItemChange pair the inventory equip flow sends. Manually re-equipping the bow
+    /// is what players found un-freezes the ranged auto-fire after a kill: the weapon re-attach (WieldType)
+    /// resets the client's wield/combat state WITHOUT the profile re-activation that itself froze firing.</summary>
+    public void ResendEquippedWeapon()
+    {
+        if (!ActiveProfile.Items.TryGetValue(7, out var weaponProfileItem))
+            return;
+
+        var item = Items.SingleOrDefault(x => x.Id == weaponProfileItem.Id);
+        if (item is null || !_resourceManager.ClientItemDefinitions.TryGetValue(item.Definition, out var def))
+            return;
+        if (!_resourceManager.ItemClasses.TryGetValue(def.Class, out var itemClass))
+            return;
+
+        var equip = new ClientUpdatePacketEquipItem
+        {
+            Guid = item.Id,
+            ProfileId = ActiveProfileId,
+            Equip = true,
+        };
+        equip.Attachment.ModelName = def.ModelName;
+        equip.Attachment.TextureAlias = def.TextureAlias;
+        equip.Attachment.TintAlias = def.TintAlias;
+        equip.Attachment.TintId = item.Tint == 0 ? def.Icon.TintId : item.Tint;
+        equip.Attachment.CompositeEffectId = def.CompositeEffectId;
+        equip.Attachment.Slot = 7;
+        SendTunneled(equip);
+
+        SendTunneledToVisible(new PlayerUpdatePacketEquipItemChange
+        {
+            Guid = Guid,
+            Id = item.Id,
+            Attachment = equip.Attachment,
+            ProfileId = ActiveProfileId,
+            WieldType = itemClass.WieldType,
+        }, sendToSelf: true);
+    }
+
     /// <summary>
     /// Recomputes level-scaled character stats from the active job's Rank, pushes them to the client and
     /// caches them in <see cref="ClientPcData.Stats"/>. When <paramref name="refill"/> is set (login,
