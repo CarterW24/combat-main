@@ -772,6 +772,27 @@ public sealed class StartingZone : BaseZone
             killer.SendTunneled(clear);
     }
 
+    /// <summary>Range (horizontal) within which another live enemy keeps the client's ranged auto-fire alive
+    /// after a kill. Slightly beyond the bow's ~30u reach so a just-in-range next target still counts.</summary>
+    private const float RefireUnfreezeRange = 32f;
+
+    /// <summary>True if any live, damageable hostile (other than <paramref name="excluded"/>) is within
+    /// <paramref name="range"/> horizontal units of the player.</summary>
+    private bool AnyLiveHostileNear(Player player, Npc excluded, float range)
+    {
+        var r2 = range * range;
+        foreach (var n in Npcs)
+        {
+            if (ReferenceEquals(n, excluded) || !n.IsHostile || !n.IsDamageable || !n.IsAlive)
+                continue;
+            var dx = n.Position.X - player.Position.X;
+            var dz = n.Position.Z - player.Position.Z;
+            if (dx * dx + dz * dz <= r2)
+                return true;
+        }
+        return false;
+    }
+
     public override void OnNpcKilled(Player killer, Npc npc)
     {
         if (ReferenceEquals(npc, _trainingDummy))
@@ -817,6 +838,28 @@ public sealed class StartingZone : BaseZone
                     _logger.LogError(ex, "World enemy respawn failed (model {model}).", modelId);
                 }
             });
+
+            // REFIRE FREEZE FIX. Killing the LAST enemy in range freezes the client's ranged auto-fire: it's
+            // completely stuck (not even a re-press works) until a job-swap. When another enemy is still in
+            // range the client auto-switches and never freezes — so ONLY when the kill leaves no live hostile
+            // nearby do we replicate exactly what the job-swap does (silent profile re-activation + weapon
+            // toolbar re-send) to clear the client's wedged combat/ability state. Doing it only in the
+            // no-target case means it never interrupts a still-active firing loop. Small delay so it lands
+            // after the client has processed the kill/despawn.
+            if (!AnyLiveHostileNear(killer, npc, RefireUnfreezeRange))
+            {
+                var unfreezePlayer = killer;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(300);
+                        unfreezePlayer.RefreshActiveProfile();
+                        JobWeaponAbilities.SendToolbarWithFxPreload(unfreezePlayer, _resourceManager);
+                    }
+                    catch (Exception ex) { _logger.LogError(ex, "Refire unfreeze failed."); }
+                });
+            }
             return;
         }
 
