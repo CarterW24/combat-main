@@ -450,10 +450,6 @@ public sealed class Player : ClientPcData, IEntity
     private long _lastWorldCombatTicks;
     private volatile bool _worldCombatActive;
 
-    /// <summary>XP earned while fighting in the overworld is buffered here (its client-facing effects can
-    /// interrupt a ranged auto-fire loop) and applied in full when combat drops.</summary>
-    private int _pendingCombatXp;
-
     /// <summary>Mark the player as fighting in the overworld (weapon drawn + enemy HP bars + floating damage
     /// numbers) and (re)arm the out-of-combat timer. Idempotent and cheap — safe on every hit/press. The
     /// actual drop-out happens in <see cref="WorldCombatDecayTick"/> off the per-second tick.</summary>
@@ -482,16 +478,8 @@ public sealed class Player : ClientPcData, IEntity
             return; // still fighting
 
         _worldCombatActive = false;
-        // (No op41 combat-state FALSE packets — see EnterWorldCombat. We just drop the flag + flush XP.)
-
-        // Combat's over — apply all the XP we buffered during the fight now (feedback + any level-ups). Doing
-        // it here instead of mid-combat is what keeps the XP packets from interrupting the auto-fire loop.
-        if (_pendingCombatXp > 0)
-        {
-            var xp = _pendingCombatXp;
-            _pendingCombatXp = 0;
-            ApplyXp(xp);
-        }
+        // (No op41 combat-state FALSE packets — see EnterWorldCombat. XP is now awarded per kill, not flushed
+        // here, so this just clears the tracking flag.)
     }
 
     /// <summary>DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
@@ -547,23 +535,13 @@ public sealed class Player : ClientPcData, IEntity
         if (ActiveProfile.Rank >= JobLeveling.MaxLevel)
             return; // already max level - no more XP
 
-        // DEFINITIVE FIX for "bow stops firing after a kill at low level": defer the WHOLE award while
-        // fighting in the overworld. Max level is the one case that fires fine — precisely because AwardXp
-        // sends NOTHING at max level. So we send nothing mid-combat either: buffer the XP and apply the full
-        // total (feedback + level-ups) when combat drops (WorldCombatDecayTick flushes it), exactly like the
-        // dungeons, which grant XP only at the win. This guarantees no XP-triggered packet can interrupt the
-        // client's ranged auto-fire loop mid-fight, whichever one was the culprit.
-        if (_worldCombatActive)
-        {
-            _pendingCombatXp += xp;
-            return;
-        }
-
+        // Award XP per kill (immediately). This used to be deferred to combat-drop as a workaround for the
+        // ranged-fire wedge — but the real culprits (the op41 combat-state flags + the ActivateProfile in the
+        // XP flush) are now removed, so the XP feedback packets are safe to send on the kill.
         ApplyXp(xp);
     }
 
-    /// <summary>Actually apply XP: accrue, level up, and send all the client-facing effects. Called
-    /// immediately when out of combat, or flushed once when overworld combat drops.</summary>
+    /// <summary>Accrue XP, level up, and send the client-facing feedback.</summary>
     private void ApplyXp(int xp)
     {
         var profile = ActiveProfile;
