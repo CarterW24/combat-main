@@ -321,6 +321,11 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         var player = connection.Player;
         var zone = player.Zone;
 
+        // Pressing an attack puts you in world-combat immediately (weapon drawn + the client's ranged
+        // auto-fire loop), even before the shot resolves and even if it whiffs. This is what lets the bow
+        // keep firing at the next enemy after a kill instead of going inert.
+        player.EnterWorldCombat();
+
         // Resolve the ability's target. When the player has an enemy SELECTED the client sends its
         // guid — always honor that. With nothing selected, swing at what the player is actually
         // FACING: the nearest live hostile within melee reach inside a forward cone. Nothing there =
@@ -970,52 +975,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     internal static void RemoveTransform(GatewayConnection connection)
         => connection.Player.RemoveTemporaryAppearance();
 
-    // World-combat state tracker: first hit sends the enter pair (sub132 + sub133 true); 6 seconds
-    // after the LAST hit the decay loop sends the exit pair (false) — job/equipment changes unlock.
-    private const int OutOfCombatSeconds = 6;
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, DateTime> _lastCombatHit = new();
-
-    private static void EnterWorldCombat(Player player)
-    {
-        var alreadyFighting = _lastCombatHit.ContainsKey(player.Guid);
-        _lastCombatHit[player.Guid] = DateTime.UtcNow;
-
-        if (alreadyFighting)
-            return;
-
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                while (_lastCombatHit.TryGetValue(player.Guid, out var last))
-                {
-                    var remaining = TimeSpan.FromSeconds(OutOfCombatSeconds) - (DateTime.UtcNow - last);
-                    if (remaining <= TimeSpan.Zero)
-                        break;
-
-                    await Task.Delay(remaining);
-                }
-
-                _lastCombatHit.TryRemove(player.Guid, out _);
-
-                // The Frostfang arena owns its combat state for the whole encounter (its exit sequence
-                // releases it) — don't let an overworld decay stomp it mid-fight.
-                if (player.Zone is FrostfangArenaZone)
-                    return;
-
-                player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-                player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "World-combat decay loop failed.");
-            }
-        });
-    }
-
     // COMBAT WIP: after the cast bar completes, apply damage to the target(s), play a hit effect, push
     // each updated health bar, and kill/respawn at 0 HP. Runs off-thread so the cast time elapses first.
     // AOE specials pass the whole in-radius pack — one HitPointModification per victim in a burst, which
@@ -1032,9 +991,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 // Real-game behavior: landing a hit puts you in world-combat (sub132 SetInWorldCombat →
                 // m_bIsFighting + NPC hp-bar mode, sub133 SetIsFighting → m_bInCombatArea). This is what
                 // opens the client's floating-damage-number gate (BaseClient::sub_8BB0B0: CanUseAbilities
-                // || IsFighting || ...). It also job-locks while fighting — released by the 6s decay below,
-                // exactly like live FR's combat indicator.
-                EnterWorldCombat(player);
+                // || IsFighting || ...). It also job-locks while fighting — released by the decay, exactly
+                // like live FR's combat indicator. (Player owns the state machine so getting HIT enters it too.)
+                player.EnterWorldCombat();
 
                 // Caster-side end FX plays ONCE regardless of how many victims (e.g. Dragonstrike's land FX).
                 if (casterEndEffectId > 0)

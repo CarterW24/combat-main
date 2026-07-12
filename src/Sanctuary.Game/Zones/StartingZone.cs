@@ -737,6 +737,22 @@ public sealed class StartingZone : BaseZone
     // COMBAT: kill routing for this zone — the eternal training dummy resets, quest kill targets
     // credit the killer's active Kill goal and respawn after a delay.
     // (The Frostfang encounter wolves live in FrostfangArenaZone, which has its own override.)
+    /// <summary>Clear the dead NPC's overhead/minimap notification entry (op35/sub11 RemoveNotifications) on
+    /// every client that had it visible, plus the killer. THIS is what unsticks a bow after a kill: the client
+    /// keeps auto-firing (Target=0, server picks the nearest) as long as it holds a combat entry for the enemy
+    /// it engaged; when that enemy dies WITHOUT its notification being cleared, the client stays latched to the
+    /// corpse and silently stops sending fire requests until a full state reset (job swap). Every other combat
+    /// zone (Frostfang, Spirits, the walk-through dungeons) already sends this on mob death — the overworld was
+    /// the only one that didn't, which is exactly why the dungeon worked and the open world didn't.</summary>
+    private static void BroadcastKillSignal(Player killer, Npc npc)
+    {
+        var clear = new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } };
+        foreach (var viewer in npc.VisiblePlayers.Values)
+            viewer.SendTunneled(clear);
+        if (!npc.VisiblePlayers.ContainsKey(killer.Guid))
+            killer.SendTunneled(clear);
+    }
+
     public override void OnNpcKilled(Player killer, Npc npc)
     {
         if (ReferenceEquals(npc, _trainingDummy))
@@ -748,6 +764,14 @@ public sealed class StartingZone : BaseZone
         // World combat enemy: award XP, play the death (clip + poof), then respawn a fresh one at its post.
         if (npc is Sanctuary.Game.Entities.CombatNpc worldEnemy)
         {
+            // Idempotency guard (belt-and-suspenders with the atomic ApplyDamage): process each death
+            // exactly once. Overlapping archer shots could otherwise route the same kill here repeatedly,
+            // double-awarding XP and firing multiple graceful-removes that jam the client. Mirrors the
+            // dungeon zone's "already removed?" guard.
+            if (worldEnemy.IsDead)
+                return;
+            worldEnemy.IsDead = true;
+
             killer.AwardXp(worldEnemy.XpReward);
 
             // Capture what we need to rebuild it before Dispose() clears the entity.
@@ -757,6 +781,8 @@ public sealed class StartingZone : BaseZone
             var spawnPos = worldEnemy.SpawnPosition;
             var spawnRot = worldEnemy.SpawnRotation;
 
+            BroadcastKillSignal(killer, npc); // clear the dead enemy's client notification entry (matches
+                                              // every combat arena; the overworld was the only zone missing it)
             npc.GracefulRemoval = (true, QuestHostileDeathHoldMs, 0, QuestHostileDeathFxId, 1000);
             npc.Dispose();
 
@@ -783,6 +809,7 @@ public sealed class StartingZone : BaseZone
             && _resourceManager.Npcs.TryGetValue((int)(npc.Guid - NpcGuidBase), out var definition)
             && _resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId))
         {
+            BroadcastKillSignal(killer, npc); // release the client's ranged target-lock (bow re-fire fix)
             npc.GracefulRemoval = (true, QuestHostileDeathHoldMs, 0, QuestHostileDeathFxId, 1000);
             npc.Dispose();
 

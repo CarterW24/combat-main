@@ -98,21 +98,31 @@ public class Npc : IEntity
     /// The defeated Alpha uses Delay=10000 (he visibly runs off for 10s instead). Null = abrupt remove.</summary>
     public (bool Animate, int Delay, int EffectDelay, int EffectId, int Duration)? GracefulRemoval { get; set; }
 
-    /// <summary>Apply damage; returns true if this hit killed the NPC.</summary>
+    private readonly object _damageLock = new();
+
+    /// <summary>Apply damage; returns true if THIS hit landed the kill (exactly once). Thread-safe: an
+    /// archer fires ~every 150ms and each shot resolves its damage on a delayed task, so several in-flight
+    /// shots land almost together as the mob dies. Without the lock they would each read Health > 0, each
+    /// subtract, and EACH return true — firing OnNpcKilled 3-4x for one death (the level-up/XP effect
+    /// playing several times, and multiple graceful-removes that jam the client's combat state so a bow
+    /// can't re-fire). The lock guarantees a single caller crosses 0 and returns true.</summary>
     public bool ApplyDamage(int amount)
     {
-        if (!IsAlive)
-            return false;
-
-        Health -= amount;
-
-        if (Health <= 0)
+        lock (_damageLock)
         {
-            Health = 0;
-            return true;
-        }
+            if (!IsAlive)
+                return false;
 
-        return false;
+            Health -= amount;
+
+            if (Health <= 0)
+            {
+                Health = 0;
+                return true;
+            }
+
+            return false;
+        }
     }
 
     public int Animation { get; set; } = 1;
