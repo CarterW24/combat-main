@@ -601,6 +601,11 @@ public sealed class EncounterArenaZone : BaseZone
                                     CompositeEffectId = crit ? ClawCritFxId : ClawFxId,
                                     CurrentHealth = player.CurrentHitpoints,
                                 });
+
+                                // Boss models whose default contact event doesn't animate (Abominable
+                                // Snowman) need an explicit swing clip so they don't claw while frozen.
+                                if (Sanctuary.Game.Entities.CombatNpc.ExplicitAttackAnimByModel.TryGetValue(mob.ModelId, out var swingAnimId))
+                                    Broadcast(new PlayerUpdatePacketSetAnimation { Guid = mob.Guid, AnimationId = swingAnimId });
                             }
                         }
                     }

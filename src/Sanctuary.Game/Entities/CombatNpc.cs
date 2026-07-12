@@ -37,8 +37,10 @@ public class CombatNpc : Npc
     /// <summary>Movement speed when pursuing a target.</summary>
     public float CombatSpeed { get; set; } = 6.0f;
 
-    /// <summary>Movement speed when returning to spawn.</summary>
-    public float ReturnSpeed { get; set; } = 10.0f;
+    /// <summary>Movement speed when returning to spawn. Kept equal to <see cref="CombatSpeed"/> so the pace
+    /// (and the ExpectedSpeed we stream to clients) never jumps between chasing and evading — a mid-return
+    /// speed change made the client re-interpolate and stutter.</summary>
+    public float ReturnSpeed { get; set; } = 6.0f;
 
     // State tracking
     public Vector4 SpawnPosition { get; set; }
@@ -61,6 +63,17 @@ public class CombatNpc : Npc
     /// (chase vs return). A PHYSICS/CONTROLLER actor with no ExpectedSpeed snaps to each position update
     /// (the "flying/sliding" look) instead of running smoothly along the ground.</summary>
     public float LastSentExpectedSpeed { get; set; } = -1f;
+
+    /// <summary>Models whose swing the client's default attack-contact event does NOT drive — their
+    /// animation network lacks the standard melee state, so they deal damage while standing frozen. For
+    /// these we explicitly stream a SetAnimation swing (op35/8) on each hit. Maps ModelId -> AnimationGroup
+    /// id: com_swing (1099, itself falling back to com_h2h_attack 1000) is the generic creature melee swing.
+    /// The Abominable Snowman boss (1944, snowmanboss.adr — a winter-event model) is the known offender.
+    /// Shared so both the overworld <see cref="PerformAttack"/> and the dungeon claw loop use one source.</summary>
+    public static readonly IReadOnlyDictionary<int, int> ExplicitAttackAnimByModel = new Dictionary<int, int>
+    {
+        [1944] = 1099, // Abominable Snowman -> com_swing
+    };
 
     public CombatNpc(IZone zone) : base(zone)
     {
@@ -147,7 +160,9 @@ public class CombatNpc : Npc
 
         if (distToTarget <= AttackRange)
         {
-            // In attack range — switch to attacking
+            // In attack range — stop cleanly (tell clients speed 0 + an idle-state position) so the model
+            // plants instead of coasting past on its last ExpectedSpeed, then switch to attacking.
+            BroadcastStop();
             State = CombatState.Attacking;
             return;
         }
@@ -196,11 +211,12 @@ public class CombatNpc : Npc
     {
         var distToSpawn = DistanceTo(SpawnPosition);
 
-        if (distToSpawn < 1.5f)
+        // Arrived home. Threshold is tight (0.5) so the final settle is imperceptible instead of the old
+        // hard 1.5-unit teleport-snap; MoveTowards caps its step to the remaining distance so we land clean.
+        if (distToSpawn < 0.5f)
         {
-            // Arrived at spawn
             UpdatePosition(SpawnPosition, SpawnRotation);
-            BroadcastPositionUpdate(0); // Idle
+            BroadcastStop(); // speed 0 + idle-state position
             State = CombatState.Idle;
             AggroTarget = null;
 
@@ -213,13 +229,18 @@ public class CombatNpc : Npc
             return;
         }
 
-        // Check if a player is nearby and re-aggro
-        var closestPlayer = FindClosestPlayer(AggroRange * 0.5f);
-        if (closestPlayer is not null && !closestPlayer.IsDead)
+        // Re-aggro ONLY once we're back within leash of spawn. Re-aggroing while still far out just bounces
+        // the NPC straight back into a leash-reset (Pursuing -> over-leash -> Returning ...), which is the
+        // jittery back-and-forth that made evading enemies "glitch a lot" when a player chased them home.
+        if (distToSpawn <= LeashRange * 0.8f)
         {
-            AggroTarget = closestPlayer;
-            State = CombatState.Pursuing;
-            return;
+            var closestPlayer = FindClosestPlayer(AggroRange * 0.5f);
+            if (closestPlayer is not null && !closestPlayer.IsDead)
+            {
+                AggroTarget = closestPlayer;
+                State = CombatState.Pursuing;
+                return;
+            }
         }
 
         MoveTowards(SpawnPosition, ReturnSpeed);
@@ -274,6 +295,15 @@ public class CombatNpc : Npc
 
         foreach (var player in VisiblePlayers.Values)
             player.SendTunneled(attack);
+
+        // Models whose default combat-contact event doesn't animate get an explicit swing clip so they
+        // don't hit while frozen (e.g. the Abominable Snowman boss).
+        if (ExplicitAttackAnimByModel.TryGetValue(ModelId, out var swingAnimId))
+        {
+            var swing = new PlayerUpdatePacketSetAnimation { Guid = Guid, AnimationId = swingAnimId };
+            foreach (var player in VisiblePlayers.Values)
+                player.SendTunneled(swing);
+        }
     }
 
     /// <summary>Force this enemy to engage a player without dealing damage — used when the player's own
@@ -392,12 +422,7 @@ public class CombatNpc : Npc
         // Tell clients how fast we move so the client interpolates a smooth grounded run to each position
         // update (a PHYSICS actor with no ExpectedSpeed snaps between updates — the "flying" look). Only
         // re-send when the pace actually changes (chase speed vs return speed).
-        if (LastSentExpectedSpeed != speed)
-        {
-            LastSentExpectedSpeed = speed;
-            foreach (var player in VisiblePlayers.Values)
-                player.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = Guid, ExpectedSpeed = speed });
-        }
+        SendExpectedSpeed(speed);
 
         // Calculate movement delta (tick rate is ~10 FPS = 0.1s per tick)
         var moveAmount = speed * 0.1f;
@@ -407,9 +432,14 @@ public class CombatNpc : Npc
         var nx = dx / dist;
         var nz = dz / dist;
 
+        // Ease Y toward the target proportionally with horizontal progress instead of snapping straight to
+        // target.Y — snapping popped the model to spawn height on the first return tick and then let client
+        // gravity yank it back down (a vertical stutter every time it evaded). Reaching the target exactly
+        // as we arrive keeps grounded physics NPCs smooth.
+        var frac = moveAmount / dist;
         var newPos = new Vector4(
             Position.X + nx * moveAmount,
-            target.Y, // Match target Y
+            Position.Y + (target.Y - Position.Y) * frac,
             Position.Z + nz * moveAmount,
             1f
         );
@@ -428,10 +458,33 @@ public class CombatNpc : Npc
 
         if (sentDist >= 0.3f)
         {
-            byte moveState = speed > 7f ? (byte)2 : (byte)1; // 1=walk, 2=run
-            BroadcastPositionUpdate(moveState);
+            // Always the run state while actively moving — chase and evade are both sprints, so flipping
+            // walk<->run at the old 7.0 speed cutoff just churned the animation. ExpectedSpeed above drives
+            // the actual interpolation pace.
+            BroadcastPositionUpdate(2);
             LastSentPosition = newPos;
         }
+    }
+
+    /// <summary>Stream ExpectedSpeed to clients only when it actually changes (chase/return/stop), so a
+    /// PHYSICS actor interpolates a smooth grounded run without re-sending the same pace every tick.</summary>
+    private void SendExpectedSpeed(float speed)
+    {
+        if (LastSentExpectedSpeed == speed)
+            return;
+        LastSentExpectedSpeed = speed;
+        foreach (var player in VisiblePlayers.Values)
+            player.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = Guid, ExpectedSpeed = speed });
+    }
+
+    /// <summary>Plant the NPC: tell clients to stop predicting movement (ExpectedSpeed 0) and send one
+    /// idle-state position at the current spot. Used when reaching attack range or arriving home, so the
+    /// model stops instead of coasting past on its last streamed speed.</summary>
+    private void BroadcastStop()
+    {
+        SendExpectedSpeed(0f);
+        BroadcastPositionUpdate(0);
+        LastSentPosition = Position;
     }
 
     private void FaceTarget(Vector4 target)
