@@ -442,6 +442,11 @@ public sealed class Player : ClientPcData, IEntity
     private long _lastWorldCombatTicks;
     private volatile bool _worldCombatActive;
 
+    /// <summary>Set when an XP gain during combat skipped its Jobs-panel profile refresh (that refresh
+    /// re-activates the profile and would reset the client's combat/ability state mid-fight). Flushed when
+    /// combat drops so the panel syncs once the fight is over.</summary>
+    private bool _profileRefreshPending;
+
     /// <summary>Mark the player as fighting in the overworld (weapon drawn + enemy HP bars + floating damage
     /// numbers) and (re)arm the out-of-combat timer. Idempotent and cheap — safe on every hit/press. The
     /// actual drop-out happens in <see cref="WorldCombatDecayTick"/> off the per-second tick.</summary>
@@ -473,6 +478,14 @@ public sealed class Player : ClientPcData, IEntity
         _worldCombatActive = false;
         SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+
+        // Combat's over — safe now to run the profile refresh we deferred during the fight (it re-activates
+        // the profile, which would have interrupted firing mid-combat).
+        if (_profileRefreshPending)
+        {
+            _profileRefreshPending = false;
+            RefreshActiveProfile();
+        }
     }
 
     /// <summary>DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
@@ -583,8 +596,17 @@ public sealed class Player : ClientPcData, IEntity
             }
         }
 
-        // Re-send the full profile so the Jobs panel's level + XP bar (RankPercent) reflect immediately.
-        RefreshActiveProfile();
+        // Re-send the full profile so the Jobs panel's level + XP bar (RankPercent) reflect immediately —
+        // but NOT while fighting in the overworld. RefreshActiveProfile sends ClientUpdatePacketActivateProfile,
+        // the same packet a job-swap uses, which RESETS the client's combat/ability state. Doing that right
+        // after every kill tore down a ranged auto-fire loop in progress — the "kill an enemy at low level and
+        // the bow won't refire" bug (max level never hit it because AwardXp early-returns; the dungeon never
+        // hit it because it awards XP only at the win, not per kill). The dedicated XP/rank packets above
+        // already update the on-screen bar; defer the full panel refresh until combat drops.
+        if (_worldCombatActive)
+            _profileRefreshPending = true;
+        else
+            RefreshActiveProfile();
     }
 
     /// <summary>Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).</summary>
