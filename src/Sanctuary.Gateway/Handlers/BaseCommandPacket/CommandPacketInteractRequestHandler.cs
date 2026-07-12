@@ -53,6 +53,13 @@ public static class CommandPacketInteractRequestHandler
             return true;
         }
 
+        // Data-driven combat dungeons (DungeonCatalog) share one generic zone class.
+        if (player.Zone is EncounterArenaZone encounterArena && encounterArena.IsExitDoor(packet.Guid))
+        {
+            encounterArena.UseExitDoor(player);
+            return true;
+        }
+
         if (!player.Zone.TryGetEntity(packet.Guid, out var entity))
             return true;
 
@@ -139,11 +146,13 @@ public static class CommandPacketInteractRequestHandler
             return true;
         }
 
-        // INSTANCE (Tormented Spirits!): clicking a Tormented Spirit wandering the Blackspore
-        // graveyard opens the encounter 146 offer popup — the same wandering-encounter pattern as
-        // the Growler wolf, keyed by NameId (any of the world spirits is an entry).
-        if (player.Zone is StartingZone
-            && entity is Npc { NameId: TormentedSpiritsArenaZone.EntryNpcNameId })
+        // INSTANCE (Tormented Spirits!): clicking THE single entrance spirit wandering the Blackspore
+        // graveyard opens the encounter 146 offer popup — the same wandering-encounter pattern as the
+        // Growler wolf. Only the one designated entrance spirit opens the offer; the other graveyard
+        // spirits are hostile world enemies (fought, not clicked-to-enter).
+        if (player.Zone is StartingZone spiritZone
+            && spiritZone.SpiritEntranceGuid != 0
+            && packet.Guid == spiritZone.SpiritEntranceGuid)
         {
             _logger.LogInformation("InteractRequest: Tormented Spirit ({guid}) clicked -> sending offer popup.",
                 packet.Guid);

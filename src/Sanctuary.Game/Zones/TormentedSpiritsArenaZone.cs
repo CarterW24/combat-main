@@ -229,7 +229,12 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
     public override void OnClientIsReady(Player player)
     {
         // Same zone-in tail as the Frostfang arena (see that class for the full derivation).
-        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = 2500, MaxHitpoints = 2500 });
+        // Enter at the player's REAL max HP (full) so the bar doesn't jump on the first claw — the real-
+        // damage combat path reports MaxHealth from Stats[MaxHealth], so displaying a fixed 2500 here made
+        // the bar snap to the real max on the first hit ("health bugs out at the beginning").
+        var startHp = player.Stats.TryGetValue(Sanctuary.Packet.Common.CharacterStatId.MaxHealth, out var mh0) ? mh0.Int : 2500;
+        player.CurrentHitpoints = startHp;
+        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = startHp, MaxHitpoints = startHp });
         player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = 100, MaxMana = 100 });
 
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
@@ -736,20 +741,27 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
                             });
 
                             // Spirits anchor on the leader; broadcast so all members see the claw land.
-                            if (now >= state.NextClawTicks && now - lastPackClaw >= ClawGlobalGapMs)
+                            if (now >= state.NextClawTicks && now - lastPackClaw >= ClawGlobalGapMs && !player.IsDead)
                             {
                                 state.NextClawTicks = now + ClawCooldownMs;
                                 lastPackClaw = now;
 
                                 var crit = _rng.Next(100) < ClawCritPercent;
+                                var dmg = crit ? ClawCritDamage : ClawDamage;
+
+                                // REAL damage now (was cosmetic 2500/2500): drop the player's HP + knock them
+                                // out at 0 -> OnPlayerKnockedOut runs the knockout-counter / window flow.
+                                player.TakeDamage(dmg);
+                                var maxHp = player.Stats.TryGetValue(Sanctuary.Packet.Common.CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
+
                                 Broadcast(new CombatPacketAttackProcessed
                                 {
                                     AttackerGuid = spirit.Guid,
                                     TargetGuid = player.Guid,
-                                    Damage = crit ? ClawCritDamage : ClawDamage,
-                                    MaxHealth = 2500,     // player pool is still the cosmetic 2500 (shared TODO)
+                                    Damage = dmg,
+                                    MaxHealth = maxHp,
                                     CompositeEffectId = crit ? ClawCritFxId : ClawFxId,
-                                    CurrentHealth = 2500,
+                                    CurrentHealth = player.CurrentHitpoints,
                                 });
                             }
                         }
@@ -1166,6 +1178,61 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
         player.SendTunneled(new UiObjectiveClearPacket());
 
         _logger.LogInformation("Spirit arena: encounter released for {name}.", player.Name);
+    }
+
+    // DEATH: knockout window (10s countdown -> Revive button -> revive at the death spot). Server timer is
+    // a long fallback for a non-presser. Fail at 5.
+    private readonly System.Collections.Generic.Dictionary<ulong, int> _knockouts = [];
+    protected override int ReviveCooldownMs => 30000;
+
+    public override void OnPlayerKnockedOut(Player player)
+    {
+        if (player.Zone != this)
+            return;
+
+        int kos;
+        lock (_stateLock)
+        {
+            _knockouts.TryGetValue(player.Guid, out kos);
+            kos++;
+            _knockouts[player.Guid] = kos;
+        }
+
+        _logger.LogInformation("Spirit arena: {name} knocked out ({kos}/{limit}).", player.Name, kos, KnockoutLimit);
+
+        // Pop the knockout window (10s countdown -> Revive button). Drop the fighting flags first so it
+        // shows the auto-recover version, not the overworld pay/safe one.
+        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
+        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
+        if (kos >= KnockoutLimit)
+        {
+            player.SendTunneled(new MiniGameGameOverPacket(won: false));
+            EndEncounterForPlayer(player, won: false);
+            ReturnHome(player);
+            return;
+        }
+
+        ScheduleAutoRevive(player);
+    }
+
+    public override void OnPlayerRespawn(Player player)
+    {
+        var pos = player.DeathPosition;
+        player.Respawn();
+        if (player.Zone == this)
+        {
+            player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
+            player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+            player.UpdatePosition(pos, player.Rotation);
+            player.SendTunneled(new ClientUpdatePacketUpdateLocation
+            {
+                Position = pos,
+                Rotation = player.Rotation,
+                Teleport = true,
+            });
+        }
     }
 
     private void ReturnHome(Player player)

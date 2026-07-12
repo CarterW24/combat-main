@@ -31,6 +31,14 @@ public interface IZone
     /// instead of dying. Default: no-op.</summary>
     void OnNpcDamaged(Player attacker, Npc npc);
 
+    /// <summary>DEATH: the player's HP hit 0 (knocked out). Overworld = client shows its KO UI + revive in
+    /// place; combat instances count the knockout and fail the encounter at the limit.</summary>
+    void OnPlayerKnockedOut(Player player);
+
+    /// <summary>DEATH: the player pressed respawn — revive them (in place for the overworld, at the dungeon
+    /// spawn for instances).</summary>
+    void OnPlayerRespawn(Player player);
+
     /// <summary>COMBAT: push an NPC's cursor (attack/talk) to a player so it is selectable as a target.</summary>
     void SendNpcRelevance(Player player, Npc npc);
 

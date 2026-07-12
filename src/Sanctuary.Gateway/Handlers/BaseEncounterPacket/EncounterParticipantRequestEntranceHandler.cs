@@ -49,10 +49,30 @@ public static class EncounterParticipantRequestEntranceHandler
 
         if (encounterId == TormentedSpiritsArenaZone.EncounterId)
             EnterSpiritArena(connection);
+        else if (Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.ContainsKey(encounterId))
+            EnterEncounterArena(connection, encounterId);
         else
             EnterFrostfangArena(connection);
 
         return true;
+    }
+
+    /// <summary>GO! -&gt; a data-driven combat dungeon (DungeonCatalog). Same transfer recipe as the two
+    /// hand-built arenas; the generic EncounterArenaZone runs the fight from its DungeonDefinition.</summary>
+    public static void EnterEncounterArena(GatewayConnection connection, int activityId)
+    {
+        var arena = _zoneManager.GetOrCreateEncounterArena(activityId);
+
+        void Enter(Player player)
+        {
+            player.EncounterReturnPosition = player.Position;
+            player.TeleportToZone(arena, arena.SpawnPosition, arena.SpawnRotation, sky: null, geometryId: 0);
+            player.SendTunneled(new MiniGameGameStartPacket(0, -1, -1));
+            _logger.LogInformation("GO! -> TeleportToZone {zone} ({id}) for {name} (activity {a}).",
+                arena.Name, arena.Id, player.Name, activityId);
+        }
+
+        EnterWithParty(connection.Player, Enter);
     }
 
     /// <summary>The one true GO!-&gt;arena entry: proper server-side zone transfer + the minigame

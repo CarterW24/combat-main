@@ -21,4 +21,8 @@ public interface IZoneManager
     /// <summary>INSTANCE (Tormented Spirits!): the bs_random_encounter_01 graveyard arena zone —
     /// same lazy shared-instance model as the Frostfang arena.</summary>
     TormentedSpiritsArenaZone GetOrCreateSpiritArena();
+
+    /// <summary>INSTANCE (data-driven combat dungeons): the shared EncounterArenaZone for a DungeonCatalog
+    /// activity id — created on first use and reused (same lazy shared-instance model as the two above).</summary>
+    EncounterArenaZone GetOrCreateEncounterArena(int activityId);
 }

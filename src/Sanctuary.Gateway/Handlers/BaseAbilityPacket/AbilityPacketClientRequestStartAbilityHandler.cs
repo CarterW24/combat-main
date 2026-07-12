@@ -149,6 +149,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         _logger.LogInformation("AbilityPacket: Id={Id} Slot={Slot}", packet.Data.Id, packet.Data.Slot);
 
+        // DEATH: no acting while knocked out (can't swing/shoot/use items until you respawn).
+        if (connection.Player.IsDead)
+            return true;
+
         // Item bar (id 2) = consumables (boombox / cake / transform food); any other bar = combat ability.
         if (packet.Data.Id == 2)
             return HandleItemAbility(connection, packet);

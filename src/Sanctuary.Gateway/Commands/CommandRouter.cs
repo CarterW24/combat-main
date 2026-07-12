@@ -70,6 +70,8 @@ public static class CommandRouter
         {
             case "help":
                 return HandleHelp(conn);
+            case "dungeon":
+                return HandleDungeon(conn, parts);
             case "npc":
                 return HandleNpc(conn, parts);
             case "admin":
@@ -114,6 +116,8 @@ public static class CommandRouter
                 return HandlePetList(conn, parts);
             case "respawn":
                 return HandleRespawn(conn);
+            case "die":
+                return HandleDie(conn);
             case "spawnenemy":
                 return HandleSpawnEnemy(conn, parts);
             case "hp":
@@ -179,6 +183,23 @@ public static class CommandRouter
 
 
     // ================== BASIC HELP ==================
+
+    // Enter a data-driven combat dungeon (DungeonCatalog) directly by activity id — the test entry until
+    // each dungeon gets its world entry NPC. Pulls the party in (co-op), same as the GO! button.
+    private static bool HandleDungeon(GatewayConnection conn, string[] parts)
+    {
+        var catalog = Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity;
+        if (parts.Length < 2 || !int.TryParse(parts[1], out var id) || !catalog.ContainsKey(id))
+        {
+            SendSystem(conn, "Usage: !dungeon <id>. Available:");
+            foreach (var d in catalog.Values)
+                SendSystem(conn, $"  {d.ActivityId} - {d.Comment}");
+            return true;
+        }
+        EncounterParticipantRequestEntranceHandler.EnterEncounterArena(conn, id);
+        SendSystem(conn, $"Entering dungeon {id} ({catalog[id].Comment})...");
+        return true;
+    }
 
     private static bool HandleHelp(GatewayConnection conn)
     {
@@ -2005,8 +2026,25 @@ public static class CommandRouter
             return true;
         }
 
-        conn.Player.Respawn();
+        // Context-aware: overworld revives in place, dungeons revive at the dungeon spawn (see the zone
+        // overrides of OnPlayerRespawn).
+        conn.Player.Zone.OnPlayerRespawn(conn.Player);
         SendSystem(conn, "You have been revived!");
+        return true;
+    }
+
+    // TEST: force a knockout so the death flow can be tested regardless of combat balance (world enemies
+    // are currently weak, so you rarely actually reach 0 HP).
+    private static bool HandleDie(GatewayConnection conn)
+    {
+        if (conn.Player.IsDead)
+        {
+            SendSystem(conn, "You are already knocked out. Use /respawn.");
+            return true;
+        }
+
+        conn.Player.Knockout();
+        SendSystem(conn, "You collapsed. (Knockout triggered — /respawn to get back up.)");
         return true;
     }
 

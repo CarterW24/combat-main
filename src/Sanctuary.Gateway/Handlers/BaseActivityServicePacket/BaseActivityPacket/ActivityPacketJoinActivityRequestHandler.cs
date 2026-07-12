@@ -189,6 +189,15 @@ public static class ActivityPacketJoinActivityRequestHandler
 
             connection.SendTunneled(miniGameInfoPacket);
         }
+        // ★ ATLAS-MAP COMBAT DUNGEONS: clicking a dungeon marker on the atlas sends JoinActivityRequest
+        // with its activity id. If it's one of our data-driven dungeons (DungeonCatalog), enter the
+        // instance directly — the same server-side transfer the GO! button / world entry NPC uses (pulls
+        // the party in for co-op).
+        else if (Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.ContainsKey(packet.ActivityId))
+        {
+            _logger.LogInformation("Atlas join -> combat dungeon activity {id}.", packet.ActivityId);
+            EncounterParticipantRequestEntranceHandler.EnterEncounterArena(connection, packet.ActivityId);
+        }
 
         return true;
     }

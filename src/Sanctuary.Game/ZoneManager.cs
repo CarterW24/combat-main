@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,10 @@ public class ZoneManager : IZoneManager
     // INSTANCE (Tormented Spirits!): the Blackspore graveyard arena, same lazy pattern.
     private TormentedSpiritsArenaZone? _spiritArena;
     private readonly object _spiritArenaLock = new();
+
+    // Data-driven combat dungeons (DungeonCatalog): one cached EncounterArenaZone instance per activity id.
+    private readonly Dictionary<int, EncounterArenaZone> _encounterArenas = [];
+    private readonly object _encounterArenaLock = new();
 
     public ZoneManager(
         ILoggerFactory loggerFactory,
@@ -101,6 +106,23 @@ public class ZoneManager : IZoneManager
             }
 
             return _frostfangArena;
+        }
+    }
+
+    public EncounterArenaZone GetOrCreateEncounterArena(int activityId)
+    {
+        lock (_encounterArenaLock)
+        {
+            if (!_encounterArenas.TryGetValue(activityId, out var arena))
+            {
+                var def = Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity[activityId];
+                arena = new EncounterArenaZone(def, _serviceProvider) { Id = _uniqueId++ };
+                _encounterArenas[activityId] = arena;
+                _zones.TryAdd(arena.Id, arena);
+                _logger.LogInformation("Created encounter arena '{comment}' ({name}, id {id}) for activity {a}.",
+                    def.Comment, arena.Name, arena.Id, activityId);
+            }
+            return arena;
         }
     }
 

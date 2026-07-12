@@ -101,6 +101,9 @@ public sealed class Player : ClientPcData, IEntity
     private readonly ConcurrentDictionary<(int, int), PendingCooldown> _pendingCooldowns = new();
 
     public bool IsDead { get; set; }
+
+    /// <summary>Where the player fell (set on Knockout) — the "Revive here" respawn option returns them here.</summary>
+    public System.Numerics.Vector4 DeathPosition { get; set; }
     public int CurrentHitpoints { get; set; } = 2500;
     public int CurrentMana { get; set; } = 100;
 
@@ -240,7 +243,14 @@ public sealed class Player : ClientPcData, IEntity
         }
     }
 
-    /// <summary>Regenerates HP and mana toward their maximums using the level-scaled regen stats.</summary>
+    /// <summary>Out-of-combat window (seconds): HP won't regen until this long after the last hit taken.
+    /// Matches the ability handler's world-combat decay so "in combat" means the same thing on both sides.</summary>
+    private const int OutOfCombatSeconds = 6;
+
+    /// <summary>When the player last took combat damage — gates HP regen so it doesn't fight incoming hits.</summary>
+    public DateTime LastCombatDamageAt { get; set; } = DateTime.MinValue;
+
+    /// <summary>Regenerates HP (and, for non-combat jobs, mana) toward their maximums.</summary>
     private void RegenTick()
     {
         if (IsDead)
@@ -252,24 +262,56 @@ public sealed class Player : ClientPcData, IEntity
 
         int maxHp = maxHpStat.Int;
         int maxMana = maxManaStat.Int;
-        bool changed = false;
 
-        if (CurrentHitpoints < maxHp)
+        // COMBAT: don't regen HP while actively fighting (a hit within the out-of-combat window). The old
+        // behavior raced incoming enemy damage and made the health bar visibly jitter up and down mid-fight.
+        bool inCombat = DateTime.UtcNow - LastCombatDamageAt < TimeSpan.FromSeconds(OutOfCombatSeconds);
+
+        bool hpChanged = false;
+        if (!inCombat && CurrentHitpoints < maxHp)
         {
             int regen = Stats.TryGetValue(CharacterStatId.HitPointRegen, out var hr) ? hr.Int : 25;
             CurrentHitpoints = Math.Min(maxHp, CurrentHitpoints + Math.Max(1, regen));
-            changed = true;
+            hpChanged = true;
         }
 
-        if (CurrentMana < maxMana)
+        // STAMINA: combat jobs' stamina bar is owned ENTIRELY by the ability handler's energy system
+        // (0-100, drains on specials, +4/sec). RegenTick must NOT also drive it with the level-scaled
+        // CurrentMana, or the two systems fight over the same bar — that flicker was the "stamina bar
+        // glitching" AND it re-enabled the special slot client-side mid-cooldown (the "ability #2 spam").
+        bool usesCombatEnergy =
+            ActiveProfileId == Combat.NinjaWeaponAbilities.NinjaProfileId ||
+            ActiveProfileId == Combat.ArcherWeaponAbilities.ArcherProfileId;
+
+        bool manaChanged = false;
+        if (!usesCombatEnergy && CurrentMana < maxMana)
         {
             int regen = Stats.TryGetValue(CharacterStatId.ManaRegen, out var mr) ? mr.Int : 4;
             CurrentMana = Math.Min(maxMana, CurrentMana + Math.Max(1, regen));
-            changed = true;
+            manaChanged = true;
         }
 
-        if (changed)
-            SendHealthMana();
+        if (hpChanged)
+        {
+            SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = CurrentHitpoints, MaxHitpoints = maxHp });
+            SendTunneledToVisible(new PlayerUpdatePacketUpdateHitpoints
+            {
+                Guid = Guid,
+                Hitpoints = CurrentHitpoints,
+                MaxHitpoints = maxHp
+            }, sendToSelf: true);
+        }
+
+        if (manaChanged)
+        {
+            SendTunneled(new ClientUpdatePacketMana { CurrentMana = CurrentMana, MaxMana = maxMana });
+            SendTunneledToVisible(new PlayerUpdatePacketUpdateMana
+            {
+                Guid = Guid,
+                CurrentMana = CurrentMana,
+                MaxMana = maxMana
+            }, sendToSelf: true);
+        }
     }
 
     public void StartActionBarCooldown(int actionBarId, int slotIndex, int iconId, int nameId, int count, int cooldownMs)
@@ -298,6 +340,31 @@ public sealed class Player : ClientPcData, IEntity
         return packet;
     }
 
+    /// <summary>Knockout visual (this client renders NOTHING on its own at 0 HP): a hit-poof so the player
+    /// and nearby people see the moment of defeat. Tunable.</summary>
+    private const int KnockoutEffectId = 5017; // PFX death poof (same one dying NPCs use)
+
+    /// <summary>Send a System-channel chat line to this player (the death/revive feedback, since there's no
+    /// native death UI to show it).</summary>
+    public void SendSystemMessage(string text)
+    {
+        SendTunneled(new PacketChat
+        {
+            Channel = Sanctuary.Packet.Common.Chat.ChatChannel.System,
+            FromGuid = Guid,
+            FromName = Name ?? new(),
+            Message = text
+        });
+    }
+
+    /// <summary>Revive burst played on respawn — a big flashy particle burst (the level-up FX), far
+    /// flashier than a plain poof.</summary>
+    private const int ReviveEffectId = 15117; // PFX_levelup_big (~2s one-shot burst)
+
+    /// <summary>Resurrect/get-up animation played on revive (0 = none — the knocked-out state clear already
+    /// stands the player up; set to a real resurrect clip id once confirmed).</summary>
+    private const int ResurrectAnimId = 0;
+
     public void Respawn()
     {
         IsDead = false;
@@ -309,12 +376,43 @@ public sealed class Player : ClientPcData, IEntity
             MaxHitpoints = CurrentHitpoints
         };
         SendTunneled(hpPacket);
+
+        // Clear the knocked-out/rooted state (stand up + movement restored).
+        SendTunneledToVisible(new PlayerUpdatePacketUpdateCharacterState
+        {
+            Guid = Guid,
+            Status = CharacterStatus.None,
+        }, sendToSelf: true);
+
+        // Resurrect animation + revive FX at the player (visible to nearby players too).
+        if (ResurrectAnimId > 0)
+        {
+            SendTunneledToVisible(new PlayerUpdatePacketSetAnimation
+            {
+                Guid = Guid,
+                AnimationId = ResurrectAnimId,
+            }, sendToSelf: true);
+        }
+        SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
+        {
+            Guid = Guid,
+            CompositeEffectId = ReviveEffectId,
+            Position = Position,
+        }, sendToSelf: true);
+
+        SendSystemMessage("You have been revived!");
     }
 
-    public void TakeDamage(int amount, CombatNpc source)
+    public void TakeDamage(int amount, CombatNpc source) => TakeDamage(amount);
+
+    /// <summary>Apply combat damage from any source (world CombatNpc, arena claw, etc.): drop HP, push the
+    /// HP bar, and knock out at 0. No-op while already knocked out.</summary>
+    public void TakeDamage(int amount)
     {
         if (IsDead)
             return;
+
+        LastCombatDamageAt = DateTime.UtcNow; // gates HP regen so the bar doesn't jitter mid-fight
 
         CurrentHitpoints = Math.Max(0, CurrentHitpoints - amount);
 
@@ -326,7 +424,47 @@ public sealed class Player : ClientPcData, IEntity
         SendTunneled(hpPacket);
 
         if (CurrentHitpoints <= 0)
-            IsDead = true;
+            Knockout();
+    }
+
+    /// <summary>DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
+    /// damage + their own abilities), pins HP at 0, and hands off to the zone: the overworld leaves the
+    /// client's knockout UI up for a respawn-in-place; a combat instance counts the KO and fails the
+    /// encounter at the limit. The client shows its own knockout state when it receives 0 HP.</summary>
+    public void Knockout()
+    {
+        if (IsDead)
+            return;
+
+        IsDead = true;
+        CurrentHitpoints = 0;
+        DeathPosition = Position; // where "Revive here" brings the player back
+
+        SendTunneled(new ClientUpdatePacketHitpoints
+        {
+            CurrentHitpoints = 0,
+            MaxHitpoints = Stats[CharacterStatId.MaxHealth].Int
+        });
+
+        // Put the actor into the KNOCKED-OUT + ROOTED state: the client plays its knockdown animation and
+        // (IsRooted) stops the player from running around while down. Cleared on Respawn.
+        SendTunneledToVisible(new PlayerUpdatePacketUpdateCharacterState
+        {
+            Guid = Guid,
+            Status = CharacterStatus.IsKnockedOut | CharacterStatus.IsRooted,
+        }, sendToSelf: true);
+
+        // Also a death poof + message (belt-and-suspenders feedback).
+        SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
+        {
+            Guid = Guid,
+            CompositeEffectId = KnockoutEffectId,
+            Position = Position,
+        }, sendToSelf: true);
+
+        SendSystemMessage("You have been knocked out!");
+
+        Zone.OnPlayerKnockedOut(this);
     }
 
     /// <summary>
@@ -593,9 +731,9 @@ public sealed class Player : ClientPcData, IEntity
                 Name = Zone.Name,
                 Position = position,
                 Rotation = rotation,
-                Sky = "sky_deep_mines.xml",
-                Id = Zone.Id,
-                GeometryId = 214,
+                Sky = sky,               // honor the caller's sky (was hardcoded deep-mines) — the 3-arg
+                Id = Zone.Id,            // overload still passes the deep-mines values for its old callers
+                GeometryId = geometryId, // (was hardcoded 214)
                 OverrideUpdateRadius = true
             };
 

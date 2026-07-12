@@ -41,6 +41,17 @@ public static class WallOfDataUIEventPacketHandler
         Console.WriteLine($"[DEBUG] Packet deserialized successfully: TableName={packet.TableName}, Callback={packet.Callback}, Param={packet.Param}");
         _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(WallOfDataUIEventPacket), packet);
 
+        // ATLAS FAST-TRAVEL: clicking a marker on the world map sends this UI event (TableName=Atlas,
+        // Callback=teleportPlayerToPointOfInterest, Param=<POI id>). The client teleports itself locally,
+        // but without a server-side zone handshake the client froze (no HUD, can't move) on POIs that sit
+        // across a streaming/region boundary — "some dungeons freeze, some don't". Do the teleport
+        // server-authoritatively with a proper same-world re-entry so the load handshake always completes.
+        if (packet.TableName == "Atlas" && packet.Callback == "teleportPlayerToPointOfInterest"
+            && int.TryParse(packet.Param, out var poiId))
+        {
+            return HandleAtlasTeleport(connection, poiId);
+        }
+
         // Handle claim code redemption
         if (packet.Callback == "redeemCode" && !string.IsNullOrEmpty(packet.Param))
         {
@@ -63,6 +74,42 @@ public static class WallOfDataUIEventPacketHandler
         }
 
         Console.WriteLine("[DEBUG] Packet processed but not a claim code redemption");
+        return true;
+    }
+
+    private static bool HandleAtlasTeleport(GatewayConnection connection, int poiId)
+    {
+        var poi = _resourceManager.PointOfInterests.Values.FirstOrDefault(p => p.Id == poiId);
+        if (poi is null)
+        {
+            _logger.LogWarning("Atlas teleport: POI id {id} not found.", poiId);
+            return true;
+        }
+
+        var player = connection.Player;
+        var target = poi.SpawnPosition != default ? poi.SpawnPosition : poi.Position;
+        var rotation = new System.Numerics.Quaternion(MathF.Sin(poi.Heading), 0f, MathF.Cos(poi.Heading), 0f);
+
+        // SEAMLESS same-world teleport (no full-zone reload). The client's own atlas teleport moved it
+        // locally but the server did nothing, so the server kept streaming the OLD location's NPCs while
+        // the client was at the new spot — the desync that froze the client (no HUD, can't move). A full
+        // BeginZoning re-entry fixed that but added a multi-second LOAD SCREEN that itself reads as a
+        // freeze. Instead: move the player server-side (UpdatePosition streams the destination's NPCs —
+        // incl. the dungeon entrance on this spot — via the tile system) AND command the client to warp
+        // in place (server-initiated UpdateLocation, the same recipe the safe-teleport uses). No reload,
+        // no load screen, server + client stay in sync.
+        player.UpdatePosition(target, rotation);
+
+        player.SendTunneled(new ClientUpdatePacketUpdateLocation
+        {
+            Position = target,
+            Rotation = rotation,
+            Teleport = true
+        });
+
+        _logger.LogInformation("Atlas teleport -> POI {id} (name {name}, atlas {atlas}) at {pos}.",
+            poi.Id, poi.NameId, poi.AtlasName, target);
+
         return true;
     }
 

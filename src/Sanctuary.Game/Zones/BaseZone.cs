@@ -98,6 +98,56 @@ public abstract class BaseZone : IZone, IDisposable
     {
     }
 
+    /// <summary>The "Revive here" coin cost sent on the overworld respawn window, RAW (client shows it as
+    /// value/1000, so 100000 -> "100 coins").</summary>
+    protected const int ReviveHereCostRaw = 100000;
+
+    /// <summary>Fallback auto-revive delay. OVERWORLD = long: the player is expected to press a button on
+    /// the pay/safe respawn window; this only backstops someone who never does. Combat instances override
+    /// it short (they auto-revive via the knockout-counter flow, no window).</summary>
+    protected virtual int ReviveCooldownMs => 20000;
+
+    /// <summary>DEATH: the player's HP just hit 0. OVERWORLD behavior = pop the client's pay/safe respawn
+    /// window ("Revive here: 100 coins" / "Revive at safe location: Free"); the Revive buttons (sub122)
+    /// drive revival. Combat instances override for the knockout-counter / fail flow (no window).</summary>
+    public virtual void OnPlayerKnockedOut(Player player)
+    {
+        // The client's respawn window (DisplayRespawn) only renders the pay/safe buttons while it's in a
+        // combat/encounter state; otherwise sub125 shows only the knockout banner/counter. Put the player
+        // into the world-combat state first so the full window (with buttons) appears out in the overworld.
+        player.SendTunneled(new Sanctuary.Packet.EncounterOverworldCombatPacket { Unknown3 = true });
+        player.SendTunneled(new Sanctuary.Packet.EncounterPacketIsFighting { InWorldCombat = true });
+        player.SendTunneled(new Sanctuary.Packet.EncounterShowRespawnWindowPacket(0, 0, reviveHereCostRaw: ReviveHereCostRaw));
+        ScheduleAutoRevive(player);
+    }
+
+    /// <summary>Revive the player automatically once the knockout cooldown elapses (as long as they're
+    /// still down and still in this zone). This drives the client back to life in sync with its own
+    /// revive-cooldown countdown.</summary>
+    protected void ScheduleAutoRevive(Player player)
+    {
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(ReviveCooldownMs);
+                if (player.IsDead && player.Zone == this)
+                    OnPlayerRespawn(player);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Auto-revive failed.");
+            }
+        });
+    }
+
+    /// <summary>DEATH: revive the player. Base (overworld) behavior = revive where they fell with full HP.
+    /// Dungeons override to revive at the dungeon spawn.</summary>
+    public virtual void OnPlayerRespawn(Player player)
+    {
+        player.Respawn();
+    }
+
     #endregion
 
     #region Combat helpers

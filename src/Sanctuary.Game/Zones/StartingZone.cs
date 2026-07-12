@@ -36,12 +36,23 @@ public sealed class StartingZone : BaseZone
 
         // Spawn all static NPCs in the zone
         SpawnNpcs();
+
+        // Place a clickable entrance at each atlas dungeon marker (notif=3 POI) — click -> start panel -> GO!.
+        SpawnDungeonEntrances();
     }
 
     // NPCs come from the community-contributed Npcs.json (fixed scale/rotation, static-marked). The guid
     // is derived from each entry's id so that Quests.json giver/target guids and NpcVendors.json - both
     // keyed by guid = NpcGuidBase + id - keep resolving after swapping the source from NpcSpawns.txt.
     private const ulong NpcGuidBase = 100000000000UL;
+
+    /// <summary>Guid of the single Tormented Spirit that acts as the dungeon entrance (click -> offer).
+    /// Every other graveyard spirit spawns as a hostile world enemy instead. 0 until the first is spawned.</summary>
+    private ulong _spiritEntranceGuid;
+
+    /// <summary>The one Tormented Spirit entrance's guid (0 = none). The interact handler opens the encounter
+    /// offer ONLY for this spirit; the rest are fightable world enemies.</summary>
+    public ulong SpiritEntranceGuid => _spiritEntranceGuid;
 
     private void SpawnNpcs()
     {
@@ -50,6 +61,34 @@ public sealed class StartingZone : BaseZone
         foreach (var definition in _resourceManager.Npcs.Values)
         {
             var guid = NpcGuidBase + (ulong)definition.Id;
+
+            // WORLD COMBAT: curated enemy creatures (model matches the dungeon enemy set) spawn as hostile
+            // CombatNpcs — they aggro on approach, chase, auto-attack the player, track HP, die, and respawn.
+            // Excluded when the same model is doubling as a vendor, quest giver/target, or a quest kill-target,
+            // which keep their existing interactive/quest paths (kill-targets get MakeQuestHostile below).
+            if (!_resourceManager.NpcVendors.ContainsKey(guid)
+                && !_questManager.IsQuestNpc(guid)
+                && !_resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId)
+                && Sanctuary.Game.Dungeons.DungeonCatalog.EnemyModelIds.Contains(definition.ModelId))
+            {
+                SpawnWorldEnemy(definition);
+                spawnedCount++;
+                continue;
+            }
+
+            // INSTANCE (Tormented Spirits!): exactly ONE wandering spirit is the dungeon entrance (click ->
+            // offer popup); every OTHER graveyard spirit spawns as a hostile world enemy you can fight.
+            if (definition.NameId == TormentedSpiritsArenaZone.EntryNpcNameId)
+            {
+                if (_spiritEntranceGuid != 0)
+                {
+                    SpawnWorldEnemy(definition);
+                    spawnedCount++;
+                    continue;
+                }
+
+                _spiritEntranceGuid = guid; // the first one becomes the single entrance (configured below)
+            }
 
             if (!TryCreateNpc(guid, out var npc))
                 continue;
@@ -255,6 +294,13 @@ public sealed class StartingZone : BaseZone
         // returning player kept the stale pre-dungeon arrow (live 2026-07-10: still on the entry
         // spirit instead of "Return to Chloe" after winning the Tormented Spirits dungeon).
         _questManager.RefreshObjectiveTarget(player);
+
+        // Restore the HUD/camera on every overworld load — in particular when RETURNING FROM A DUNGEON the
+        // encounter/minigame end screen leaves the friends list + quest helper hidden until the server
+        // acknowledges. This is the same camera+HUD restore the quest-dialog flow uses (sub29 ->
+        // FUN_00a99220 -> restore camera + DismissEndScreen). On a plain login there's nothing to dismiss,
+        // so it's a harmless no-op.
+        player.SendTunneled(new CommandPacketQuestDialogComplete());
     }
 
     // COMBAT: fill the ability toolbar from the player's EQUIPPED WEAPON for any job with a
@@ -509,6 +555,185 @@ public sealed class StartingZone : BaseZone
         tile.Entities.TryAdd(npc.Guid, npc);
     }
 
+    // ---- World combat enemies (curated hostile creatures, spawned as CombatNpc) ----
+
+    /// <summary>Baseline level for overworld enemies (drives HP/damage/XP via CombatNpc.InitializeFromLevel).
+    /// Modest so early players can fight them; tune per-region later.</summary>
+    private const int WorldEnemyLevel = 3;
+
+    /// <summary>How long a defeated world enemy stays gone before a fresh one respawns at its post.</summary>
+    private const int WorldEnemyRespawnMs = 25_000;
+
+    private void SpawnWorldEnemy(NpcDefinition definition)
+    {
+        if (!TryCreateCombatNpc(out var enemy))
+            return;
+
+        enemy.ModelId = definition.ModelId;
+        enemy.NameId = definition.NameId;
+        enemy.TextureAlias = definition.TextureAlias;
+        enemy.Name = definition.Name;
+        enemy.Static = false;               // MUST be false — the zone tick loop skips Static NPCs (no AI)
+        enemy.Scale = _resourceManager.Models.TryGetValue(definition.ModelId, out var model) && model.Scale != 0f
+            ? model.Scale
+            : 1f;
+        enemy.Visible = true;
+        enemy.EnemyStatus = true;           // AddNpc "render as enemy" flag (red name)
+        enemy.ActiveProfile = 1;            // re-runs the client name-color resolver -> red
+        enemy.CursorId = 11;                // crossed-swords attack cursor
+        enemy.ShowHealthBar = true;
+        enemy.MovementType = 2;             // PHYSICS — grounded with gravity (CONTROLLER/1 left them "flying")
+
+        enemy.InitializeFromLevel(WorldEnemyLevel); // HP / damage / XP / attack cadence
+        enemy.Speed = enemy.CombatSpeed;
+
+        // The player's ability handler damages via Npc.Health and routes the kill through OnNpcKilled, so
+        // mirror the combat HP into the Npc fields (that's what makes it a damageable target + drives the bar).
+        enemy.MaxHealth = enemy.MaxHitpoints;
+        enemy.Health = enemy.CurrentHitpoints;
+
+        enemy.SpawnPosition = definition.Position;
+        enemy.SpawnRotation = definition.Rotation;
+        enemy.LastSentPosition = definition.Position;
+        enemy.UpdatePosition(definition.Position, definition.Rotation);
+
+        var tile = GetTileFromPosition(definition.Position);
+        tile.Entities.TryAdd(enemy.Guid, enemy);
+    }
+
+    /// <summary>Re-spawn a fresh world enemy at a defeated one's post (captured model/name/level/position).</summary>
+    private void RespawnWorldEnemy(int modelId, int nameId, string? name, string? textureAlias, float scale,
+        int level, Vector4 spawnPosition, Quaternion spawnRotation)
+    {
+        if (!TryCreateCombatNpc(out var enemy))
+            return;
+
+        enemy.ModelId = modelId;
+        enemy.NameId = nameId;
+        enemy.TextureAlias = textureAlias;
+        enemy.Name = name;
+        enemy.Static = false;
+        enemy.Scale = scale;
+        enemy.Visible = true;
+        enemy.EnemyStatus = true;
+        enemy.ActiveProfile = 1;
+        enemy.CursorId = 11;
+        enemy.ShowHealthBar = true;
+        enemy.MovementType = 2;             // PHYSICS — grounded with gravity (CONTROLLER/1 left them "flying")
+
+        enemy.InitializeFromLevel(level);
+        enemy.Speed = enemy.CombatSpeed;
+        enemy.MaxHealth = enemy.MaxHitpoints;
+        enemy.Health = enemy.CurrentHitpoints;
+
+        enemy.SpawnPosition = spawnPosition;
+        enemy.SpawnRotation = spawnRotation;
+        enemy.LastSentPosition = spawnPosition;
+        enemy.UpdatePosition(spawnPosition, spawnRotation);
+
+        var tile = GetTileFromPosition(spawnPosition);
+        tile.Entities.TryAdd(enemy.Guid, enemy);
+    }
+
+    // ---- Dungeon entrances (atlas notif=3 POIs -> the BIG walk-through dungeon) ----
+
+    // Each atlas dungeon marker is a NotificationType=3 PointOfInterest. Fast-travel drops you at its
+    // overworld position, where we place a clickable entrance whose click opens the dungeon start panel;
+    // GO! routes through EncounterParticipantRequestEntranceHandler -> EnterEncounterArena. The atlas
+    // markers map to the BIG walk-through dungeon worlds (catalog id 900000 + poiId — the real dungeon
+    // worlds like sg_robgoblin_trove), NOT the small scattered encounter arenas.
+    private const int AtlasDungeonIdBase = 900000;
+
+    /// <summary>Model 511 = human_invisible_m.adr (Models.txt): an invisible CHARACTER actor — renders
+    /// nothing, is still sent to the client (so it's clickable via its nameplate/actor box), and unlike the
+    /// "Invisible Block" widget it has no solid environment collision, so the player (who teleports onto
+    /// this exact spot) doesn't get stuck inside it.</summary>
+    private const int AtlasEntranceModelId = 511;
+
+    private void SpawnDungeonEntrances()
+    {
+        foreach (var poi in _resourceManager.PointOfInterests.Values)
+        {
+            if (poi.NotificationType != 3)
+                continue;
+            if (!Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.TryGetValue(AtlasDungeonIdBase + poi.Id, out var dungeon))
+                continue;
+            if (!TryCreateNpc(out var entrance))
+                continue;
+
+            // The entrance is an INVISIBLE clickable widget (model 69 "widget_01.adr" = "Invisible Block"):
+            // no creature stands at the dungeon mouth, but the actor is still sent to the client (required
+            // to be clickable) with the dungeon's NAME on its floating nameplate as the click cue. Clicking
+            // it opens the start panel. (A truly Visible=false NPC isn't sent to the client at all, so it
+            // couldn't be clicked — hence an invisible-but-present model instead.)
+            entrance.ModelId = AtlasEntranceModelId;
+            entrance.NameId = dungeon.TitleNameId;   // floating nameplate = the dungeon's name (the click cue)
+            entrance.Name = dungeon.Comment;
+            entrance.Static = true;
+            entrance.Scale = 1f;
+            entrance.Visible = true;                 // present/clickable; the model itself renders nothing
+            entrance.HideNamePlate = false;          // keep the nameplate as the visible target
+            entrance.CursorId = 11;                  // crossed-swords / adventure cursor on hover
+            entrance.InteractRange = 18;
+
+            var pos = poi.SpawnPosition != default ? poi.SpawnPosition : poi.Position;
+            var rot = new Quaternion(MathF.Sin(poi.Heading), 0f, MathF.Cos(poi.Heading), 0f);
+            var capturedDungeon = dungeon;
+            entrance.InteractAction = player => SendDungeonOffer(player, capturedDungeon);
+
+            entrance.UpdatePosition(pos, rot);
+            GetTileFromPosition(pos).Entities.TryAdd(entrance.Guid, entrance);
+        }
+    }
+
+    /// <summary>Open the dungeon start panel (adventure offer + auto-ready GO!) for a data-driven dungeon —
+    /// the same offer/handshake the Growler/Spirit entries use, keyed to this dungeon's activity id so the
+    /// GO! button routes to its EncounterArenaZone.</summary>
+    private static void SendDungeonOffer(Player player, Sanctuary.Game.Dungeons.DungeonDefinition dungeon)
+    {
+        const int instanceId = 1;
+
+        foreach (var state in new[] { 2, 3, 4 })
+        {
+            player.SendTunneled(new EncounterStatePacket
+            {
+                EncounterId = dungeon.ActivityId,
+                InstanceId = instanceId,
+                State = state,
+            });
+        }
+
+        player.SendTunneled(new EncounterDetailsResponsePacket
+        {
+            Unknown = dungeon.ActivityId,
+            Unknown2 = instanceId,
+            NameId = dungeon.TitleNameId,
+            DescriptionId = dungeon.DescriptionId,
+            Difficulty = dungeon.Difficulty,
+            IconId = dungeon.IconId,
+            MiniGameType = 4, // COMBAT
+            PreviewRewards = FrostfangArenaZone.GetPrizePreviewFor(player),
+            PreviewCoins = FrostfangArenaZone.PrizeCoins,
+            PreviewXp = FrostfangArenaZone.PrizeXp,
+            ProfileType = FrostfangArenaZone.CombatProfileType,
+            ActivityId = dungeon.ActivityId,
+        });
+
+        // Auto-complete the ready handshake so the spinner flips to the green GO! (same as the two hand-built
+        // encounters — no "!ready" chat command needed).
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(600);
+            player.SendTunneled(new EncounterZoneIsReadyPacket());
+            player.SendTunneled(new EncounterStatePacket
+            {
+                EncounterId = dungeon.ActivityId,
+                InstanceId = instanceId,
+                State = 5,
+            });
+        });
+    }
+
     // COMBAT: kill routing for this zone — the eternal training dummy resets, quest kill targets
     // credit the killer's active Kill goal and respawn after a delay.
     // (The Frostfang encounter wolves live in FrostfangArenaZone, which has its own override.)
@@ -517,6 +742,36 @@ public sealed class StartingZone : BaseZone
         if (ReferenceEquals(npc, _trainingDummy))
         {
             ResetTrainingDummy();
+            return;
+        }
+
+        // World combat enemy: award XP, play the death (clip + poof), then respawn a fresh one at its post.
+        if (npc is Sanctuary.Game.Entities.CombatNpc worldEnemy)
+        {
+            killer.AwardXp(worldEnemy.XpReward);
+
+            // Capture what we need to rebuild it before Dispose() clears the entity.
+            int modelId = worldEnemy.ModelId, nameId = worldEnemy.NameId, level = worldEnemy.Level;
+            string? name = worldEnemy.Name, textureAlias = worldEnemy.TextureAlias;
+            float scale = worldEnemy.Scale;
+            var spawnPos = worldEnemy.SpawnPosition;
+            var spawnRot = worldEnemy.SpawnRotation;
+
+            npc.GracefulRemoval = (true, QuestHostileDeathHoldMs, 0, QuestHostileDeathFxId, 1000);
+            npc.Dispose();
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(WorldEnemyRespawnMs);
+                    RespawnWorldEnemy(modelId, nameId, name, textureAlias, scale, level, spawnPos, spawnRot);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "World enemy respawn failed (model {model}).", modelId);
+                }
+            });
             return;
         }
 
@@ -544,6 +799,14 @@ public sealed class StartingZone : BaseZone
                 }
             });
         }
+    }
+
+    // COMBAT: a non-fatal hit — make a world enemy fight back. If the player poked it from range (or before
+    // it noticed them), lock it onto the attacker so it charges + auto-attacks instead of standing idle.
+    public override void OnNpcDamaged(Player player, Npc npc)
+    {
+        if (npc is Sanctuary.Game.Entities.CombatNpc enemy)
+            enemy.AggroOnto(player);
     }
 
     // COMBAT WIP: Shadow Army special — spawn temporary "shadow clone" NPCs around the caster, each using the

@@ -57,6 +57,11 @@ public class CombatNpc : Npc
     /// </summary>
     public Vector4 LastSentPosition { get; set; }
 
+    /// <summary>The last ExpectedSpeed we told clients — so we only re-broadcast when the pace changes
+    /// (chase vs return). A PHYSICS/CONTROLLER actor with no ExpectedSpeed snaps to each position update
+    /// (the "flying/sliding" look) instead of running smoothly along the ground.</summary>
+    public float LastSentExpectedSpeed { get; set; } = -1f;
+
     public CombatNpc(IZone zone) : base(zone)
     {
         Disposition = 0; // Hostile
@@ -228,6 +233,11 @@ public class CombatNpc : Npc
 
     private void PerformAttack(Player target)
     {
+        // Never keep hitting a downed player — extra combat packets on a 0-HP target make the overworld
+        // client bounce the HP bar back up (there's no death state out here to absorb them).
+        if (target.IsDead)
+            return;
+
         // Calculate damage with some variance
         var random = Random.Shared;
         var variance = random.NextSingle() * 0.4f + 0.8f; // 0.8x to 1.2x
@@ -244,8 +254,42 @@ public class CombatNpc : Npc
 
         finalDamage = Math.Max(1, finalDamage); // Always deal at least 1 damage
 
-        // Apply damage to target
+        // Apply damage to target (server-authoritative HP + the player's own HP-bar packet).
         target.TakeDamage(finalDamage, this);
+
+        // VISUAL: tell every nearby client to play OUR attack-contact event — the model's swing/bite clip —
+        // and pop the floating damage number + recoil on the target. Without this the enemy dealt damage
+        // with no animation (the "Cray Snapper has no attack animation" report). CombatPacketAttackProcessed:
+        // the attacker guid plays the swing; the target guid takes the number/bar/recoil/hit FX. CurrentHealth
+        // is the post-hit value so the bar it drives matches the HP packet TakeDamage just sent.
+        var attack = new CombatPacketAttackProcessed
+        {
+            AttackerGuid = Guid,
+            TargetGuid = target.Guid,
+            Damage = finalDamage,
+            MaxHealth = target.Stats[CharacterStatId.MaxHealth].Int,
+            CurrentHealth = target.CurrentHitpoints,
+            CompositeEffectId = 0,
+        };
+
+        foreach (var player in VisiblePlayers.Values)
+            player.SendTunneled(attack);
+    }
+
+    /// <summary>Force this enemy to engage a player without dealing damage — used when the player's own
+    /// ability handler applied the hit (via Npc.Health) so we skip our internal HP path but still react.
+    /// Also covers a player attacking from outside aggro range.</summary>
+    public void AggroOnto(Player source)
+    {
+        if (IsDead || source.IsDead)
+            return;
+
+        if (AggroTarget is null || !AggroTarget.Visible || AggroTarget.IsDead)
+        {
+            AggroTarget = source;
+            if (State is CombatState.Idle or CombatState.Returning)
+                State = CombatState.Pursuing;
+        }
     }
 
     /// <summary>
@@ -344,6 +388,16 @@ public class CombatNpc : Npc
 
         if (dist < 0.1f)
             return;
+
+        // Tell clients how fast we move so the client interpolates a smooth grounded run to each position
+        // update (a PHYSICS actor with no ExpectedSpeed snaps between updates — the "flying" look). Only
+        // re-send when the pace actually changes (chase speed vs return speed).
+        if (LastSentExpectedSpeed != speed)
+        {
+            LastSentExpectedSpeed = speed;
+            foreach (var player in VisiblePlayers.Values)
+                player.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = Guid, ExpectedSpeed = speed });
+        }
 
         // Calculate movement delta (tick rate is ~10 FPS = 0.1s per tick)
         var moveAmount = speed * 0.1f;
