@@ -613,8 +613,10 @@ public sealed class Player : ClientPcData, IEntity
             ApplyLevelUpEffects();
         }
 
-        // Re-send the full profile so the Jobs panel's level + XP bar (RankPercent) reflect immediately.
-        RefreshActiveProfile();
+        // NOTE: deliberately do NOT call RefreshActiveProfile() here. It sends ClientUpdatePacketActivateProfile,
+        // the same packet that wedges the ranged auto-fire — running it on every XP flush (when combat drops)
+        // re-broke firing "after a set of enemies." The dedicated experience/rank packets above already update
+        // the on-screen job XP bar + level number, so the full profile re-send isn't needed for feedback.
     }
 
     /// <summary>The heavy level-up presentation — stat rescale + HP/mana refill, the particle celebration,
