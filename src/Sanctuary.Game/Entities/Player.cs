@@ -442,11 +442,9 @@ public sealed class Player : ClientPcData, IEntity
     private long _lastWorldCombatTicks;
     private volatile bool _worldCombatActive;
 
-    /// <summary>XP earned during combat defers its disruptive presentation (level-up stat rescale + UI, and
-    /// the profile re-activation) because those reset client state that would interrupt a ranged auto-fire
-    /// loop. These flags mark what to flush once combat drops.</summary>
-    private bool _deferredLevelUp;
-    private bool _deferredProfileRefresh;
+    /// <summary>XP earned while fighting in the overworld is buffered here (its client-facing effects can
+    /// interrupt a ranged auto-fire loop) and applied in full when combat drops.</summary>
+    private int _pendingCombatXp;
 
     /// <summary>Mark the player as fighting in the overworld (weapon drawn + enemy HP bars + floating damage
     /// numbers) and (re)arm the out-of-combat timer. Idempotent and cheap — safe on every hit/press. The
@@ -480,17 +478,13 @@ public sealed class Player : ClientPcData, IEntity
         SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
 
-        // Combat's over — safe now to run the level-up presentation / profile refresh we deferred during the
-        // fight (they re-activate the profile / rescale stats, which would have interrupted firing mid-combat).
-        if (_deferredLevelUp)
+        // Combat's over — apply all the XP we buffered during the fight now (feedback + any level-ups). Doing
+        // it here instead of mid-combat is what keeps the XP packets from interrupting the auto-fire loop.
+        if (_pendingCombatXp > 0)
         {
-            _deferredLevelUp = false;
-            ApplyLevelUpEffects();
-        }
-        if (_deferredProfileRefresh)
-        {
-            _deferredProfileRefresh = false;
-            RefreshActiveProfile();
+            var xp = _pendingCombatXp;
+            _pendingCombatXp = 0;
+            ApplyXp(xp);
         }
     }
 
@@ -544,9 +538,31 @@ public sealed class Player : ClientPcData, IEntity
         if (xp <= 0)
             return;
 
+        if (ActiveProfile.Rank >= JobLeveling.MaxLevel)
+            return; // already max level - no more XP
+
+        // DEFINITIVE FIX for "bow stops firing after a kill at low level": defer the WHOLE award while
+        // fighting in the overworld. Max level is the one case that fires fine — precisely because AwardXp
+        // sends NOTHING at max level. So we send nothing mid-combat either: buffer the XP and apply the full
+        // total (feedback + level-ups) when combat drops (WorldCombatDecayTick flushes it), exactly like the
+        // dungeons, which grant XP only at the win. This guarantees no XP-triggered packet can interrupt the
+        // client's ranged auto-fire loop mid-fight, whichever one was the culprit.
+        if (_worldCombatActive)
+        {
+            _pendingCombatXp += xp;
+            return;
+        }
+
+        ApplyXp(xp);
+    }
+
+    /// <summary>Actually apply XP: accrue, level up, and send all the client-facing effects. Called
+    /// immediately when out of combat, or flushed once when overworld combat drops.</summary>
+    private void ApplyXp(int xp)
+    {
         var profile = ActiveProfile;
         if (profile.Rank >= JobLeveling.MaxLevel)
-            return; // already max level - no more XP
+            return;
 
         int startLevel = profile.Rank;
         profile.LevelXpRaw += xp;
@@ -580,7 +596,6 @@ public sealed class Player : ClientPcData, IEntity
 
         if (leveled)
         {
-            // Level number display (harmless feedback — safe to send mid-combat).
             SendTunneled(new ClientUpdatePacketUpdateProfileRank
             {
                 ProfileId = profile.Id,
@@ -588,25 +603,12 @@ public sealed class Player : ClientPcData, IEntity
                 ProfileIconId = profile.Icon,
                 ProfileNameId = profile.NameId
             });
+
+            ApplyLevelUpEffects();
         }
 
-        // The DISRUPTIVE client-facing effects — RecalculateStats + the celebration + the full-screen
-        // JobLevelUp UI, and the profile re-activation (ClientUpdatePacketActivateProfile) — all reset the
-        // client's combat/ability state, which interrupts an in-progress ranged auto-fire loop. That's the
-        // "bow stops firing after I get XP / level up" bug (the +XP and XP-bar packets above are proven fine
-        // mid-fight in the 07-12 capture; only these are not). Run them now if out of combat; otherwise DEFER
-        // until combat drops (WorldCombatDecayTick flushes the flags) so a fight is never interrupted.
-        if (_worldCombatActive)
-        {
-            _deferredLevelUp |= leveled;
-            _deferredProfileRefresh = true;
-        }
-        else
-        {
-            if (leveled)
-                ApplyLevelUpEffects();
-            RefreshActiveProfile();
-        }
+        // Re-send the full profile so the Jobs panel's level + XP bar (RankPercent) reflect immediately.
+        RefreshActiveProfile();
     }
 
     /// <summary>The heavy level-up presentation — stat rescale + HP/mana refill, the particle celebration,
