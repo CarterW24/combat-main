@@ -369,14 +369,24 @@ public sealed class Player : ClientPcData, IEntity
     public void Respawn()
     {
         IsDead = false;
-        CurrentHitpoints = Stats[CharacterStatId.MaxHealth].Int;
 
-        var hpPacket = new ClientUpdatePacketHitpoints
+        // Apply any level-up whose stat rescale we deferred during the fight BEFORE computing revive HP —
+        // otherwise reviving with a stale (pre-level) max makes the health bar snap to the new max a moment
+        // later ("health bar is buggy after reviving"). Safe here: revive is out of combat.
+        if (_pendingLevelUp)
         {
-            CurrentHitpoints = CurrentHitpoints,
-            MaxHitpoints = CurrentHitpoints
-        };
-        SendTunneled(hpPacket);
+            _pendingLevelUp = false;
+            ApplyLevelUpEffects();
+        }
+
+        var maxHp = Stats[CharacterStatId.MaxHealth].Int;
+        CurrentHitpoints = maxHp;
+
+        SendTunneled(new ClientUpdatePacketHitpoints
+        {
+            CurrentHitpoints = maxHp,
+            MaxHitpoints = maxHp
+        });
 
         // Clear the knocked-out/rooted state (stand up + movement restored).
         SendTunneledToVisible(new PlayerUpdatePacketUpdateCharacterState
@@ -450,6 +460,10 @@ public sealed class Player : ClientPcData, IEntity
     private long _lastWorldCombatTicks;
     private volatile bool _worldCombatActive;
 
+    /// <summary>A level-up that happened mid-combat defers its heavy presentation (stat rescale + full-screen
+    /// UI) to combat-drop, since those packets wedge the ranged auto-fire mid-fight.</summary>
+    private bool _pendingLevelUp;
+
     /// <summary>Mark the player as fighting in the overworld (weapon drawn + enemy HP bars + floating damage
     /// numbers) and (re)arm the out-of-combat timer. Idempotent and cheap — safe on every hit/press. The
     /// actual drop-out happens in <see cref="WorldCombatDecayTick"/> off the per-second tick.</summary>
@@ -478,8 +492,13 @@ public sealed class Player : ClientPcData, IEntity
             return; // still fighting
 
         _worldCombatActive = false;
-        // (No op41 combat-state FALSE packets — see EnterWorldCombat. XP is now awarded per kill, not flushed
-        // here, so this just clears the tracking flag.)
+        // (No op41 combat-state FALSE packets — see EnterWorldCombat. XP is awarded per kill; this clears the
+        // tracking flag and runs any level-up presentation we deferred out of the fight.)
+        if (_pendingLevelUp)
+        {
+            _pendingLevelUp = false;
+            ApplyLevelUpEffects();
+        }
     }
 
     /// <summary>DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
@@ -588,7 +607,14 @@ public sealed class Player : ClientPcData, IEntity
                 ProfileNameId = profile.NameId
             });
 
-            ApplyLevelUpEffects();
+            // The heavy level-up presentation (stat rescale + the profile-based full-screen JobLevelUp UI)
+            // wedges the ranged auto-fire if it fires mid-combat — "after leveling up I can't refire." Defer
+            // it to combat-drop while fighting; run it now if we're already out of combat. The +XP / rank
+            // number above is immediate either way, so XP still feels earned on the kill.
+            if (_worldCombatActive)
+                _pendingLevelUp = true;
+            else
+                ApplyLevelUpEffects();
         }
 
         // NOTE: deliberately do NOT call RefreshActiveProfile() here. It sends ClientUpdatePacketActivateProfile,
