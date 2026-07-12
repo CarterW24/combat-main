@@ -550,6 +550,18 @@ public sealed class Player : ClientPcData, IEntity
         if (_worldCombatActive)
         {
             _pendingCombatXp += xp;
+
+            // Still show the floating "+XP" popup on the kill so XP feels earned per enemy. This is the op38
+            // profile-experience packet (display only). The op36 ability-XP-bar update + the level-up
+            // presentation stay deferred to combat-drop — those are what interrupt the ranged auto-fire loop.
+            var pr = ActiveProfile;
+            SendTunneled(new ClientUpdatePacketUpdateProfileExperience
+            {
+                ProfileId = pr.Id,
+                XpGained = xp,
+                TotalXpInLevel = pr.LevelXpRaw + _pendingCombatXp,
+                CurrentLevel = pr.Rank
+            });
             return;
         }
 

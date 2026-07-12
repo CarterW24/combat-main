@@ -561,8 +561,9 @@ public sealed class StartingZone : BaseZone
     /// Modest so early players can fight them; tune per-region later.</summary>
     private const int WorldEnemyLevel = 3;
 
-    /// <summary>How long a defeated world enemy stays gone before a fresh one respawns at its post.</summary>
-    private const int WorldEnemyRespawnMs = 25_000;
+    /// <summary>How long a defeated world enemy stays gone before a fresh one respawns at its post. Kept
+    /// short so clearing a spot doesn't leave you standing around with nothing to shoot.</summary>
+    private const int WorldEnemyRespawnMs = 8_000;
 
     private void SpawnWorldEnemy(NpcDefinition definition)
     {
@@ -633,6 +634,24 @@ public sealed class StartingZone : BaseZone
 
         var tile = GetTileFromPosition(spawnPosition);
         tile.Entities.TryAdd(enemy.Guid, enemy);
+
+        // Explicitly push the fresh enemy to every already-present player who can see its tile. The INITIAL
+        // spawn is picked up by each player's load-time visibility sweep, but a mid-session respawn isn't —
+        // so without this the enemy is alive + targetable server-side yet never rendered or known to the
+        // client, i.e. "I'm standing right by enemies but nothing gets shot." (Guard against the rare double-
+        // send when UpdatePosition's tile transition already notified the player.)
+        foreach (var player in Players)
+        {
+            if (enemy.VisiblePlayers.ContainsKey(player.Guid))
+                continue;
+
+            var playerTile = GetTileFromPosition(player.Position);
+            if (playerTile == tile || playerTile.VisibleTiles.Contains(tile))
+            {
+                player.OnAddVisibleNpcs([enemy]);
+                enemy.OnAddVisiblePlayers(player);
+            }
+        }
     }
 
     // ---- Dungeon entrances (atlas notif=3 POIs -> the BIG walk-through dungeon) ----
