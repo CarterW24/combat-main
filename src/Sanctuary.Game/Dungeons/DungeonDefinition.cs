@@ -1356,10 +1356,91 @@ public static class DungeonCatalog
         },
     };
 
-    /// <summary>Every distinct enemy ModelId used across all dungeons — the curated set of "real combat
-    /// mob" models. StartingZone uses this to decide which overworld NPCs (matched by ModelId) spawn as
-    /// hostile <see cref="Sanctuary.Game.Entities.CombatNpc"/>s instead of neutral scenery, so the same
-    /// creatures you fight in the instances are also fightable (and aggressive) out in the world.</summary>
+    /// <summary>Extra hostile creature models that roam the OVERWORLD but aren't used by any instanced dungeon.
+    /// These creatures are already placed across every region in NpcSpawns.txt/Npcs.json at their real retail
+    /// coordinates — listing their model here flips those placements from neutral scenery to fightable
+    /// <see cref="Sanctuary.Game.Entities.CombatNpc"/>s, so each region's roaming mobs (cross-referenced with
+    /// the EQ Allakhazam "Mobs by Place (FR)" bestiary) become enemies right where they stand.
+    ///
+    /// Curated to HOSTILE species only: friendly-role models (robgoblin cook/banker/elder/jester, farmers,
+    /// Greenwood soldier/archer allies, Blackspore miners = robbery victims, the friendly Croaking Vale frog
+    /// village, mounts, ranch/pet dragons, named racing NPCs) are deliberately excluded. Quest givers/targets
+    /// and vendors are already filtered out at spawn time (see StartingZone.SpawnNpcs), so a named story boss
+    /// that reuses one of these models keeps its interactive path.</summary>
+    public static readonly IReadOnlySet<int> WorldEnemyModelIds = new HashSet<int>
+    {
+        // Robgoblin raiders (Sunstone Valley junk-camps + mechanics)
+        190,  // robgoblin_f_basic
+        786,  // robgoblin_m_brute (Brutus the Brute)
+        1681, // robgoblin_m_gogglesgears (Robgoblin Mechanic/Shinyseeker)
+        1682, // robgoblin_m_master (Robgoblin Tinkerer/Scrapsmith Crackle)
+        3967, // robgoblin_mech (Scrapmaster Fizzbang)
+        4202, // robgoblin_m_junkmaster (Robgoblin Kaboomer)
+
+        // Trolls (Snowhill / Sunstone)
+        77,   // troll_forest
+        166,  // troll_peasant_01
+        167,  // troll_peasant_02
+        314,  // troll_hogosh_m (Brugo / Hogosh)
+        408,  // troll_queenverda_f (Zumwalt)
+        739,  // troll_f
+
+        // Cray crabs (Seaside / Sunstone oasis)
+        471,  // cray_arctic_swamp (Cray Bubbler / Cray Marauder)
+        754,  // cray_m_crabcake (Crabcake)
+
+        // Wolves & fungal beasts (Bristlewood / Wilds)
+        142,  // wolf_vinegolum (Snapwolf Fungus)
+        1521, // wolf_coyote
+        3284, // wolf_generic (Alpha Wolf / Hooligan Wolf)
+        62,   // bear_vinegolem
+        91,   // bear_normal
+        92,   // bear_fierce
+        235,  // bear_vinegolem_fungus (Ursine Vine)
+        121,  // shroomgiant (The Mushroom Gigas)
+        2140, // beetle_rhino
+
+        // Blackspore Swamp thieves + undead (graveyard / Pumpkin Prince Halloween mobs)
+        669,  // human_blackspore_thief_m (Hennessey/Judd/Ned)
+        685,  // human_blackspore_thief_f (Rumor Duskveil)
+        730,  // dwarf_blackspore_thief_m (Oswald)
+        1054, // dwarf_m_blacksporethiefghost
+        767,  // graveelemental_m_skullwgraves (Grave Elemental)
+        751,  // wraith_m_cloakedskelly (Pumpkin Prince Ghost)
+        1701, // pumpkinprince_m
+        1702, // pumpkinprince_m_boss (The Pumpkin Prince)
+        3217, // necrowartzombie_01 (Necrowart / Monsterous Necrowart)
+        4220, // necronomicus_m (Necronomicus)
+        4563, // human_m_wraith (Three of Three)
+        4564, // human_m_wraith_white (One of Three)
+        4565, // human_m_wraith_gray (Two of Three)
+        1694, // dog_large_zombie
+        353,  // fairy_darkthorne_f (Darkthorne)
+
+        // Sunstone Valley ninja invaders — Shadowtalon ninjas
+        393,  // human_m_ninja_shadowtalon_05 (Ninja Ambusher)
+        394,  // human_m_ninja_shadowtalon_02 (Ninja Deceiver)
+        395,  // human_m_ninja_shadowtalon_03 (Ninja Apprentice)
+        397,  // human_m_ninja_shadowtalon_04
+        945,  // human_m_ninja_ghost (Ghost Ninja / Stealthy Despoiler)
+        4094, // human_m_ninja_shadowtalon_jintaka (Jintaka)
+
+        // Sunstone Valley ninja invaders — Ninjawugs + gloamed bixies
+        4464, // chugawug_m_ninja_archer_01 (Ninjawug Archer)
+        4465, // chugawug_m_ninja_blademaster_01 (Ninjawug Blademaster)
+        4466, // chugawug_m_ninja_general_01
+        4467, // chugawug_m_ninjawug_bixie_rider_01 (Ninjawug Bixie-rider)
+        4468, // chugawug_m_ninjawug_bixie_rider_general_01 (General Wugashima)
+        4473, // bixie_f_mage_gloamed (Bixie Magus)
+        4474, // bixie_m_elite_guard_gloamed (Bixie Guardian)
+    };
+
+    /// <summary>Every distinct enemy ModelId that spawns as hostile in the overworld: the models used by
+    /// instanced dungeons PLUS the curated <see cref="WorldEnemyModelIds"/> roaming set. StartingZone matches
+    /// overworld NPCs against this to spawn them as aggressive <see cref="Sanctuary.Game.Entities.CombatNpc"/>s
+    /// instead of neutral scenery — so the same creatures you fight in the instances, and every region's
+    /// bestiary mob, are fightable out in the world.</summary>
     public static readonly IReadOnlySet<int> EnemyModelIds =
-        ByActivity.Values.SelectMany(d => d.Enemies).Select(e => e.ModelId).ToHashSet();
+        ByActivity.Values.SelectMany(d => d.Enemies).Select(e => e.ModelId)
+            .Concat(WorldEnemyModelIds).ToHashSet();
 }
