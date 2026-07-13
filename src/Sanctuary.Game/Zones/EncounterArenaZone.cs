@@ -22,7 +22,7 @@ namespace Sanctuary.Game.Zones;
 // adoption, the combat gate + goals burst, the chase/claw pack AI, death -> win, loot wheel + score +
 // exit door, party co-op) but takes the world, arena center, enemy roster, text and XP from a
 // DungeonDefinition. Goal is always "defeat every enemy". See DungeonDefinition.cs for the data.
-public sealed class EncounterArenaZone : BaseZone
+public sealed class EncounterArenaZone : CombatEncounterZone
 {
     private sealed class EncounterArenaDefinition : BaseZoneDefinition { }
 
@@ -31,7 +31,7 @@ public sealed class EncounterArenaZone : BaseZone
     private const int EncounterInstanceId = 1;
 
     private const int CombatMiniGameType = 4; // client MINI_GAME_TYPE_COMBAT — the goals-pane gate
-    private const int KnockoutLimit = 5;
+    // KnockoutLimit + the knockout/fail/revive lifecycle now live in CombatEncounterZone.
 
     // Enemy recipe (Frostfang pack-wolf / spirit recipe).
     private const int MobActiveProfile = 151;
@@ -706,87 +706,10 @@ public sealed class EncounterArenaZone : BaseZone
             WinEncounter(killer, deathPos);
     }
 
-    // DEATH: per-player knockout tally for the retail knockout-limit lose condition.
-    private readonly Dictionary<ulong, int> _knockouts = [];
-
-    // The knockout window runs its own 10s countdown, THEN shows a Revive button the player presses
-    // (sub122 -> revive at their spot). So the server timer is only a long FALLBACK for someone who never
-    // presses it. Fail at 5 knockouts.
-    protected override int ReviveCooldownMs => 30000;
-
-    public override void OnPlayerKnockedOut(Player player)
-    {
-        if (player.Zone != this)
-            return;
-
-        int kos;
-        lock (_stateLock)
-        {
-            _knockouts.TryGetValue(player.Guid, out kos);
-            kos++;
-            _knockouts[player.Guid] = kos;
-        }
-
-        _logger.LogInformation("{dungeon}: {name} knocked out ({kos}/{limit}).",
-            Dungeon.Comment, player.Name, kos, KnockoutLimit);
-
-        // Drop the fighting flags either way (sub125 shows the auto-recover version with them OFF, not the
-        // overworld pay/safe buttons).
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-
-        if (kos >= KnockoutLimit)
-        {
-            // Out of lives — FAIL. Show the persistent "TRY AGAIN!" end-screen (see SendFailEndScreen: clears
-            // the knockdown UI + Won=0 + the score card), HOLD it, THEN tear down + teleport home and REVIVE so
-            // the player arrives ALIVE (a fail used to dump them in the overworld still knocked out, which the
-            // ability handler blocks — the weapon wouldn't fire even after a job-swap).
-            SendFailEndScreen(player);
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(FailCardHoldMs);
-                    ReturnHome(player);   // EndEncounterForPlayer(won:false) + teleport to the overworld
-                    player.Respawn();     // clear the knocked-out state so firing works again
-                }
-                catch (Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
-            });
-            return;
-        }
-
-        // Non-fatal knockout — show the recover window + counter; auto-revive is the fallback.
-        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
-        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
-
-        // Minigame KO: no pay/safe window here (that's the overworld UI) — just auto-revive at the dungeon
-        // spawn once the short beat elapses.
-        ScheduleAutoRevive(player);
-    }
-
-    public override void OnPlayerRespawn(Player player)
-    {
-        // Revive with full HP + revive FX (Player.Respawn) at the player's DEATH SPOT (the window's Revive
-        // button revives you where you fell, not at the entrance).
-        var pos = player.DeathPosition;
-        player.Respawn();
-
-        if (player.Zone == this)
-        {
-            // Back into the fight (we dropped the fighting flags on knockout so the auto-recover window
-            // showed instead of the pay/safe one).
-            player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-            player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
-
-            player.UpdatePosition(pos, player.Rotation);
-            player.SendTunneled(new ClientUpdatePacketUpdateLocation
-            {
-                Position = pos,
-                Rotation = player.Rotation,
-                Teleport = true,
-            });
-        }
-    }
+    // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.
+    protected override int FailEncounterId => EncounterId;
+    protected override int FailInstanceId => EncounterInstanceId;
+    protected override string EncounterLogName => Dungeon.Comment;
 
     private void WinEncounter(Player player, Vector4 lastKillPos)
     {
@@ -918,7 +841,7 @@ public sealed class EncounterArenaZone : BaseZone
         player.SendTunneled(new UiObjectiveClearPacket());
     }
 
-    private void ReturnHome(Player player)
+    protected override void ReturnHome(Player player)
     {
         if (player.Zone != this)
             return;

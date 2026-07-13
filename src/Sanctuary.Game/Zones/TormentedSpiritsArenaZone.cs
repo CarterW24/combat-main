@@ -43,7 +43,7 @@ namespace Sanctuary.Game.Zones;
 //   76363  "Tormented spirits are attacking travelers! Go in and put them to rest!" (description)
 //   76373  "Tombstone"                                                       (the destroyable's name)
 //   139366 "The bones crumble and a tormented spirit materializes!"          (tombstone-destroyed)
-public sealed class TormentedSpiritsArenaZone : BaseZone
+public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 {
     private sealed class TormentedSpiritsArenaDefinition : BaseZoneDefinition
     {
@@ -163,7 +163,7 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
     private const int GoalBanishSpirits = 12646;
     private const int GoalBanishSpiritsNameId = 76354;
 
-    private const int KnockoutLimit = 5;
+    // KnockoutLimit + the knockout/fail/revive lifecycle now live in CombatEncounterZone.
 
     /// <summary>Job XP at the win. No capture; Frostfang (Difficulty 1) grants 10, so Difficulty 2
     /// grants a bit more.</summary>
@@ -1217,75 +1217,12 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
         _logger.LogInformation("Spirit arena: encounter released for {name}.", player.Name);
     }
 
-    // DEATH: knockout window (10s countdown -> Revive button -> revive at the death spot). Server timer is
-    // a long fallback for a non-presser. Fail at 5.
-    private readonly System.Collections.Generic.Dictionary<ulong, int> _knockouts = [];
-    protected override int ReviveCooldownMs => 30000;
+    // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.
+    protected override int FailEncounterId => EncounterId;
+    protected override int FailInstanceId => EncounterInstanceId;
+    protected override string EncounterLogName => "Spirit arena";
 
-    public override void OnPlayerKnockedOut(Player player)
-    {
-        if (player.Zone != this)
-            return;
-
-        int kos;
-        lock (_stateLock)
-        {
-            _knockouts.TryGetValue(player.Guid, out kos);
-            kos++;
-            _knockouts[player.Guid] = kos;
-        }
-
-        _logger.LogInformation("Spirit arena: {name} knocked out ({kos}/{limit}).", player.Name, kos, KnockoutLimit);
-
-        // Drop the fighting flags either way (so sub125 shows the auto-recover version, not the overworld
-        // pay/safe one).
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-
-        if (kos >= KnockoutLimit)
-        {
-            // Out of lives — FAIL. Show the persistent "TRY AGAIN!" end-screen (SendFailEndScreen: clears the
-            // knockdown UI + Won=0 + the score card), HOLD it, THEN tear down + teleport home and REVIVE so the
-            // player arrives ALIVE (a fail used to leave them knocked out -> couldn't fire even after job-swap).
-            SendFailEndScreen(player);
-            _ = System.Threading.Tasks.Task.Run(async () =>
-            {
-                try
-                {
-                    await System.Threading.Tasks.Task.Delay(FailCardHoldMs);
-                    ReturnHome(player);
-                    player.Respawn();
-                }
-                catch (System.Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
-            });
-            return;
-        }
-
-        // Non-fatal knockout — show the recover window (10s countdown -> Revive button); auto-revive fallback.
-        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
-        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
-        ScheduleAutoRevive(player);
-    }
-
-    public override void OnPlayerRespawn(Player player)
-    {
-        var pos = player.DeathPosition;
-        player.Respawn();
-        if (player.Zone == this)
-        {
-            player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-            player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
-            player.UpdatePosition(pos, player.Rotation);
-            player.SendTunneled(new ClientUpdatePacketUpdateLocation
-            {
-                Position = pos,
-                Rotation = player.Rotation,
-                Teleport = true,
-            });
-        }
-    }
-
-    private void ReturnHome(Player player)
+    protected override void ReturnHome(Player player)
     {
         if (player.Zone != this)
             return;

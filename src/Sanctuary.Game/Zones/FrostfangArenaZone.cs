@@ -52,7 +52,7 @@ namespace Sanctuary.Game.Zones;
 //     NameId 4826, scale 1.2, cursor 17, minimap badge ImageId 186) spawns at (145, 0, 173) —
 //     NO auto-kick; the player leaves by clicking the door.
 //   * the goal 12642 "Scare away the wolves!" is Total=1 with NO per-kill ticks on live.
-public sealed class FrostfangArenaZone : BaseZone
+public sealed class FrostfangArenaZone : CombatEncounterZone
 {
     private sealed class FrostfangArenaDefinition : BaseZoneDefinition
     {
@@ -262,7 +262,7 @@ public sealed class FrostfangArenaZone : BaseZone
 
     // Knockout counter/limit — top-left combat HUD (op39/sub23 MiniGameKnockOut, Max=5 ground-truthed
     // from the 2014-04-01 burst idx 28043/28060/28071). Solo = 5 on live.
-    private const int KnockoutLimit = 5;
+    // (KnockoutLimit + the knockout/fail/revive lifecycle now live in CombatEncounterZone.)
 
     // THE Goals-window goal (video: the panel shows only this). id 12642 / NameId 104176 =
     // "Scare away the wolves!" (confirmed live 2026-07-03). GROUND TRUTH (launch decode): the live
@@ -1399,10 +1399,7 @@ public sealed class FrostfangArenaZone : BaseZone
         // ★ CO-OP: award the win to EVERY party member in the arena (each gets their own goal
         // complete, XP, quest credit, and loot-wheel prize). For a solo player this loops once.
         var enemies = _killedSnarlers;
-        int koUsed;
-        lock (_stateLock)
-            _knockouts.TryGetValue(player.Guid, out koUsed);
-        var knockoutsLeft = System.Math.Max(0, KnockoutLimit - koUsed); // real remaining lives
+        var knockoutsLeft = System.Math.Max(0, KnockoutLimit - KnockoutsUsed(player.Guid)); // real remaining lives
         MiniGameGameEndScorePacket MakeScore()
         {
             var s = new MiniGameGameEndScorePacket();
@@ -1613,7 +1610,7 @@ public sealed class FrostfangArenaZone : BaseZone
             player.Name);
     }
 
-    private void ReturnHome(Player player)
+    protected override void ReturnHome(Player player)
     {
         if (player.Zone != this)
             return; // already left
@@ -1629,77 +1626,11 @@ public sealed class FrostfangArenaZone : BaseZone
         player.TeleportToZone(home, home.SpawnPosition, home.SpawnRotation, sky: null, geometryId: 0);
     }
 
-    // DEATH: per-player knockout tally for the retail knockout-limit lose condition (matches
-    // EncounterArenaZone / TormentedSpiritsArenaZone). Bites now deal real damage, so hitting 0 HP knocks the
-    // player out; the 5th knockout fails the encounter and sends them home with no rewards.
-    private readonly System.Collections.Generic.Dictionary<ulong, int> _knockouts = [];
-
-    protected override int ReviveCooldownMs => 30000;
-
-    public override void OnPlayerKnockedOut(Player player)
-    {
-        if (player.Zone != this)
-            return;
-
-        int kos;
-        lock (_stateLock)
-        {
-            _knockouts.TryGetValue(player.Guid, out kos);
-            kos++;
-            _knockouts[player.Guid] = kos;
-        }
-
-        _logger.LogInformation("Frostfang arena: {name} knocked out ({kos}/{limit}).", player.Name, kos, KnockoutLimit);
-
-        // Drop the fighting flags either way (so sub125 shows the auto-recover version, not the overworld
-        // pay/safe one).
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-
-        if (kos >= KnockoutLimit)
-        {
-            // Out of lives — FAIL. Show the persistent "TRY AGAIN!" end-screen (SendFailEndScreen: clears the
-            // knockdown UI + Won=0 + the score card), HOLD it, THEN tear down + teleport home and REVIVE so the
-            // player arrives ALIVE (a fail used to leave them knocked out -> couldn't fire even after job-swap).
-            SendFailEndScreen(player);
-            _ = System.Threading.Tasks.Task.Run(async () =>
-            {
-                try
-                {
-                    await System.Threading.Tasks.Task.Delay(FailCardHoldMs);
-                    ReturnHome(player);
-                    player.Respawn();
-                }
-                catch (System.Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
-            });
-            return;
-        }
-
-        // Non-fatal knockout — show the recover window + counter; auto-revive fallback.
-        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
-        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
-        ScheduleAutoRevive(player);
-    }
-
-    public override void OnPlayerRespawn(Player player)
-    {
-        // Revive with full HP + FX at the death spot (the window's Revive button revives you where you fell).
-        var pos = player.DeathPosition;
-        player.Respawn();
-
-        if (player.Zone == this)
-        {
-            player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-            player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
-            player.UpdatePosition(pos, player.Rotation);
-            player.SendTunneled(new ClientUpdatePacketUpdateLocation
-            {
-                Position = pos,
-                Rotation = player.Rotation,
-                Teleport = true,
-            });
-        }
-    }
+    // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.
+    // (Bites deal real damage, so hitting 0 HP knocks the player out and the 5th knockout fails the encounter.)
+    protected override int FailEncounterId => EncounterId;
+    protected override int FailInstanceId => EncounterInstanceId;
+    protected override string EncounterLogName => "Frostfang arena";
 
     private static float MoveToward(float current, float goal, float maxDelta)
     {
