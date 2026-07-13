@@ -703,12 +703,14 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         // video-confirmed); the NameId still feeds the target frame when clicked. The Alpha flips
         // showPlate: plate + bar visible -> the floating red name + red bar over his head.
         npc.ModelId = modelId;
-        npc.NameId = nameId;
+        // The Alpha (showPlate) keeps his named plate; the pack shows a NAMELESS plate so their HEALTH BAR
+        // still renders (the bar is a nameplate element — a hidden plate meant no bar, only a flash-on-hit).
+        npc.NameId = showPlate ? nameId : 0;
         npc.Name = null;
         npc.TextureAlias = textureAlias;
         npc.TintAlias = tintAlias;
-        npc.HideNamePlate = !showPlate;
-        npc.ShowHealthBar = showPlate;
+        npc.HideNamePlate = false;
+        npc.ShowHealthBar = true;
         npc.Scale = scale;
         npc.Disposition = 0;            // hostile
         // Non-zero ActiveProfile makes the client's AddNpc apply re-run the name color resolver AFTER

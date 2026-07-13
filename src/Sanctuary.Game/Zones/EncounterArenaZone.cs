@@ -448,10 +448,13 @@ public sealed class EncounterArenaZone : CombatEncounterZone
             return null;
 
         npc.ModelId = group.ModelId;
-        npc.NameId = Dungeon.TitleNameId; // plate hidden for mobs; bosses show it as the dungeon name
+        // Boss shows the dungeon name; regular mobs show a NAMELESS plate so their HEALTH BAR still renders
+        // (the bar is a nameplate element — a hidden plate meant regular mobs had no bar, only a flash-on-hit,
+        // which read as "health bars sometimes pop up, sometimes not").
+        npc.NameId = group.Boss ? Dungeon.TitleNameId : 0;
         npc.Name = null;
-        npc.HideNamePlate = !group.Boss;
-        npc.ShowHealthBar = group.Boss;
+        npc.HideNamePlate = false;
+        npc.ShowHealthBar = true;
         npc.Scale = group.Scale;
         npc.Disposition = 0;              // hostile
         npc.ActiveProfile = MobActiveProfile;

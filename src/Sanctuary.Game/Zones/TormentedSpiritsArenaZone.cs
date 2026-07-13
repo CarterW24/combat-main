@@ -533,10 +533,12 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         // The Frostfang pack-wolf recipe (no overhead plates, red minimap dot, clickable attack
         // target); the model/name are the world spirits' own.
         npc.ModelId = SpiritModelId;
-        npc.NameId = SpiritNameId;
+        // NAMELESS plate so the HEALTH BAR renders (the bar is a nameplate element — a hidden plate meant no
+        // bar, only a flash-on-hit = "health bars sometimes pop up, sometimes not").
+        npc.NameId = 0;
         npc.Name = null;
-        npc.HideNamePlate = true;
-        npc.ShowHealthBar = false;
+        npc.HideNamePlate = false;
+        npc.ShowHealthBar = true;
         npc.Scale = 1f;
         npc.Disposition = 0;             // hostile
         npc.ActiveProfile = SpiritActiveProfile;
