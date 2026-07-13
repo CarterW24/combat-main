@@ -65,6 +65,7 @@ public interface IZone
     bool TryCreateMount(Player rider, MountDefinition definition, [MaybeNullWhen(false)] out Mount mount);
     bool TryCreatePet(Player owner, Resources.Definitions.PetDefinition definition, [MaybeNullWhen(false)] out Pet pet);
     bool TryCreateCombatNpc([MaybeNullWhen(false)] out CombatNpc combatNpc);
+    bool TryCreateEncounterEntryNpc([MaybeNullWhen(false)] out EncounterEntryNpc entryNpc);
     bool TryCreatePlayer(ulong guid, UdpConnection connection, [MaybeNullWhen(false)] out Player player);
 
     bool TryRemoveNpc(ulong guid);

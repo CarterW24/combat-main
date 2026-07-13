@@ -1036,6 +1036,21 @@ public sealed class Player : ClientPcData, IEntity
 
         foreach (var npc in npcs)
         {
+            // Combat-encounter "Battle Starter" badge (img-24): red crossed-swords over the head + red minimap
+            // dot. Type 3 = combat category; Unknown3=7 / Unknown10=1 are the live 2014 combat-badge values.
+            if (npc.CombatEncounterBadgeImageId != 0)
+            {
+                notifications.Notifications.Add(new NotificationInfo
+                {
+                    Guid = npc.Guid,
+                    ImageId = npc.CombatEncounterBadgeImageId,
+                    Type = 3,
+                    Unknown3 = 7,
+                    Unknown10 = true,
+                });
+                continue;
+            }
+
             var imageId = GetNotificationImageId(npc);
 
             if (imageId == 0)

@@ -39,6 +39,9 @@ public sealed class StartingZone : BaseZone
 
         // Place a clickable entrance at each atlas dungeon marker (notif=3 POI) — click -> start panel -> GO!.
         SpawnDungeonEntrances();
+
+        // Place a wandering "Battle Starter" creature for each small combat encounter, among its own kind.
+        SpawnEncounterEntryNpcs();
     }
 
     // NPCs come from the community-contributed Npcs.json (fixed scale/rotation, static-marked). The guid
@@ -751,6 +754,133 @@ public sealed class StartingZone : BaseZone
                 State = 5,
             });
         });
+    }
+
+    // ---- Wandering combat-encounter entries ("Battle Starters") ----
+    //
+    // Retail placed a wandering "Battle Starter" creature for each combat encounter, standing among its own
+    // kind (per the FR bestiary: 58 battle-starter mob types named Robgoblin*/Thugawug*/Cray Marauder/Frostfang
+    // Snarler/...). We do the same: one EncounterEntryNpc per small ARENA encounter (the 900000+ atlas
+    // walk-throughs already have their own clickable atlas entrances), wearing that encounter's boss model,
+    // placed next to an existing overworld NPC of the same theme (matched by name) so it stands where its kin
+    // roam. It ambles peacefully; clicking it opens the encounter start panel (SendDungeonOffer -> GO!).
+
+    /// <summary>Battle-map -> theme keyword, the fallback anchor search term when an encounter's own title
+    /// nouns don't match any overworld NPC name.</summary>
+    private static readonly Dictionary<string, string> EncounterThemeKeyword = new()
+    {
+        ["sg_random_encounter_skullcamp"] = "Robgoblin",
+        ["sg_random_encounter_treefort"] = "Thugawug",
+        ["sg_random_encounter_creek"] = "Wolf",
+        ["sg_random_encounter_clearing"] = "Wolf",
+        ["sh_random_encounter_01"] = "Troll",
+        ["bw_random_encounter_bristlewood_01"] = "Floren",
+        ["bw_random_encounter_01"] = "Grave",
+        ["bw_random_encounter_02"] = "Hooligan",
+        ["bw_random_encounter_03"] = "Bixie",
+        ["bw_random_encounter_thistlerow_01"] = "Asp",
+        ["ss_random_encounter_01"] = "Cray",
+    };
+
+    private void SpawnEncounterEntryNpcs()
+    {
+        // Overworld NPCs with a real (non-origin) position = candidate anchor spots (valid, walkable ground).
+        var anchors = _resourceManager.Npcs.Values
+            .Where(d => d.SpawnPosition[0] != 0f || d.SpawnPosition[2] != 0f)
+            .ToList();
+        if (anchors.Count == 0)
+            return;
+
+        var used = new HashSet<int>();   // anchor ids already claimed, so entries don't stack on each other
+        int spreadCursor = 0;
+        int spawned = 0;
+
+        foreach (var dungeon in Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.Values)
+        {
+            if (dungeon.ActivityId >= AtlasDungeonIdBase)
+                continue; // atlas walk-through dungeons already have their own entrances
+
+            var anchor = FindThematicAnchor(dungeon, anchors, used)
+                         ?? PickSpreadAnchor(anchors, used, ref spreadCursor);
+            if (anchor is null)
+                break; // ran out of anchors
+            used.Add(anchor.Id);
+
+            if (!TryCreateEncounterEntryNpc(out var entry))
+                continue;
+
+            // The encounter's boss (or first) enemy is the creature that represents it in the world.
+            var lead = System.Array.Find(dungeon.Enemies, e => e.Boss) ?? dungeon.Enemies[0];
+            entry.ModelId = lead.ModelId;
+            entry.NameId = dungeon.TitleNameId;  // floating nameplate = the encounter's name (the click cue)
+            entry.Name = dungeon.Comment;
+            entry.Static = false;                // MUST be false — the tick loop skips Static NPCs (no wander)
+            entry.Scale = (_resourceManager.Models.TryGetValue(lead.ModelId, out var model) && model.Scale != 0f
+                ? model.Scale : 1f) * 1.15f;     // a touch larger than its kin so the "leader" reads as special
+            entry.Visible = true;
+            entry.CursorId = 11;                 // crossed-swords adventure cursor on hover
+            entry.MovementType = 2;              // PHYSICS — grounded amble (matches the world enemies)
+            entry.InteractRange = 6;
+            entry.ShowHealthBar = false;
+
+            // A few units off the anchor NPC so it doesn't stack exactly on top of it.
+            var pos = new Vector4(anchor.Position.X + 4f, anchor.Position.Y, anchor.Position.Z + 4f, 1f);
+
+            var captured = dungeon;
+            entry.InteractAction = player => SendDungeonOffer(player, captured);
+
+            entry.UpdatePosition(pos, anchor.Rotation);
+            entry.StartWander(pos);
+            GetTileFromPosition(pos).Entities.TryAdd(entry.Guid, entry);
+            spawned++;
+        }
+
+        _logger.LogInformation("Spawned {count} wandering combat-encounter entries.", spawned);
+    }
+
+    /// <summary>Find an overworld NPC whose name matches the encounter's theme — first by the significant words
+    /// in the encounter's own title (e.g. "Band of Robgoblins!" -> "Robgoblin"), then by the battle-map's
+    /// theme keyword — so each Battle Starter stands among its own kind. Null if nothing matches.</summary>
+    private static NpcDefinition? FindThematicAnchor(Sanctuary.Game.Dungeons.DungeonDefinition dungeon,
+        List<NpcDefinition> anchors, HashSet<int> used)
+    {
+        var keywords = new List<string>();
+        foreach (var raw in dungeon.Comment.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var word = new string(raw.Where(char.IsLetter).ToArray());
+            if (word.Length < 4)
+                continue;
+            keywords.Add(word);
+            if (word.EndsWith('s'))
+                keywords.Add(word[..^1]); // singular ("Robgoblins" -> "Robgoblin")
+        }
+        if (EncounterThemeKeyword.TryGetValue(dungeon.World, out var themeKeyword))
+            keywords.Add(themeKeyword);
+
+        foreach (var keyword in keywords)
+            foreach (var anchor in anchors)
+                if (!used.Contains(anchor.Id) && !string.IsNullOrEmpty(anchor.Name)
+                    && anchor.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                    return anchor;
+
+        return null;
+    }
+
+    /// <summary>Fallback: hand out an unused anchor, striding through the list so the fallbacks spread across
+    /// the world instead of clumping.</summary>
+    private static NpcDefinition? PickSpreadAnchor(List<NpcDefinition> anchors, HashSet<int> used, ref int cursor)
+    {
+        int stride = Math.Max(1, anchors.Count / 60);
+        for (int i = 0; i < anchors.Count; i++)
+        {
+            var anchor = anchors[(cursor + i * stride) % anchors.Count];
+            if (!used.Contains(anchor.Id))
+            {
+                cursor = (cursor + i * stride + stride) % anchors.Count;
+                return anchor;
+            }
+        }
+        return null;
     }
 
     // COMBAT: kill routing for this zone — the eternal training dummy resets, quest kill targets

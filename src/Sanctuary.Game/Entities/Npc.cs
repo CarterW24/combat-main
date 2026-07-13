@@ -75,6 +75,11 @@ public class Npc : IEntity
     public int Disposition { get; set; } = 1;
     public System.Action<Player>? InteractAction { get; set; }
 
+    /// <summary>Non-zero = show a combat-encounter "Battle Starter" badge over this NPC's head (op35/sub10
+    /// AddNotifications, Type 3 = combat category = red crossed-swords + red minimap dot). 24 is the live
+    /// img-24 combat-encounter badge art. Sent per-player when the NPC comes into view (OnAddVisibleNpcs).</summary>
+    public virtual int CombatEncounterBadgeImageId => 0;
+
     // COMBAT WIP: server-side health so abilities can damage/kill this NPC.
     // MaxHealth == 0 means "not damageable" (no health bar). See docs/STATUS.md.
     public int MaxHealth { get; set; }

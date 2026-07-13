@@ -277,6 +277,16 @@ public abstract class BaseZone : IZone, IDisposable
         return _npcs.TryAdd(combatNpc.Guid, combatNpc) && _entities.TryAdd(combatNpc.Guid, combatNpc);
     }
 
+    public bool TryCreateEncounterEntryNpc([MaybeNullWhen(false)] out EncounterEntryNpc entryNpc)
+    {
+        entryNpc = new EncounterEntryNpc(this)
+        {
+            Guid = _uniqueGuid++
+        };
+
+        return _npcs.TryAdd(entryNpc.Guid, entryNpc) && _entities.TryAdd(entryNpc.Guid, entryNpc);
+    }
+
     public bool TryCreatePlayer(ulong guid, UdpConnection connection, [MaybeNullWhen(false)] out Player player)
     {
         player = new Player(this, connection, _resourceManager)

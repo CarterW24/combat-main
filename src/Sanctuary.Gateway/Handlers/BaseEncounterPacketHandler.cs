@@ -68,14 +68,19 @@ public static class BaseEncounterPacketHandler
         };
     }
 
-    // CLOSE START PANEL (op41/sub124): closing the dungeon offer/start panel without pressing GO! leaves
-    // the client's camera/HUD locked (the panel hides them until the server acknowledges) — which froze the
-    // whole screen. Send the same camera+HUD restore the quest-dialog flow uses (sub29 -> FUN_00a99220 ->
-    // restore camera + DismissEndScreen).
+    // CLOSE START PANEL (op41/sub124): closing the dungeon offer/start panel without pressing GO! leaves the
+    // client in the encounter/minigame LOBBY state the offer put it in (EncounterState 2..5), which gates the
+    // HUD + input. QuestDialogComplete alone only restored the camera — the game stayed input-locked until the
+    // player pressed Escape. Tear the lobby down the same way a clean encounter exit does
+    // (EncounterArenaZone.EndEncounterForPlayer): MiniGameStateRemove + the default encounter data drop the
+    // gate so the player is free the instant they close the panel.
     private static bool HandleCancelPending(GatewayConnection connection)
     {
-        _logger.LogInformation("Dungeon start panel closed by {name} — restoring camera/HUD.", connection.Player.Name);
-        connection.Player.SendTunneled(new CommandPacketQuestDialogComplete());
+        _logger.LogInformation("Dungeon start panel closed by {name} — tearing down the encounter lobby.", connection.Player.Name);
+        var player = connection.Player;
+        player.SendTunneled(new CommandPacketQuestDialogComplete());
+        player.SendTunneled(new MiniGameStateRemovePacket());
+        player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
         return true;
     }
 
