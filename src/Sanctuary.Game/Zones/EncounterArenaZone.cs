@@ -830,16 +830,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         ReturnHome(player);
     }
 
-    public void EndEncounterForPlayer(Player player, bool won)
-    {
-        if (won)
-            player.SendTunneled(new MiniGameGameOverPacket(won: true));
-        player.SendTunneled(new MiniGameStateRemovePacket());
-        player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-        player.SendTunneled(new UiObjectiveClearPacket());
-    }
 
     protected override void ReturnHome(Player player)
     {

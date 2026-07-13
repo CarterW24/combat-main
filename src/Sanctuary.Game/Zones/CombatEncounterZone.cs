@@ -45,6 +45,24 @@ public abstract class CombatEncounterZone : BaseZone
     /// <summary>Tear the encounter down for this player and teleport them back to the overworld (zone-specific).</summary>
     protected abstract void ReturnHome(Player player);
 
+    /// <summary>Tear the encounter's client UI down for this player (ReturnHome calls this before the teleport,
+    /// and the "leave" chat/exit paths call it directly): mark won/lost, remove the minigame state, reset the
+    /// encounter data + fighting flags, clear the goals window. On a WIN, GameOver(Won=true) goes FIRST so the
+    /// end card the teardown triggers reads as a win; a mid-run bail keeps won=false ("TRY AGAIN!").</summary>
+    public void EndEncounterForPlayer(Player player) => EndEncounterForPlayer(player, won: false);
+
+    public void EndEncounterForPlayer(Player player, bool won)
+    {
+        if (won)
+            player.SendTunneled(new MiniGameGameOverPacket(won: true));
+        player.SendTunneled(new MiniGameStateRemovePacket());
+        player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
+        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        player.SendTunneled(new UiObjectiveClearPacket()); // empty + hide the Goals window (op47/sub5)
+        _logger.LogInformation("{label}: encounter released for {name}.", EncounterLogName, player.Name);
+    }
+
     /// <summary>Forget a player's knockout tally (call on encounter start/complete so a fresh run starts at 0).</summary>
     protected void ResetKnockouts(ulong guid)
     {

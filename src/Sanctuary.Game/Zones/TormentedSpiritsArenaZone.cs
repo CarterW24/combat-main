@@ -1202,21 +1202,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         ReturnHome(player);
     }
 
-    /// <summary>Release the client from the encounter — same RE'd exit protocol as Frostfang
-    /// (state remove + default combat rules; see FrostfangArenaZone.EndEncounterForPlayer).</summary>
-    public void EndEncounterForPlayer(Player player, bool won)
-    {
-        if (won)
-            player.SendTunneled(new MiniGameGameOverPacket(won: true));
-        player.SendTunneled(new MiniGameStateRemovePacket());
-        player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-        player.SendTunneled(new UiObjectiveClearPacket());
-
-        _logger.LogInformation("Spirit arena: encounter released for {name}.", player.Name);
-    }
-
     // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.
     protected override int FailEncounterId => EncounterId;
     protected override int FailInstanceId => EncounterInstanceId;

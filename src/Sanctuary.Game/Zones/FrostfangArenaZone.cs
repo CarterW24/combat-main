@@ -1592,23 +1592,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     /// state (op39/sub19 — full client-side teardown incl. combat exit for combat-type games) and
     /// restore the default combat ruleset (op62) + clear the transient fighting state. Without this
     /// the client stays InCombat forever (can't change jobs after leaving — LIVE TEST 11 bug).</summary>
-    public void EndEncounterForPlayer(Player player) => EndEncounterForPlayer(player, won: false);
-
-    public void EndEncounterForPlayer(Player player, bool won)
-    {
-        // On a WIN, mark the run won (op39/sub18 GameOver, Won=true) IMMEDIATELY before the state
-        // remove, so the end card the teardown triggers reads Won=true. A mid-run bail keeps won=false.
-        if (won)
-            player.SendTunneled(new MiniGameGameOverPacket(won: true));
-        player.SendTunneled(new MiniGameStateRemovePacket());
-        player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-        player.SendTunneled(new UiObjectiveClearPacket()); // empty + hide the Goals window (op47/sub5)
-
-        _logger.LogInformation("Frostfang arena: encounter released for {name} (state remove + default rules).",
-            player.Name);
-    }
 
     protected override void ReturnHome(Player player)
     {
