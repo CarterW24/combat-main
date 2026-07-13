@@ -222,6 +222,11 @@ public sealed class Player : ClientPcData, IEntity
 
     public void UpdateEveryTick()
     {
+        // Drive the overworld in-combat state here (10 Hz, single thread) so the op41 enter/exit packets are
+        // never sent from the async auto-fire tasks — which raced and latched the client "in combat" (menu
+        // stuck). See WorldCombatStateTick.
+        WorldCombatStateTick();
+
         if (TemporaryAppearanceExpiresAt.HasValue &&
             TemporaryAppearanceExpiresAt.Value <= DateTimeOffset.UtcNow)
         {
@@ -232,7 +237,6 @@ public sealed class Player : ClientPcData, IEntity
     public void UpdateEverySecond()
     {
         RegenTick();
-        WorldCombatDecayTick();
 
         var now = DateTimeOffset.UtcNow;
         foreach (var (key, cooldown) in _pendingCooldowns)
@@ -387,11 +391,12 @@ public sealed class Player : ClientPcData, IEntity
             Status = CharacterStatus.None,
         }, sendToSelf: true);
 
-        // Clear the overworld "in combat" flags the knockout flow raised for the respawn window. We no longer
-        // stream these during normal combat (that corrupted the client's fire state), so respawn is where the
-        // death-window's flags must be dropped — otherwise the player stays wedged "in combat" after reviving
-        // (menus + ranged auto-fire blocked).
+        // Clear the overworld "in combat" flags the knockout flow raised for the respawn window, and reset the
+        // combat-state machine so it doesn't immediately re-enter combat on revive (the pre-death timestamp
+        // could still be within the out-of-combat window). Otherwise the player stays wedged "in combat" after
+        // reviving. WorldCombatStateTick resumes once alive.
         _worldCombatActive = false;
+        _lastWorldCombatTicks = 0;
         SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
 
@@ -440,60 +445,56 @@ public sealed class Player : ClientPcData, IEntity
             EnterWorldCombat(); // taking a hit puts you in combat too (weapon drawn, HP bars, damage text)
     }
 
-    // --- Overworld "in combat" state (client op41 sub132 InWorldCombat + sub133 IsFighting) ---
-    // These flags draw the weapon, show enemy HP bars + floating damage numbers, AND gate the main menu
-    // (the client blocks menu clicks while fighting). We enter on ANY overworld combat action — dealing
-    // damage, TAKING damage, or pressing an attack — and drop out OutOfCombatSeconds after the last one.
-    // The drop-out is driven by the single-threaded per-second tick (WorldCombatDecayTick), NOT a per-entry
-    // background task: the old task version had a race where a rapid press landing exactly as the task
-    // finished left the flag stuck ON with no task left to ever clear it — the player got wedged "in combat"
-    // out in the world (menus dead). An archer's fast auto-fire hit that window constantly; melee rarely did.
-    // Instanced arenas run their own fighting-state for the whole encounter, so this no-ops there.
+    // --- Overworld "in combat" state (client op41 sub132 SetInWorldCombat + sub133 SetIsFighting) ---
+    // These flags draw the weapon, show enemy HP bars + floating damage numbers, and put the client in its
+    // combat mode. We enter on ANY overworld combat action — dealing damage, TAKING damage, or pressing an
+    // attack — and drop out OutOfCombatSeconds after the last one.
+    //
+    // CRITICAL THREADING: the op41 enter/exit packets are sent ONLY from WorldCombatStateTick, which runs on
+    // the single UpdateEveryTick loop. EnterWorldCombat (called from the async auto-fire tasks + the NPC-attack
+    // tick, i.e. arbitrary threads) merely STAMPS a timestamp. Earlier we sent op41 straight from those async
+    // callers, so an "enter" (true) from a fire task could land AFTER the decay's "exit" (false) and latch the
+    // client ON forever — the client's combat mode locks the main menu, and once latched it never released
+    // ("can't press anything even out of combat"). Funneling every send through one thread makes enter/exit a
+    // clean, ordered state machine that can't cross. Instanced arenas own their own fighting-state, so this
+    // no-ops there (a stale flag reconciles on return to the overworld: want=false -> exit sent).
     private long _lastWorldCombatTicks;
     private volatile bool _worldCombatActive;
 
-
-    /// <summary>Mark the player as fighting in the overworld (weapon drawn + enemy HP bars + floating damage
-    /// numbers) and (re)arm the out-of-combat timer. Idempotent and cheap — safe on every hit/press. The
-    /// actual drop-out happens in <see cref="WorldCombatDecayTick"/> off the per-second tick.</summary>
+    /// <summary>Stamp that a combat action just happened. Callable from ANY thread — it only writes the
+    /// timestamp; the actual op41 packets are driven by <see cref="WorldCombatStateTick"/> on the tick thread
+    /// so enter and exit can never race (see the threading note above).</summary>
     public void EnterWorldCombat()
     {
         if (Zone is not StartingZone)
             return; // arenas own their combat-state lifecycle
-
         _lastWorldCombatTicks = Environment.TickCount64;
-
-        // Raise the client's in-combat state (weapon drawn + enemy HP bars + floating damage numbers) ONLY on
-        // the not-fighting -> fighting edge — never per-shot. The old code cycled these op41 flags on every
-        // combat action (an archer fires ~every 150ms), and that rapid re-cycling is what wedged the ranged
-        // auto-fire; sending them exactly twice per fight (raise here, lower in WorldCombatDecayTick) is the
-        // gentle pattern retail uses. sub132 SetInWorldCombat -> m_bIsFighting + NPC hp-bar mode; sub133
-        // SetIsFighting -> m_bInCombatArea. (A rare concurrent double-"true" from overlapping shots is harmless
-        // — it's the same state.)
-        if (!_worldCombatActive)
-        {
-            _worldCombatActive = true;
-            SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-            SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
-        }
     }
 
-    /// <summary>Per-second: if the overworld combat window has lapsed, drop the fighting flags exactly once.
-    /// Runs on the zone tick thread so it can never wedge on (unlike a racy per-entry decay task).</summary>
-    private void WorldCombatDecayTick()
+    /// <summary>Single-threaded combat-state driver (UpdateEveryTick, 10 Hz). Compares "had a combat action
+    /// within OutOfCombatSeconds" against the current client state and sends the op41 enter/exit packets only
+    /// on a transition. Every op41 send happens here on one thread, so the client can never get latched "in
+    /// combat" with the menu stuck. Sends BOTH flags for the full indicator; arenas drive their own.</summary>
+    private void WorldCombatStateTick()
     {
-        if (!_worldCombatActive)
+        if (Zone is not StartingZone)
+            return; // arenas drive their own combat-state; a stale flag reconciles on return (want=false -> exit)
+
+        // While knocked out, the death flow owns op41: OnPlayerKnockedOut raises it so the pay/safe respawn
+        // WINDOW shows its buttons, and Respawn clears it (and resets _worldCombatActive). Don't let the decay
+        // tear the window's combat-state down from under it.
+        if (IsDead)
             return;
 
-        if (Environment.TickCount64 - _lastWorldCombatTicks < OutOfCombatSeconds * 1000L)
-            return; // still fighting
+        bool want = _lastWorldCombatTicks != 0
+            && Environment.TickCount64 - _lastWorldCombatTicks < OutOfCombatSeconds * 1000L;
 
-        _worldCombatActive = false;
+        if (want == _worldCombatActive)
+            return; // no transition
 
-        // Lower the client's in-combat state once, on the fighting -> not-fighting edge (paired with the raise
-        // in EnterWorldCombat). Runs on the single-threaded zone tick, so this drop can never race.
-        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        _worldCombatActive = want;
+        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = want });
+        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = want });
     }
 
     /// <summary>DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
