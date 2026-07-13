@@ -183,7 +183,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     private readonly List<Npc> _spirits = [];
     private readonly Dictionary<ulong, SpiritState> _spiritStates = [];
     private readonly List<Npc> _tombstones = [];
-    private Npc? _exitDoor;
     private int _killedSpirits;
     private bool _won;
     private int _encounterRun;
@@ -232,13 +231,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     public override void OnClientIsReady(Player player)
     {
         // Same zone-in tail as the Frostfang arena (see that class for the full derivation).
-        // Enter at the player's REAL max HP (full) so the bar doesn't jump on the first claw — the real-
-        // damage combat path reports MaxHealth from Stats[MaxHealth], so displaying a fixed 2500 here made
-        // the bar snap to the real max on the first hit ("health bugs out at the beginning").
-        var startHp = player.Stats.TryGetValue(Sanctuary.Packet.Common.CharacterStatId.MaxHealth, out var mh0) ? mh0.Int : 2500;
-        player.CurrentHitpoints = startHp;
-        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = startHp, MaxHitpoints = startHp });
-        player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = 100, MaxMana = 100 });
+        EnterAtFullVitals(player); // real max HP + mana so the bar doesn't jump on the first claw
 
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
@@ -310,7 +303,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             live.AddRange(_spirits);
             live.AddRange(_tombstones);
             live.AddRange(_hearts);
-            if (_exitDoor is not null) live.Add(_exitDoor);
+            if (ExitDoor is { } exitDoor) live.Add(exitDoor);
         }
         foreach (var npc in live)
         {
@@ -338,8 +331,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             foreach (var h in _hearts)
                 h.Dispose();
             _hearts.Clear();
-            _exitDoor?.Dispose();
-            _exitDoor = null;
+            ExitDoor?.Dispose();
+            SetExitDoor(null);
             _killedSpirits = 0;
             _won = false;
             _groundY = GroundY; // re-measured by this run's ground-adoption pass
@@ -1184,22 +1177,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             p.SendTunneled(badge);
         }
 
-        lock (_stateLock)
-            _exitDoor = door;
-    }
-
-    /// <summary>True if the guid is the live exit door (interact routing).</summary>
-    public bool IsExitDoor(ulong guid)
-    {
-        lock (_stateLock)
-            return _exitDoor is { } door && door.Guid == guid;
-    }
-
-    /// <summary>Player clicked the exit door — release the encounter and send them home.</summary>
-    public void UseExitDoor(Player player)
-    {
-        _logger.LogInformation("Spirit arena: {name} used the exit door.", player.Name);
-        ReturnHome(player);
+        SetExitDoor(door);
     }
 
     // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Sanctuary.Game.Entities;
 using Sanctuary.Game.Resources.Definitions.Zones;
 using Sanctuary.Packet;
+using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Zones;
 
@@ -75,6 +76,47 @@ public abstract class CombatEncounterZone : BaseZone
     {
         lock (_knockoutLock)
             return _knockouts.TryGetValue(guid, out var k) ? k : 0;
+    }
+
+    /// <summary>Enter the encounter at full REAL max HP + mana (Stats[MaxHealth]) so the bar matches the
+    /// real-damage claw/bite — a fixed 2500 made it jump on the first hit. Call from OnClientIsReady.</summary>
+    protected static void EnterAtFullVitals(Player player)
+    {
+        var startHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
+        player.CurrentHitpoints = startHp;
+        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = startHp, MaxHitpoints = startHp });
+        player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = 100, MaxMana = 100 });
+    }
+
+    // The victory exit door (each zone spawns it at its own spot via SpawnExitDoor, then registers it here).
+    // Clicking it (routed from CommandPacketInteractRequestHandler) leaves the encounter.
+    private readonly object _exitDoorLock = new();
+    private Npc? _exitDoor;
+
+    /// <summary>The live victory door, or null. Subclasses read it for the visibility sweep + cleanup.</summary>
+    protected Npc? ExitDoor
+    {
+        get { lock (_exitDoorLock) return _exitDoor; }
+    }
+
+    /// <summary>Register the spawned victory door (or null to clear it on a re-run) so IsExitDoor/UseExitDoor
+    /// recognise clicks on it.</summary>
+    protected void SetExitDoor(Npc? door)
+    {
+        lock (_exitDoorLock)
+            _exitDoor = door;
+    }
+
+    public bool IsExitDoor(ulong guid)
+    {
+        lock (_exitDoorLock)
+            return _exitDoor is { } door && door.Guid == guid;
+    }
+
+    public void UseExitDoor(Player player)
+    {
+        _logger.LogInformation("{label}: {name} used the exit door.", EncounterLogName, player.Name);
+        ReturnHome(player);
     }
 
     public override void OnPlayerKnockedOut(Player player)

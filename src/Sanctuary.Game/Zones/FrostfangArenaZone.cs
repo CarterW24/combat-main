@@ -244,7 +244,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     // drives his flee run and despawns him at the timeout / arena edge.
     private Npc? _fleeingAlpha;
     private long _alphaFleeUntilTicks;
-    private Npc? _exitDoor;
     private int _waveIndex;        // next wave to spawn (0-based into WaveSizes)
     private bool _waveScheduled;
     private bool _roamerEngaged;   // set once the roamer has howled + spawned wave 1 (gates the kickoff)
@@ -375,12 +374,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         // Finish the client's zone-in (same tail the starting zone sends): vitals + "zone data done".
         // Do NOT spawn NPCs here: the client sends ClientIsReady ~0.35s after BeginZoning, while the load
         // screen is still up, and discards every AddNpc sent then (LIVE TESTS 8+9, 2026-07-02).
-        // Enter at the player's REAL max HP (full) so the bar matches the real-damage bites (Stats[MaxHealth])
-        // — the old fixed 2500 made the bar jump on the first hit. Mirrors EncounterArenaZone.
-        var startHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh0) ? mh0.Int : 2500;
-        player.CurrentHitpoints = startHp;
-        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = startHp, MaxHitpoints = startHp });
-        player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = 100, MaxMana = 100 });
+        EnterAtFullVitals(player); // real max HP + mana so the bar matches the real-damage bites
 
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
@@ -440,7 +434,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             live.AddRange(_wolves);
             if (_alpha is not null) live.Add(_alpha);
             live.AddRange(_hearts);
-            if (_exitDoor is not null) live.Add(_exitDoor);
+            if (ExitDoor is { } exitDoor) live.Add(exitDoor);
         }
         foreach (var npc in live)
         {
@@ -469,8 +463,8 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             _alpha = null;
             _fleeingAlpha?.Dispose();
             _fleeingAlpha = null;
-            _exitDoor?.Dispose();
-            _exitDoor = null;
+            ExitDoor?.Dispose();
+            SetExitDoor(null);
             _waveIndex = 0;
             _waveScheduled = false;
             _roamerEngaged = false;
@@ -1570,22 +1564,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             p.SendTunneled(badge);
         }
 
-        lock (_stateLock)
-            _exitDoor = door;
-    }
-
-    /// <summary>True if the guid is the live exit door (interact routing).</summary>
-    public bool IsExitDoor(ulong guid)
-    {
-        lock (_stateLock)
-            return _exitDoor is { } door && door.Guid == guid;
-    }
-
-    /// <summary>Player clicked the exit door — release the encounter and send them home.</summary>
-    public void UseExitDoor(Player player)
-    {
-        _logger.LogInformation("Frostfang arena: {name} used the exit door.", player.Name);
-        ReturnHome(player);
+        SetExitDoor(door);
     }
 
     /// <summary>Release the client from the encounter (RE'd exit protocol): remove the minigame

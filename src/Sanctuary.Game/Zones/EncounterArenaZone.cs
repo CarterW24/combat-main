@@ -82,7 +82,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
     private readonly object _stateLock = new();
     private readonly List<Npc> _mobs = [];
     private readonly Dictionary<ulong, MobState> _mobStates = [];
-    private Npc? _exitDoor;
     private int _killed;
     private bool _won;
     private int _encounterRun;
@@ -149,12 +148,7 @@ public sealed class EncounterArenaZone : CombatEncounterZone
 
     public override void OnClientIsReady(Player player)
     {
-        // Enter at the player's REAL max HP (full) so the bar matches what the real-damage claw reports
-        // (Stats[MaxHealth]) — a fixed 2500 here made the bar jump on the first hit.
-        var startHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh0) ? mh0.Int : 2500;
-        player.CurrentHitpoints = startHp;
-        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = startHp, MaxHitpoints = startHp });
-        player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = 100, MaxMana = 100 });
+        EnterAtFullVitals(player); // real max HP + mana so the bar matches the real-damage claw
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
         JobWeaponAbilities.SendToolbarWithFxPreload(player, _resourceManager);
@@ -209,7 +203,7 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         lock (_stateLock)
         {
             live.AddRange(_mobs);
-            if (_exitDoor is not null) live.Add(_exitDoor);
+            if (ExitDoor is { } exitDoor) live.Add(exitDoor);
         }
         foreach (var npc in live)
         {
@@ -233,8 +227,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                 old.Dispose();
             _mobs.Clear();
             _mobStates.Clear();
-            _exitDoor?.Dispose();
-            _exitDoor = null;
+            ExitDoor?.Dispose();
+            SetExitDoor(null);
             _killed = 0;
             _won = false;
             _groundY = Dungeon.GroundY;
@@ -814,22 +808,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
             p.SendTunneled(badge);
         }
 
-        lock (_stateLock)
-            _exitDoor = door;
+        SetExitDoor(door);
     }
-
-    public bool IsExitDoor(ulong guid)
-    {
-        lock (_stateLock)
-            return _exitDoor is { } door && door.Guid == guid;
-    }
-
-    public void UseExitDoor(Player player)
-    {
-        _logger.LogInformation("{dungeon}: {name} used the exit door.", Dungeon.Comment, player.Name);
-        ReturnHome(player);
-    }
-
 
     protected override void ReturnHome(Player player)
     {
