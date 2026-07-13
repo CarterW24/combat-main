@@ -9,6 +9,7 @@ using System.Numerics;
 
 using Sanctuary.Core.Collections;
 using Sanctuary.Core.IO;
+using Sanctuary.Game.Combat;
 using Sanctuary.Game.Interactions;
 using Sanctuary.Game.Leveling;
 using Sanctuary.Game.Zones;
@@ -370,15 +371,6 @@ public sealed class Player : ClientPcData, IEntity
     {
         IsDead = false;
 
-        // Apply any level-up whose stat rescale we deferred during the fight BEFORE computing revive HP —
-        // otherwise reviving with a stale (pre-level) max makes the health bar snap to the new max a moment
-        // later ("health bar is buggy after reviving"). Safe here: revive is out of combat.
-        if (_pendingLevelUp)
-        {
-            _pendingLevelUp = false;
-            ApplyLevelUpEffects();
-        }
-
         var maxHp = Stats[CharacterStatId.MaxHealth].Int;
         CurrentHitpoints = maxHp;
 
@@ -460,9 +452,6 @@ public sealed class Player : ClientPcData, IEntity
     private long _lastWorldCombatTicks;
     private volatile bool _worldCombatActive;
 
-    /// <summary>A level-up that happened mid-combat defers its heavy presentation (stat rescale + full-screen
-    /// UI) to combat-drop, since those packets wedge the ranged auto-fire mid-fight.</summary>
-    private bool _pendingLevelUp;
 
     /// <summary>Mark the player as fighting in the overworld (weapon drawn + enemy HP bars + floating damage
     /// numbers) and (re)arm the out-of-combat timer. Idempotent and cheap — safe on every hit/press. The
@@ -474,11 +463,19 @@ public sealed class Player : ClientPcData, IEntity
 
         _lastWorldCombatTicks = Environment.TickCount64;
 
-        // Overworld combat streams NO op41 encounter combat-state flags — cycling them wedges the ranged
-        // auto-fire (proven: sub132 wedges on level-up; both together wedge after kills). The flag below is
-        // kept only for combat tracking. The in-combat indicator + XP-bar display are driven by this same
-        // corrupting state, so restoring them needs a different, RE'd path — tracked separately.
-        _worldCombatActive = true;
+        // Raise the client's in-combat state (weapon drawn + enemy HP bars + floating damage numbers) ONLY on
+        // the not-fighting -> fighting edge — never per-shot. The old code cycled these op41 flags on every
+        // combat action (an archer fires ~every 150ms), and that rapid re-cycling is what wedged the ranged
+        // auto-fire; sending them exactly twice per fight (raise here, lower in WorldCombatDecayTick) is the
+        // gentle pattern retail uses. sub132 SetInWorldCombat -> m_bIsFighting + NPC hp-bar mode; sub133
+        // SetIsFighting -> m_bInCombatArea. (A rare concurrent double-"true" from overlapping shots is harmless
+        // — it's the same state.)
+        if (!_worldCombatActive)
+        {
+            _worldCombatActive = true;
+            SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
+            SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+        }
     }
 
     /// <summary>Per-second: if the overworld combat window has lapsed, drop the fighting flags exactly once.
@@ -492,14 +489,11 @@ public sealed class Player : ClientPcData, IEntity
             return; // still fighting
 
         _worldCombatActive = false;
-        // (No op41 combat-state packets in the overworld — they wedge firing.)
 
-        // XP is awarded per kill; run any level-up presentation we deferred out of the fight.
-        if (_pendingLevelUp)
-        {
-            _pendingLevelUp = false;
-            ApplyLevelUpEffects();
-        }
+        // Lower the client's in-combat state once, on the fighting -> not-fighting edge (paired with the raise
+        // in EnterWorldCombat). Runs on the single-threaded zone tick, so this drop can never race.
+        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
     }
 
     /// <summary>DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
@@ -607,26 +601,39 @@ public sealed class Player : ClientPcData, IEntity
                 ProfileIconId = profile.Icon,
                 ProfileNameId = profile.NameId
             });
-
-            // The heavy level-up presentation (stat rescale + the profile-based full-screen JobLevelUp UI)
-            // wedges the ranged auto-fire if it fires mid-combat — "after leveling up I can't refire." Defer
-            // it to combat-drop while fighting; run it now if we're already out of combat. The +XP / rank
-            // number above is immediate either way, so XP still feels earned on the kill.
-            if (_worldCombatActive)
-                _pendingLevelUp = true;
-            else
-                ApplyLevelUpEffects();
         }
 
-        // NOTE: deliberately do NOT call RefreshActiveProfile() here. It sends ClientUpdatePacketActivateProfile,
-        // the same packet that wedges the ranged auto-fire — running it on every XP flush (when combat drops)
-        // re-broke firing "after a set of enemies." The dedicated experience/rank packets above already update
-        // the on-screen job XP bar + level number, so the full profile re-send isn't needed for feedback.
+        // Real-time job XP bar + level-up — on every kill, even mid-combat (retail shows XP as you earn it and
+        // levels you up on the spot). The bar only redraws on a full profile re-send: on a level-up,
+        // ApplyLevelUpEffects does that re-send via the JobLevelUp presentation (stat rescale + celebration +
+        // full-screen UI) and moves the bar to the new level; otherwise a plain silent ActivateProfile moves
+        // it. The incremental experience packets above move the +XP text/level number but NOT the bar — the
+        // client outright ignores ClientUpdatePacketUpdateProfileExperience (op38/14: its handler has no case
+        // for that sub-opcode). EITHER re-send clears the client's ability toolbar, so RestoreWeaponToolbar()
+        // re-sends it right after — that restore is what keeps the ranged auto-fire alive across the re-send.
+        // Both the per-kill AND the post-level-up firing wedges were a profile re-send with no toolbar restore.
+        if (leveled)
+            ApplyLevelUpEffects();
+        else
+            RefreshActiveProfile();
+
+        RestoreWeaponToolbar();
     }
 
-    /// <summary>The heavy level-up presentation — stat rescale + HP/mana refill, the particle celebration,
-    /// and the full-screen JobLevelUp UI. Run immediately out of combat; deferred to combat-drop while
-    /// fighting because these reset client state that would tear down a ranged auto-fire loop mid-fight.</summary>
+    /// <summary>Re-send the active job's weapon toolbar (op36/5 SetDefinition). A profile re-send
+    /// (ActivateProfile / JobLevelUp) clears the client's ability slots, so this must follow any such re-send
+    /// or the ranged auto-fire has no ability to repeat and wedges — the same toolbar restore a job-swap does.</summary>
+    private void RestoreWeaponToolbar()
+    {
+        var toolbar = JobWeaponAbilities.BuildToolbar(this, _resourceManager);
+        if (toolbar is not null)
+            SendTunneled(toolbar);
+    }
+
+    /// <summary>The level-up presentation — stat rescale + HP/mana refill, the particle celebration, and the
+    /// full-screen JobLevelUp UI. Runs on the spot when a kill levels you (retail behavior). It re-sends the
+    /// profile, which clears the client's ability toolbar, so callers MUST follow it with
+    /// <see cref="RestoreWeaponToolbar"/> or the ranged auto-fire wedges ("after leveling up I can't refire").</summary>
     private void ApplyLevelUpEffects()
     {
         RecalculateStats(refill: true);
@@ -789,12 +796,10 @@ public sealed class Player : ClientPcData, IEntity
     /// <summary>Plays the job level-up celebration effect on the player (visible to nearby players too).</summary>
     private void PlayLevelUpCelebration()
     {
-        // PFX_levelup_big is a ~2s one-shot, so a single play looked like it "disappeared". Re-fire it at the
-        // player's CURRENT position a few times over ~5s: overlapping plays keep it sustained, and re-anchoring
-        // on the live Position each time makes it track the player if they move during the celebration.
+        // A single PFX_levelup_big burst (~2s). We used to re-fire it several times over ~5s to "sustain" it,
+        // but that read as the level-up effect playing 3-4 times in a row — and the full-screen JobLevelUp UI
+        // is the real celebration, so one clean burst alongside it is enough.
         FireLevelUpBurst();
-        for (int i = 1; i <= 4; i++)
-            System.Threading.Tasks.Task.Delay(i * 1000).ContinueWith(_ => FireLevelUpBurst());
     }
 
     /// <summary>One level-up particle burst at the player's current position (guarded against post-logout sends).</summary>
