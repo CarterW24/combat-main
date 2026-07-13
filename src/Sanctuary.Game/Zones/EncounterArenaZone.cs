@@ -73,6 +73,10 @@ public sealed class EncounterArenaZone : BaseZone
         public bool Charging;
         public long NextClawTicks;
         public float SlotAngle;
+        public Vector4 Home;    // spawn post — mobs walk back here and idle while the player is knocked down
+        public bool Idling;     // true once parked at Home (so we broadcast the idle stop only once)
+        public bool Planted;    // true once stopped in attack range — stop re-broadcasting position every tick
+                                // (that bobbed the model + fought the swing animation = the attack jitter)
     }
 
     private readonly object _stateLock = new();
@@ -247,7 +251,7 @@ public sealed class EncounterArenaZone : BaseZone
                     var mob = CreateMob(group, pos);
                     if (mob is null) continue;
                     _mobs.Add(mob);
-                    _mobStates[mob.Guid] = new MobState { SlotAngle = (float)(_rng.NextDouble() * Math.Tau) };
+                    _mobStates[mob.Guid] = new MobState { SlotAngle = (float)(_rng.NextDouble() * Math.Tau), Home = pos };
                     guids.Add(mob.Guid);
                 }
             }
@@ -542,6 +546,33 @@ public sealed class EncounterArenaZone : BaseZone
 
                         var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
 
+                        // Player is knocked down: DISENGAGE — amble back to the home post and idle there until
+                        // they revive. Reset Charging so the mob re-engages cleanly on revive.
+                        if (player.IsDead)
+                        {
+                            state.Charging = false;
+                            state.Planted = false;
+                            var toHome = new Vector2(state.Home.X - here.X, state.Home.Z - here.Z);
+                            var distHome = toHome.Length();
+                            if (distHome > 0.6f)
+                            {
+                                state.Idling = false;
+                                var stepH = MathF.Min(ChaseSpeed * dt, distHome);
+                                var dirH = toHome / distHome;
+                                var nyH = MoveToward(here.Y, state.Home.Y, YSpeed * dt);
+                                var npH = new Vector4(here.X + dirH.X * stepH, nyH, here.Z + dirH.Y * stepH, mob.Position.W);
+                                var frotH = new Quaternion(dirH.X, 0f, dirH.Y, 0f);
+                                mob.UpdatePosition(npH, frotH);
+                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = npH, Rotation = frotH, State = 0, Unknown = 0 });
+                            }
+                            else if (!state.Idling)
+                            {
+                                state.Idling = true; // arrived — plant it idle once (State 1 = standing)
+                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = mob.Position, Rotation = mob.Rotation, State = 1, Unknown = 0 });
+                            }
+                            continue;
+                        }
+
                         if (!state.Charging)
                         {
                             var dx = target.X - here.X;
@@ -560,6 +591,7 @@ public sealed class EncounterArenaZone : BaseZone
 
                         if (distToPlayerH > ClawRange)
                         {
+                            state.Planted = false;
                             var toSlot = new Vector2(slot.X - here.X, slot.Z - here.Z);
                             var distToSlot = toSlot.Length();
                             var step = MathF.Min(ChaseSpeed * dt, distToSlot);
@@ -573,12 +605,20 @@ public sealed class EncounterArenaZone : BaseZone
                         }
                         else
                         {
-                            var newPos = new Vector4(here.X, newY, here.Z, mob.Position.W);
-                            mob.UpdatePosition(newPos, rot);
-                            Broadcast(new PlayerUpdatePacketUpdatePosition
+                            // In attack range: plant ONCE (stop + face), then just claw. Re-broadcasting the
+                            // position every tick (with the per-tick Y-lerp) bobbed the model and fought the
+                            // swing clip — that was the attack jitter. The claw's AttackProcessed drives the
+                            // swing without moving the actor.
+                            if (!state.Planted)
                             {
-                                Guid = mob.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
-                            });
+                                state.Planted = true;
+                                var newPos = new Vector4(here.X, newY, here.Z, mob.Position.W);
+                                mob.UpdatePosition(newPos, rot);
+                                Broadcast(new PlayerUpdatePacketUpdatePosition
+                                {
+                                    Guid = mob.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
+                                });
+                            }
 
                             if (now >= state.NextClawTicks && now - lastPackClaw >= ClawGlobalGapMs && !player.IsDead)
                             {
@@ -690,22 +730,34 @@ public sealed class EncounterArenaZone : BaseZone
         _logger.LogInformation("{dungeon}: {name} knocked out ({kos}/{limit}).",
             Dungeon.Comment, player.Name, kos, KnockoutLimit);
 
-        // Pop the minigame knockout UI ("You Got Knocked Out! — Recover in N"). sub125 WITH the combat
-        // fighting state OFF shows this auto-recover version; WITH it on it'd show the overworld pay/safe
-        // buttons instead (which is wrong here). So drop the fighting flags first, then show the window.
+        // Drop the fighting flags either way (sub125 shows the auto-recover version with them OFF, not the
+        // overworld pay/safe buttons).
         player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
-        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
 
         if (kos >= KnockoutLimit)
         {
-            // Out of lives — the encounter FAILS: show the "TRY AGAIN!" card and send them home.
-            player.SendTunneled(new MiniGameGameOverPacket(won: false));
-            EndEncounterForPlayer(player, won: false);
-            ReturnHome(player);
+            // Out of lives — FAIL. Show the persistent "TRY AGAIN!" end-screen (see SendFailEndScreen: clears
+            // the knockdown UI + Won=0 + the score card), HOLD it, THEN tear down + teleport home and REVIVE so
+            // the player arrives ALIVE (a fail used to dump them in the overworld still knocked out, which the
+            // ability handler blocks — the weapon wouldn't fire even after a job-swap).
+            SendFailEndScreen(player);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(FailCardHoldMs);
+                    ReturnHome(player);   // EndEncounterForPlayer(won:false) + teleport to the overworld
+                    player.Respawn();     // clear the knocked-out state so firing works again
+                }
+                catch (Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
+            });
             return;
         }
+
+        // Non-fatal knockout — show the recover window + counter; auto-revive is the fallback.
+        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
+        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
 
         // Minigame KO: no pay/safe window here (that's the overworld UI) — just auto-revive at the dungeon
         // spawn once the short beat elapses.

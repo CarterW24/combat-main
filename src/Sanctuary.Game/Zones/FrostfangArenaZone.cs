@@ -230,6 +230,9 @@ public sealed class FrostfangArenaZone : BaseZone
         public bool Howled;          // roamer has howled; standing in the pose until ChargeAtTicks, then charges
         public Vector2? WanderTarget;
         public long WanderPauseUntil;
+        public Vector4 Home;         // spawn post — wolves walk back here and idle while the player is down
+        public bool Idling;          // true once parked at Home (broadcast the idle stop only once)
+        public bool Planted;         // true once stopped in bite range — stop re-broadcasting position (jitter)
     }
 
     private readonly object _stateLock = new();
@@ -372,7 +375,11 @@ public sealed class FrostfangArenaZone : BaseZone
         // Finish the client's zone-in (same tail the starting zone sends): vitals + "zone data done".
         // Do NOT spawn NPCs here: the client sends ClientIsReady ~0.35s after BeginZoning, while the load
         // screen is still up, and discards every AddNpc sent then (LIVE TESTS 8+9, 2026-07-02).
-        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = 2500, MaxHitpoints = 2500 });
+        // Enter at the player's REAL max HP (full) so the bar matches the real-damage bites (Stats[MaxHealth])
+        // — the old fixed 2500 made the bar jump on the first hit. Mirrors EncounterArenaZone.
+        var startHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh0) ? mh0.Int : 2500;
+        player.CurrentHitpoints = startHp;
+        player.SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = startHp, MaxHitpoints = startHp });
         player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = 100, MaxMana = 100 });
 
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
@@ -591,6 +598,7 @@ public sealed class FrostfangArenaZone : BaseZone
         {
             IsRoamer = true,
             SlotAngle = (float)(_rng.NextDouble() * Math.Tau),
+            Home = roamer.Position,
         };
 
         // The roamer walks from the start (live ES 3.0 shortly after spawn).
@@ -637,6 +645,7 @@ public sealed class FrostfangArenaZone : BaseZone
             {
                 ChargeAtTicks = Environment.TickCount64 + AggroDelayMs,
                 SlotAngle = (float)(_rng.NextDouble() * Math.Tau),
+                Home = wolf.Position,
             };
             newGuids.Add(wolf.Guid);
         }
@@ -659,6 +668,7 @@ public sealed class FrostfangArenaZone : BaseZone
                 {
                     ChargeAtTicks = Environment.TickCount64 + AggroDelayMs,
                     SlotAngle = (float)(_rng.NextDouble() * Math.Tau),
+                    Home = _alpha.Position,
                 };
                 newGuids.Add(_alpha.Guid);
             }
@@ -833,6 +843,33 @@ public sealed class FrostfangArenaZone : BaseZone
 
                         var here = new Vector3(wolf.Position.X, wolf.Position.Y, wolf.Position.Z);
 
+                        // Player is knocked down: DISENGAGE — amble back to the spawn post and idle there until
+                        // they revive. Reset the charge so the wolf re-engages cleanly on revive.
+                        if (player.IsDead)
+                        {
+                            state.Charging = false;
+                            state.Planted = false;
+                            var toHome = new Vector2(state.Home.X - here.X, state.Home.Z - here.Z);
+                            var distHome = toHome.Length();
+                            if (distHome > 0.6f)
+                            {
+                                state.Idling = false;
+                                var stepH = MathF.Min(ChaseSpeed * dt, distHome);
+                                var dirH = toHome / distHome;
+                                var nyH = MoveToward(here.Y, state.Home.Y, YSpeed * dt);
+                                var npH = new Vector4(here.X + dirH.X * stepH, nyH, here.Z + dirH.Y * stepH, wolf.Position.W);
+                                var frotH = new Quaternion(dirH.X, 0f, dirH.Y, 0f);
+                                wolf.UpdatePosition(npH, frotH);
+                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = wolf.Guid, Position = npH, Rotation = frotH, State = 0, Unknown = 0 });
+                            }
+                            else if (!state.Idling)
+                            {
+                                state.Idling = true;
+                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = wolf.Guid, Position = wolf.Position, Rotation = wolf.Rotation, State = 1, Unknown = 0 });
+                            }
+                            continue;
+                        }
+
                         // ROAMER: amble between random waypoints at walk speed until the player closes in
                         // (proximity — the live trigger) or hits it (OnNpcDamaged). Either fires the howl
                         // via EngageRoamer. Scenery until then, matching the video's load-in wolf. Once it
@@ -878,6 +915,7 @@ public sealed class FrostfangArenaZone : BaseZone
 
                         if (distToPlayerH > BiteRange)
                         {
+                            state.Planted = false;
                             var toSlot = new Vector2(slot.X - here.X, slot.Z - here.Z);
                             var distToSlot = toSlot.Length();
                             var step = MathF.Min(ChaseSpeed * dt, distToSlot);
@@ -895,32 +933,46 @@ public sealed class FrostfangArenaZone : BaseZone
                         }
                         else
                         {
-                            var newPos = new Vector4(here.X, newY, here.Z, wolf.Position.W);
-
-                            wolf.UpdatePosition(newPos, rot);
-                            Broadcast(new PlayerUpdatePacketUpdatePosition
+                            // In bite range: plant ONCE (stop + face), then just bite. Re-broadcasting the
+                            // position every tick (with the per-tick Y-lerp) bobbed the model and fought the
+                            // bite clip — that was the attack jitter.
+                            if (!state.Planted)
                             {
-                                Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
-                            });
+                                state.Planted = true;
+                                var newPos = new Vector4(here.X, newY, here.Z, wolf.Position.W);
+                                wolf.UpdatePosition(newPos, rot);
+                                Broadcast(new PlayerUpdatePacketUpdatePosition
+                                {
+                                    Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
+                                });
+                            }
 
                             // Bites — live pacing is sparse (~1 per 2.7s across the whole pack), each
                             // one a CombatPacketAttackProcessed: wolf attacker (plays the bite clip),
                             // player target (incoming number/recoil), fx 5409 / crit 5622. The wolves
                             // anchor on the leader; broadcast so all members see the bite land on them.
-                            if (now >= state.NextBiteTicks && now - lastPackBite >= BiteGlobalGapMs)
+                            if (now >= state.NextBiteTicks && now - lastPackBite >= BiteGlobalGapMs && !player.IsDead)
                             {
                                 state.NextBiteTicks = now + BiteCooldownMs;
                                 lastPackBite = now;
 
                                 var crit = _rng.Next(100) < BiteCritPercent;
+                                var dmg = crit ? BiteCritDamage : BiteDamage;
+
+                                // REAL damage now (was cosmetic 2500/2500): drop the player's HP and knock them
+                                // out at 0 -> OnPlayerKnockedOut runs the KO-counter / fail flow (5 knockouts =
+                                // the encounter fails, sent home with no rewards).
+                                player.TakeDamage(dmg);
+                                var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
+
                                 Broadcast(new CombatPacketAttackProcessed
                                 {
                                     AttackerGuid = wolf.Guid,
                                     TargetGuid = player.Guid,
-                                    Damage = crit ? BiteCritDamage : BiteDamage,
-                                    MaxHealth = 2500,        // player max HP (real player pool is a TODO)
+                                    Damage = dmg,
+                                    MaxHealth = maxHp,
                                     CompositeEffectId = crit ? BiteCritFxId : BiteFxId,
-                                    CurrentHealth = 2500,    // player pool TODO; client tracks HP - Damage itself
+                                    CurrentHealth = player.CurrentHitpoints,
                                 });
                             }
                         }
@@ -1347,7 +1399,10 @@ public sealed class FrostfangArenaZone : BaseZone
         // ★ CO-OP: award the win to EVERY party member in the arena (each gets their own goal
         // complete, XP, quest credit, and loot-wheel prize). For a solo player this loops once.
         var enemies = _killedSnarlers;
-        var knockoutsLeft = KnockoutLimit; // player HP pool is cosmetic for now -> never knocked out
+        int koUsed;
+        lock (_stateLock)
+            _knockouts.TryGetValue(player.Guid, out koUsed);
+        var knockoutsLeft = System.Math.Max(0, KnockoutLimit - koUsed); // real remaining lives
         MiniGameGameEndScorePacket MakeScore()
         {
             var s = new MiniGameGameEndScorePacket();
@@ -1572,6 +1627,78 @@ public sealed class FrostfangArenaZone : BaseZone
         var home = _zoneManager.StartingZone;
 
         player.TeleportToZone(home, home.SpawnPosition, home.SpawnRotation, sky: null, geometryId: 0);
+    }
+
+    // DEATH: per-player knockout tally for the retail knockout-limit lose condition (matches
+    // EncounterArenaZone / TormentedSpiritsArenaZone). Bites now deal real damage, so hitting 0 HP knocks the
+    // player out; the 5th knockout fails the encounter and sends them home with no rewards.
+    private readonly System.Collections.Generic.Dictionary<ulong, int> _knockouts = [];
+
+    protected override int ReviveCooldownMs => 30000;
+
+    public override void OnPlayerKnockedOut(Player player)
+    {
+        if (player.Zone != this)
+            return;
+
+        int kos;
+        lock (_stateLock)
+        {
+            _knockouts.TryGetValue(player.Guid, out kos);
+            kos++;
+            _knockouts[player.Guid] = kos;
+        }
+
+        _logger.LogInformation("Frostfang arena: {name} knocked out ({kos}/{limit}).", player.Name, kos, KnockoutLimit);
+
+        // Drop the fighting flags either way (so sub125 shows the auto-recover version, not the overworld
+        // pay/safe one).
+        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+
+        if (kos >= KnockoutLimit)
+        {
+            // Out of lives — FAIL. Show the persistent "TRY AGAIN!" end-screen (SendFailEndScreen: clears the
+            // knockdown UI + Won=0 + the score card), HOLD it, THEN tear down + teleport home and REVIVE so the
+            // player arrives ALIVE (a fail used to leave them knocked out -> couldn't fire even after job-swap).
+            SendFailEndScreen(player);
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    await System.Threading.Tasks.Task.Delay(FailCardHoldMs);
+                    ReturnHome(player);
+                    player.Respawn();
+                }
+                catch (System.Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
+            });
+            return;
+        }
+
+        // Non-fatal knockout — show the recover window + counter; auto-revive fallback.
+        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
+        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
+        ScheduleAutoRevive(player);
+    }
+
+    public override void OnPlayerRespawn(Player player)
+    {
+        // Revive with full HP + FX at the death spot (the window's Revive button revives you where you fell).
+        var pos = player.DeathPosition;
+        player.Respawn();
+
+        if (player.Zone == this)
+        {
+            player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
+            player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+            player.UpdatePosition(pos, player.Rotation);
+            player.SendTunneled(new ClientUpdatePacketUpdateLocation
+            {
+                Position = pos,
+                Rotation = player.Rotation,
+                Teleport = true,
+            });
+        }
     }
 
     private static float MoveToward(float current, float goal, float maxDelta)

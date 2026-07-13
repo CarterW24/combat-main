@@ -121,17 +121,52 @@ public abstract class BaseZone : IZone, IDisposable
         ScheduleAutoRevive(player);
     }
 
+    // Per-player knockout generation. Each knockout bumps it; the auto-revive task captures the value it was
+    // scheduled under and only fires if it's STILL current. Without this, a stale auto-revive from an earlier
+    // knockout would fire during a LATER knockout and revive the player instantly, skipping the countdown.
+    private readonly ConcurrentDictionary<ulong, int> _reviveGeneration = new();
+
+    /// <summary>How long the "TRY AGAIN!" fail card sits before the encounter tears down and teleports the
+    /// player home — otherwise the state-remove + teleport wipe the card instantly.</summary>
+    protected const int FailCardHoldMs = 4000;
+
+    /// <summary>Show the persistent "TRY AGAIN!" fail end-screen. Three things are needed and were missing:
+    /// (1) clear the knockdown UI — Player.Knockout leaves the client in IsKnockedOut|IsRooted, which wipes
+    /// the card instantly; (2) set Won=0 via GameOver so the end screen reads as the failure variant;
+    /// (3) send the SCORE end-screen (op39/47) — that's the actual persistent card the WIN shows while the
+    /// player stands, whereas GameOver alone is just a state flag. Server-side IsDead is intentionally left
+    /// set so the mobs don't re-engage; the real revive happens on the trip home.</summary>
+    protected static void SendFailEndScreen(Player player)
+    {
+        // Stand the player up on the client (out of the knockdown/rooted state) so the card isn't fought off.
+        player.SendTunneledToVisible(new PlayerUpdatePacketUpdateCharacterState
+        {
+            Guid = player.Guid,
+            Status = CharacterStatus.None,
+        }, sendToSelf: true);
+
+        player.SendTunneled(new MiniGameGameOverPacket(won: false)); // Won=0 -> failure variant
+        var score = new MiniGameGameEndScorePacket();
+        score.Rows.Add(new MiniGameScoreRow { Name = "scoreTotalScore", Order = 4, Points = 0 });
+        player.SendTunneled(score); // the persistent end-screen card
+    }
+
     /// <summary>Revive the player automatically once the knockout cooldown elapses (as long as they're
-    /// still down and still in this zone). This drives the client back to life in sync with its own
-    /// revive-cooldown countdown.</summary>
+    /// still down, still in this zone, and no NEWER knockout has occurred). This drives the client back to
+    /// life in sync with its own revive-cooldown countdown — the FALLBACK for someone who never presses the
+    /// Revive button.</summary>
     protected void ScheduleAutoRevive(Player player)
     {
+        int generation = _reviveGeneration.AddOrUpdate(player.Guid, 1, (_, g) => g + 1);
         _ = System.Threading.Tasks.Task.Run(async () =>
         {
             try
             {
                 await System.Threading.Tasks.Task.Delay(ReviveCooldownMs);
-                if (player.IsDead && player.Zone == this)
+                // Only revive if this is STILL the same knockout — a later knockout bumps the generation, so a
+                // stale task from an earlier one won't revive the player mid-countdown ("instant revive" bug).
+                if (player.IsDead && player.Zone == this
+                    && _reviveGeneration.TryGetValue(player.Guid, out var current) && current == generation)
                     OnPlayerRespawn(player);
             }
             catch (System.Exception ex)

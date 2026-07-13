@@ -174,6 +174,9 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
         public bool Charging;
         public long NextClawTicks;
         public float SlotAngle;
+        public Vector4 Home;    // spawn post — spirits drift back here and idle while the player is down
+        public bool Idling;     // true once parked at Home (broadcast the idle stop only once)
+        public bool Planted;    // true once stopped in claw range — stop re-broadcasting position (jitter)
     }
 
     private readonly object _stateLock = new();
@@ -351,7 +354,7 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
                 if (spirit is null)
                     continue;
                 _spirits.Add(spirit);
-                _spiritStates[spirit.Guid] = new SpiritState { SlotAngle = (float)(_rng.NextDouble() * Math.Tau) };
+                _spiritStates[spirit.Guid] = new SpiritState { SlotAngle = (float)(_rng.NextDouble() * Math.Tau), Home = spirit.Position };
                 guids.Add(spirit.Guid);
             }
 
@@ -696,6 +699,33 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
 
                         var here = new Vector3(spirit.Position.X, spirit.Position.Y, spirit.Position.Z);
 
+                        // Player is knocked down: DISENGAGE — drift back to the spawn post and idle there until
+                        // they revive. Reset Charging so the spirit re-engages cleanly on revive.
+                        if (player.IsDead)
+                        {
+                            state.Charging = false;
+                            state.Planted = false;
+                            var toHome = new Vector2(state.Home.X - here.X, state.Home.Z - here.Z);
+                            var distHome = toHome.Length();
+                            if (distHome > 0.6f)
+                            {
+                                state.Idling = false;
+                                var stepH = MathF.Min(SpiritChaseSpeed * dt, distHome);
+                                var dirH = toHome / distHome;
+                                var nyH = MoveToward(here.Y, state.Home.Y, YSpeed * dt);
+                                var npH = new Vector4(here.X + dirH.X * stepH, nyH, here.Z + dirH.Y * stepH, spirit.Position.W);
+                                var frotH = new Quaternion(dirH.X, 0f, dirH.Y, 0f);
+                                spirit.UpdatePosition(npH, frotH);
+                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = spirit.Guid, Position = npH, Rotation = frotH, State = 0, Unknown = 0 });
+                            }
+                            else if (!state.Idling)
+                            {
+                                state.Idling = true;
+                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = spirit.Guid, Position = spirit.Position, Rotation = spirit.Rotation, State = 1, Unknown = 0 });
+                            }
+                            continue;
+                        }
+
                         // Pre-spawned mobs engage on APPROACH (or when damaged — OnNpcDamaged): the
                         // graveyard stands still until the player wades in.
                         if (!state.Charging)
@@ -717,6 +747,7 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
 
                         if (distToPlayerH > ClawRange)
                         {
+                            state.Planted = false;
                             var toSlot = new Vector2(slot.X - here.X, slot.Z - here.Z);
                             var distToSlot = toSlot.Length();
                             var step = MathF.Min(SpiritChaseSpeed * dt, distToSlot);
@@ -732,13 +763,19 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
                         }
                         else
                         {
-                            var newPos = new Vector4(here.X, newY, here.Z, spirit.Position.W);
-
-                            spirit.UpdatePosition(newPos, rot);
-                            Broadcast(new PlayerUpdatePacketUpdatePosition
+                            // In claw range: plant ONCE (stop + face), then just claw. Re-broadcasting the
+                            // position every tick (with the per-tick Y-lerp) bobbed the model and fought the
+                            // claw clip — that was the attack jitter.
+                            if (!state.Planted)
                             {
-                                Guid = spirit.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
-                            });
+                                state.Planted = true;
+                                var newPos = new Vector4(here.X, newY, here.Z, spirit.Position.W);
+                                spirit.UpdatePosition(newPos, rot);
+                                Broadcast(new PlayerUpdatePacketUpdatePosition
+                                {
+                                    Guid = spirit.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
+                                });
+                            }
 
                             // Spirits anchor on the leader; broadcast so all members see the claw land.
                             if (now >= state.NextClawTicks && now - lastPackClaw >= ClawGlobalGapMs && !player.IsDead)
@@ -944,7 +981,7 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
                     lock (_stateLock)
                     {
                         _spirits.Add(spirit);
-                        var state = new SpiritState { SlotAngle = (float)(_rng.NextDouble() * Math.Tau) };
+                        var state = new SpiritState { SlotAngle = (float)(_rng.NextDouble() * Math.Tau), Home = spirit.Position };
                         _spiritStates[spirit.Guid] = state;
                         BeginCharge(killer, spirit, state);
                         allClear = false; // the materialized spirit keeps the fight alive
@@ -1200,20 +1237,33 @@ public sealed class TormentedSpiritsArenaZone : BaseZone
 
         _logger.LogInformation("Spirit arena: {name} knocked out ({kos}/{limit}).", player.Name, kos, KnockoutLimit);
 
-        // Pop the knockout window (10s countdown -> Revive button). Drop the fighting flags first so it
-        // shows the auto-recover version, not the overworld pay/safe one.
+        // Drop the fighting flags either way (so sub125 shows the auto-recover version, not the overworld
+        // pay/safe one).
         player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
-        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
+
         if (kos >= KnockoutLimit)
         {
-            player.SendTunneled(new MiniGameGameOverPacket(won: false));
-            EndEncounterForPlayer(player, won: false);
-            ReturnHome(player);
+            // Out of lives — FAIL. Show the persistent "TRY AGAIN!" end-screen (SendFailEndScreen: clears the
+            // knockdown UI + Won=0 + the score card), HOLD it, THEN tear down + teleport home and REVIVE so the
+            // player arrives ALIVE (a fail used to leave them knocked out -> couldn't fire even after job-swap).
+            SendFailEndScreen(player);
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    await System.Threading.Tasks.Task.Delay(FailCardHoldMs);
+                    ReturnHome(player);
+                    player.Respawn();
+                }
+                catch (System.Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
+            });
             return;
         }
 
+        // Non-fatal knockout — show the recover window (10s countdown -> Revive button); auto-revive fallback.
+        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
+        player.SendTunneled(new EncounterShowRespawnWindowPacket(EncounterId, EncounterInstanceId));
         ScheduleAutoRevive(player);
     }
 
