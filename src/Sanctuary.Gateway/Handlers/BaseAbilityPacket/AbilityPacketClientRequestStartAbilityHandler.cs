@@ -321,10 +321,12 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         var player = connection.Player;
         var zone = player.Zone;
 
-        // Pressing an attack puts you in world-combat immediately (weapon drawn + the client's ranged
-        // auto-fire loop), even before the shot resolves and even if it whiffs. This is what lets the bow
-        // keep firing at the next enemy after a kill instead of going inert.
-        player.EnterWorldCombat();
+        // NOTE: we do NOT enter world-combat just for pressing fire. Combat means actually FIGHTING an enemy,
+        // so entry is gated on a real target being hit — see the EnterWorldCombat below (once a target is
+        // resolved) and the re-stamp when the hit lands in ResolveDamageAfterCast. Swinging/shooting into empty
+        // air plays the animation but no longer flags you in-combat. The killing blow keeps you in combat for
+        // the decay window, so the bow still auto-fires at the next enemy after a kill (it only drops out once
+        // there's genuinely nothing left to fight).
 
         // Resolve the ability's target. When the player has an enemy SELECTED the client sends its
         // guid — always honor that. With nothing selected, swing at what the player is actually
@@ -516,6 +518,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 packet.Data.Slot, ability.AoeRadius);
             return true;
         }
+
+        // A real enemy is being engaged (at least one live hostile target) — NOW enter world-combat. Gating it
+        // here (instead of on every key press) is what stops firing into empty air from flagging you in-combat.
+        player.EnterWorldCombat();
 
         _logger.LogInformation("Ability slot {slot} = '{name}' (dmg {dmg}, anim {anim}, fx {fx}, targets {count})",
             packet.Data.Slot, ability.Name, ability.Damage, ability.Animation, ability.EffectId, targets.Count);
