@@ -440,7 +440,10 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         npc.CompositeEffectId = 0;
         npc.MaxHealth = group.Health;
         npc.Health = group.Health;
-        npc.IsInteractable = true;
+        // A combat target, NOT an NPC: no "Press X to talk" interact prompt (they have no InteractAction, so
+        // the prompt did nothing anyway). Same recipe as the overworld training dummy / world hostiles —
+        // IsInteractable=false + the crossed-swords cursor keeps them attackable without the talk affordance.
+        npc.IsInteractable = false;
         npc.InteractRange = 100;
         npc.Visible = true;
         npc.CursorId = 11;                // attack cursor

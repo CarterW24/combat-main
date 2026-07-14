@@ -702,8 +702,11 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         npc.CompositeEffectId = spawnFx; // 46 = the live spawn poof on wave wolves (0 on roamer/alpha)
         npc.MaxHealth = health;
         npc.Health = health;
-        npc.IsInteractable = true;      // live: 1 / range 100 on every wolf
-        npc.InteractRange = 100;
+        // A combat target, NOT an NPC: no "Press X to talk" interact prompt. (The live capture had 1 here, but
+        // the wolves have no InteractAction so the prompt is dead UI — and it made enemies look clickable.
+        // IsInteractable=false + the crossed-swords cursor still leaves them attackable, same as the dummy.)
+        npc.IsInteractable = false;
+        npc.InteractRange = 100;        // live: range 100 on every wolf
         npc.Visible = true;
         npc.CursorId = 11;              // crossed-swords attack cursor (delivered via NpcRelevance)
 

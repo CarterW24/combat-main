@@ -525,7 +525,9 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         npc.CompositeEffectId = spawnFx; // 46 = materialize poof (tombstone spawns); 0 pre-spawned
         npc.MaxHealth = SpiritHealth;
         npc.Health = SpiritHealth;
-        npc.IsInteractable = true;
+        // A combat target, NOT an NPC: no "Press X to talk" prompt (spirits have no InteractAction — the
+        // prompt was dead UI that just made enemies look clickable). Attackable via the swords cursor.
+        npc.IsInteractable = false;
         npc.InteractRange = 100;
         npc.Visible = true;
         npc.CursorId = 11;               // crossed-swords attack cursor
@@ -573,7 +575,9 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         npc.ActiveProfile = 1;           // non-default -> red name resolve (the quest-hostile recipe)
         npc.MaxHealth = TombstoneHealth;
         npc.Health = TombstoneHealth;
-        npc.IsInteractable = true;
+        // DESTROYABLE, not clickable: the tombstone is broken by ATTACKING it (1500 HP), so it gets the same
+        // combat-target recipe — no "Press X to talk" prompt, swords cursor, still damageable.
+        npc.IsInteractable = false;
         npc.InteractRange = 100;
         npc.Visible = true;
         npc.CursorId = 11;
