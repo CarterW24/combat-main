@@ -227,6 +227,8 @@ public sealed class Player : ClientPcData, IEntity
         // stuck). See WorldCombatStateTick.
         WorldCombatStateTick();
 
+        LevelUpBurstTick();
+
         if (TemporaryAppearanceExpiresAt.HasValue &&
             TemporaryAppearanceExpiresAt.Value <= DateTimeOffset.UtcNow)
         {
@@ -638,13 +640,18 @@ public sealed class Player : ClientPcData, IEntity
     private void ApplyLevelUpEffects()
     {
         RecalculateStats(refill: true);
-        PlayLevelUpCelebration();
 
         // Full-screen job level-up UI (levelup_<job>.gfx) via the "JobLevelUp" client event — ClientUpdate
         // 38/15: the client reads one length-prefixed payload and parses it as the active profile.
         using var jluWriter = new PacketWriter();
         ActiveProfile.Serialize(jluWriter);
         SendTunneled(new ClientUpdatePacketJobLevelUp { Payload = jluWriter.Buffer });
+
+        // Fire the particle burst a few ticks LATER instead of in this same batch. Sent alongside the
+        // JobLevelUp packet, the burst raced the full-screen presentation's scene setup and was sometimes
+        // wiped before it rendered ("effects sometimes won't show when leveling up"). Deferring it onto the
+        // tick loop lands it cleanly on the character every time — still one clean burst (no 3-4 repeats).
+        _levelUpBurstAtTicks = Environment.TickCount64 + LevelUpBurstDelayMs;
     }
 
     /// <summary>Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).</summary>
@@ -794,12 +801,23 @@ public sealed class Player : ClientPcData, IEntity
         }, sendToSelf: true);
     }
 
-    /// <summary>Plays the job level-up celebration effect on the player (visible to nearby players too).</summary>
-    private void PlayLevelUpCelebration()
+    /// <summary>Delay (ms) between the JobLevelUp full-screen UI and the particle burst — a few ticks, long
+    /// enough that the burst isn't in the presentation's setup frame (where it was getting wiped) but short
+    /// enough to still read as part of the level-up moment.</summary>
+    private const int LevelUpBurstDelayMs = 300;
+
+    /// <summary>When to fire the deferred level-up burst (Environment.TickCount64), or 0 for none. Set by
+    /// <see cref="ApplyLevelUpEffects"/>, consumed by <see cref="LevelUpBurstTick"/> on the tick loop.</summary>
+    private long _levelUpBurstAtTicks;
+
+    /// <summary>Tick-loop driver for the deferred level-up burst (a single PFX_levelup_big ~2s burst). Firing
+    /// it off the tick instead of in the JobLevelUp packet's batch is what makes it show reliably.</summary>
+    private void LevelUpBurstTick()
     {
-        // A single PFX_levelup_big burst (~2s). We used to re-fire it several times over ~5s to "sustain" it,
-        // but that read as the level-up effect playing 3-4 times in a row — and the full-screen JobLevelUp UI
-        // is the real celebration, so one clean burst alongside it is enough.
+        if (_levelUpBurstAtTicks == 0 || Environment.TickCount64 < _levelUpBurstAtTicks)
+            return;
+
+        _levelUpBurstAtTicks = 0;
         FireLevelUpBurst();
     }
 
