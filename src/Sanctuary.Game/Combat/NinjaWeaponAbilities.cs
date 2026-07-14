@@ -73,67 +73,108 @@ public static class NinjaWeaponAbilities
 
     public static readonly WeaponAbility BareMelee = new("Strike", MeleeIcon, 150, MeleeAnimation, MeleeHitFx);
 
-    // weapon def id -> two abilities. IconImageId = the abil_ninja_* Small IMAGE_ID (real ability art).
-    // EffectId = the ability's REAL per-special composite effect (CONFIRMED from ActorCompositeEffectDefinitions
-    // .xml — the game's own dedicated `PFX_ninja_*` / `PFX_*_ninja-*` EffectDefinitions; see
-    // drafts/ninja-special-anim-fx-research.md §FINDINGS iter 4).
-    // Animation: ALL 10 now wired from the client's own animation table — decoded from the player model's
+    // The 10 ninja SPECIALS, each a full kit (melee technique on slot 0 + the named "of X" special on slot 1).
+    // IconImageId = the abil_ninja_* Small IMAGE_ID (real ability art). EffectId = the ability's REAL per-special
+    // composite effect (CONFIRMED from ActorCompositeEffectDefinitions.xml — the game's own dedicated
+    // `PFX_ninja_*` / `PFX_*_ninja-*` EffectDefinitions; see drafts/ninja-special-anim-fx-research.md §FINDINGS
+    // iter 4). Animation: all wired from the client's own animation table — decoded from the player model's
     // actor-def `human_m.adr` (slot->clip records) + AnimationGroups.xml, VERIFIED against the client asset log
     // (1011043->weapon_throw) and user sight (1034/1035). The 1hs specials reuse the shared named motion clips
     // (flip_stab/flying_chop/overhand_spin/bum_rush/air_throw/weapon_throw/sweep); Flaming Uppercut + Mystical
     // Blade use their DEDICATED clips (com_h2h_special_07=1017, com_cast_special_11=weapon_power=1061141); Shadow
     // Army uses com_spawn=1404 (no dedicated summon clip). Full table: drafts/anim-NAMED-CLIPS-breakthrough.md.
+    //
+    // These animations play on the human_m BODY, so they're identical no matter which weapon MODEL grants the
+    // special — which is why all five weapon tiers (training sword / blade / scythe / jagged scythe / shadow
+    // blade) share these records below. (The melee SWING clip + icon are sword-styled; on a scythe that swing
+    // reads a touch off — a cosmetic live-polish item, not a functional one.)
+
+    private static readonly NinjaWeapon ShurikenStormKit = new(
+        new("Twisted Edge",   MeleeIcon, 2870, MeleeAnimation, MeleeHitFx),
+        new("Shuriken Storm",     22986, 8302, 1039, 4012, 0)); // LIVE-OBSERVED: anim com_1hs_special_09=inverted_flip_attack (frontflip + downward melee); FX 4012 PFX_Slashes_Three_Symbol ("3 scratch marks") on the ENEMY only (impact); no cast FX on caster
+
+    private static readonly NinjaWeapon FlameWaveKit = new(
+        new("Cinder Slash",   MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
+        new("Flame Wave",         22974, 10674, 1032, 0, 16140)); // anim sweep; cast 16140 PFX_fire_orange_cog_ninja-flame-wave (ground AoE on caster, at feet); enemy impact REMOVED (user: FX only at my feet)
+
+    private static readonly NinjaWeapon DragonstrikeKit = new(
+        new("Flame Flash",    MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
+        new("Dragonstrike",       22965, 10674, 1035, 0, 0, 0, 0, 16186)); // anim flying_chop (confirmed); launch 16014 REMOVED; the LAND FX 16186 now plays ON THE CASTER (feet) at the END of the anim (CasterEndEffectId); nothing on the enemy (user round-2)
+
+    private static readonly NinjaWeapon ThousandStormsKit = new(
+        new("Lightning Strike", MeleeIcon, 2372, MeleeAnimation, MeleeHitFx),
+        new("1000 Storms",          22992, 8302, 1033, 0, 16088, AoeRadius: 12f)); // anim 1033 air_throw (jump-up + air-slam motion; same clip as Deception — user-chosen); cast 16088 PFX_lightning_blue_root_ninja-special on caster; enemy impact REMOVED (user: stop casting on target; FX at my sword at end of anim — sword placement TODO). AOE (user request 2026-07-03): hits the whole pack within 12u of the caster
+
+    private static readonly NinjaWeapon ShadowArmiesKit = new(
+        new("Dark Assault",   MeleeIcon, 2608, MeleeAnimation, MeleeHitFx),
+        new("Shadow Army",        22989, 3000, 1061143, 21, 16483, 3)); // anim warcry; CAST 16483 PFX_summon_purple_cast (ONE-SHOT — 5276 was a _loop that never ended); impact 21 black smoke; SUMMONS 3 shadow clones
+
+    private static readonly NinjaWeapon SolarFlareKit = new(
+        new("Ashen Strike",     MeleeIcon, 2870, MeleeAnimation, MeleeHitFx),
+        new("Flaming Uppercut",     22977, 8302, 1017, 0, 16119)); // anim flaming_uppercut (DEDICATED); cast 16119 PFX_ninja_flaming-uppercut on caster; enemy impact REMOVED (user: player is the only one with the FX, not the NPC)
+
+    private static readonly NinjaWeapon DragonBreathKit = new(
+        new("Fiery Slice",  MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
+        new("Flame Breath",     22971, 10674, 1037, 0, 16129)); // anim bum_rush (WRONG — user to ID correct clip); cast 16129 PFX_fire_orange_mouth_ninja-flame-breath on caster; enemy impact REMOVED (user: FX played by me only, not any enemy)
+
+    private static readonly NinjaWeapon MysticismKit = new(
+        new("Mystic Rush",    MeleeIcon, 2608, MeleeAnimation, MeleeHitFx),
+        new("Mystical Blade",     22980, 3000, 1061141, 0, 0, 0, 16169)); // anim weapon_power (DEDICATED); empowers the WEAPON: 16169 WFX_beam-trail_blue-purple_ninja-mystical-blade binds to the SWORD slot (SwordEffectId); NO body/enemy FX (user round-2: only on my sword, not on any bodies)
+
+    private static readonly NinjaWeapon SoulPowerKit = new(
+        new("Shadowslash",    MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
+        new("Mystical Drain",     22983, 8302, 1034, 16180, 16180)); // anim flip_stab (confirmed); cast+impact 16180 PFX_beam_red_blue_circ_lg_AOE-drain
+
+    private static readonly NinjaWeapon DeceptionKit = new(
+        new("Hidden Strike", MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
+        new("Fan of Blades",     22968, 5977, 1033, 0, 16185)); // anim air_throw; cast 16185 PFX_sparkles_multi_cog_ninja-fan-of-blades on caster; enemy impact REMOVED (user: FX only on the animation, not the targets — sword bone placement still TODO)
+
+    // weapon def id -> kit. ALL 30 ninja weapons (5 model tiers) are wired now; each is named "Ninja's <weapon>
+    // of X" and grants special X, so a lower tier just reuses the same tuned kit as the Shadow Blade (top tier).
+    // Only the Shadow Blade set (75110-75119) covers all 10 specials; the lower tiers stop earlier (no
+    // Soul Power / Deception below the Shadow Blade). Before this, only 75110-75119 were wired and the other 20
+    // fell back to the bare "Strike" with no special.
     public static readonly IReadOnlyDictionary<int, NinjaWeapon> ByWeaponDefId = new Dictionary<int, NinjaWeapon>
     {
-        // 75112 — Shuriken Storm
-        [75112] = new(
-            new("Twisted Edge",   MeleeIcon, 2870, MeleeAnimation, MeleeHitFx),
-            new("Shuriken Storm",     22986, 8302, 1039, 4012, 0)), // LIVE-OBSERVED: anim com_1hs_special_09=inverted_flip_attack (frontflip + downward melee); FX 4012 PFX_Slashes_Three_Symbol ("3 scratch marks") on the ENEMY only (impact); no cast FX on caster
+        // Training Sword (75090-75091, sword_ar_ag_weapon_trainingsword, rank 1)
+        [75090] = DragonstrikeKit,
+        [75091] = ThousandStormsKit,
 
-        // 75113 — Flame Wave
-        [75113] = new(
-            new("Cinder Slash",   MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
-            new("Flame Wave",         22974, 10674, 1032, 0, 16140)), // anim sweep; cast 16140 PFX_fire_orange_cog_ninja-flame-wave (ground AoE on caster, at feet); enemy impact REMOVED (user: FX only at my feet)
+        // Blade (75092-75095, sword_ar_ag_weapon_twistedblade)
+        [75092] = DragonstrikeKit,
+        [75093] = ThousandStormsKit,
+        [75094] = ShurikenStormKit,
+        [75095] = FlameWaveKit,
 
-        // 75110 — Dragonstrike
-        [75110] = new(
-            new("Flame Flash",    MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
-            new("Dragonstrike",       22965, 10674, 1035, 0, 0, 0, 0, 16186)), // anim flying_chop (confirmed); launch 16014 REMOVED; the LAND FX 16186 now plays ON THE CASTER (feet) at the END of the anim (CasterEndEffectId); nothing on the enemy (user round-2)
+        // Scythe (75096-75101, axe_ar_ag_weapon_scythe)
+        [75096] = DragonstrikeKit,
+        [75097] = ThousandStormsKit,
+        [75098] = ShurikenStormKit,
+        [75099] = FlameWaveKit,
+        [75100] = ShadowArmiesKit,
+        [75101] = SolarFlareKit,
 
-        // 75111 — 1000 Storms
-        [75111] = new(
-            new("Lightning Strike", MeleeIcon, 2372, MeleeAnimation, MeleeHitFx),
-            new("1000 Storms",          22992, 8302, 1033, 0, 16088, AoeRadius: 12f)), // anim 1033 air_throw (jump-up + air-slam motion; same clip as Deception — user-chosen); cast 16088 PFX_lightning_blue_root_ninja-special on caster; enemy impact REMOVED (user: stop casting on target; FX at my sword at end of anim — sword placement TODO). AOE (user request 2026-07-03): hits the whole pack within 12u of the caster
+        // Jagged Scythe (75102-75109, axe_ar_ag_weapon_jaggedscythe)
+        [75102] = DragonstrikeKit,
+        [75103] = ThousandStormsKit,
+        [75104] = ShurikenStormKit,
+        [75105] = FlameWaveKit,
+        [75106] = ShadowArmiesKit,
+        [75107] = SolarFlareKit,
+        [75108] = DragonBreathKit,
+        [75109] = MysticismKit,
 
-        // 75114 — Shadow Armies
-        [75114] = new(
-            new("Dark Assault",   MeleeIcon, 2608, MeleeAnimation, MeleeHitFx),
-            new("Shadow Army",        22989, 3000, 1061143, 21, 16483, 3)), // anim warcry; CAST 16483 PFX_summon_purple_cast (ONE-SHOT — 5276 was a _loop that never ended); impact 21 black smoke; SUMMONS 3 shadow clones
-
-        // 75115 — Solar Flare (special is "Flaming Uppercut")
-        [75115] = new(
-            new("Ashen Strike",     MeleeIcon, 2870, MeleeAnimation, MeleeHitFx),
-            new("Flaming Uppercut",     22977, 8302, 1017, 0, 16119)), // anim flaming_uppercut (DEDICATED); cast 16119 PFX_ninja_flaming-uppercut on caster; enemy impact REMOVED (user: player is the only one with the FX, not the NPC)
-
-        // 75116 — Dragon Breath (special is "Flame Breath")
-        [75116] = new(
-            new("Fiery Slice",  MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
-            new("Flame Breath",     22971, 10674, 1037, 0, 16129)), // anim bum_rush (WRONG — user to ID correct clip); cast 16129 PFX_fire_orange_mouth_ninja-flame-breath on caster; enemy impact REMOVED (user: FX played by me only, not any enemy)
-
-        // 75117 — Mysticism (special is "Mystical Blade")
-        [75117] = new(
-            new("Mystic Rush",    MeleeIcon, 2608, MeleeAnimation, MeleeHitFx),
-            new("Mystical Blade",     22980, 3000, 1061141, 0, 0, 0, 16169)), // anim weapon_power (DEDICATED); empowers the WEAPON: 16169 WFX_beam-trail_blue-purple_ninja-mystical-blade binds to the SWORD slot (SwordEffectId); NO body/enemy FX (user round-2: only on my sword, not on any bodies)
-
-        // 75118 — Soul Power (special is "Mystical Drain")
-        [75118] = new(
-            new("Shadowslash",    MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
-            new("Mystical Drain",     22983, 8302, 1034, 16180, 16180)), // anim flip_stab (confirmed); cast+impact 16180 PFX_beam_red_blue_circ_lg_AOE-drain
-
-        // 75119 — Deception (special is "Fan of Blades")
-        [75119] = new(
-            new("Hidden Strike", MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),
-            new("Fan of Blades",     22968, 5977, 1033, 0, 16185)), // anim air_throw; cast 16185 PFX_sparkles_multi_cog_ninja-fan-of-blades on caster; enemy impact REMOVED (user: FX only on the animation, not the targets — sword bone placement still TODO)
+        // Shadow Blade (75110-75119, sword_ar_ag_weapon_shadowblade — top tier, all 10 specials)
+        [75110] = DragonstrikeKit,
+        [75111] = ThousandStormsKit,
+        [75112] = ShurikenStormKit,
+        [75113] = FlameWaveKit,
+        [75114] = ShadowArmiesKit,
+        [75115] = SolarFlareKit,
+        [75116] = DragonBreathKit,
+        [75117] = MysticismKit,
+        [75118] = SoulPowerKit,
+        [75119] = DeceptionKit,
     };
 
     public static readonly int[] AllWeaponDefIds = ByWeaponDefId.Keys.ToArray();
