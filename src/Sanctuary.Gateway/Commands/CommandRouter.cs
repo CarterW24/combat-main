@@ -1647,8 +1647,15 @@ public static class CommandRouter
 
         string script = message.Substring(sp + 1).Trim();
 
+        // There are TWO candidate "run this Lua" packets and it's not settled which one this client build
+        // actually honours, so fire both:
+        //   * ExecuteScriptPacket        (BaseUi op47/sub7)  string + List<int>
+        //   * AbilityPacketExecuteClientLua (op36/sub17)     string + 3 floats  (the layout EDITz specified)
+        // If a script has a visible effect, whichever landed is the working one.
         conn.SendTunneled(new ExecuteScriptPacket { Script = script });
-        SendSystem(conn, $"[lua] sent: {script}");
+        conn.SendTunneled(new AbilityPacketExecuteClientLua { Script = script });
+
+        SendSystem(conn, $"[lua] sent (both packets): {script}");
         _logger.LogInformation("/lua from {Player}: {Script}", conn.Player.Name.FullName, script);
         return true;
     }
