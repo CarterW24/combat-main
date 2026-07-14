@@ -495,7 +495,15 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                 for (var elapsed = 0; elapsed < 15 * 60 * 1000; elapsed += TickMs)
                 {
                     await Task.Delay(TickMs);
-                    if (player.Zone != this || run != _encounterRun)
+                    if (run != _encounterRun)
+                        return;
+
+                    // Target the whole GROUP, not a fixed anchor: each mob picks its nearest live player every
+                    // tick (see NearestLivePlayer), so the pack spreads across the party and re-targets when a
+                    // player falls. (Loop lifetime is the encounter run + any players remaining, not one anchor
+                    // — an anchor leaving used to kill AI for everyone.)
+                    var players = ActivePlayers();
+                    if (players.Length == 0)
                         return;
 
                     Npc[] pack;
@@ -505,7 +513,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                         continue;
 
                     var now = Environment.TickCount64;
-                    var target = new Vector3(player.Position.X, player.Position.Y, player.Position.Z);
                     var dt = TickMs / 1000f;
 
                     foreach (var mob in pack)
@@ -519,17 +526,22 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                         if (state is null)
                             continue;
 
-                        // Player knocked down: disengage to the spawn post + idle (shared).
-                        if (player.IsDead)
+                        var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
+
+                        // Whole party down: disengage to the spawn post + idle (shared). Otherwise chase the
+                        // nearest player still standing.
+                        var tgt = NearestLivePlayer(here, players);
+                        if (tgt is null)
                         {
                             TickMobReturnHome(mob, state, dt);
                             continue;
                         }
 
+                        var target = new Vector3(tgt.Position.X, tgt.Position.Y, tgt.Position.Z);
+
                         // Aggro on approach, then run the shared chase/plant/attack tick.
                         if (!state.Charging)
                         {
-                            var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
                             var dx = target.X - here.X;
                             var dz = target.Z - here.Z;
                             if (dx * dx + dz * dz > AggroRange * AggroRange)
@@ -537,7 +549,7 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                             BeginCharge(mob, state);
                         }
 
-                        TickMobCombat(mob, state, player, target, now, dt);
+                        TickMobCombat(mob, state, tgt, target, now, dt);
                     }
                 }
             }

@@ -772,20 +772,25 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 {
                     await Task.Delay(TickMs);
 
-                    if (player.Zone != this)
-                    {
-                        _logger.LogInformation("Frostfang arena: AI loop exit — player left the zone (run {run}).", run);
-                        return;
-                    }
-
                     if (run != _encounterRun)
                     {
                         _logger.LogInformation("Frostfang arena: AI loop exit — superseded by a new run (run {run}).", run);
                         return;
                     }
 
-                    // Heart pickups: walk-over collection heals +125 (video).
-                    CollectHearts(player);
+                    // Target the whole GROUP: each wolf picks its nearest live player every tick, so the pack
+                    // spreads across the party and re-targets when a player falls. Loop lifetime is the run + any
+                    // players remaining (not one anchor leaving).
+                    var players = ActivePlayers();
+                    if (players.Length == 0)
+                    {
+                        _logger.LogInformation("Frostfang arena: AI loop exit — all players left the zone (run {run}).", run);
+                        return;
+                    }
+
+                    // Heart pickups: walk-over collection heals +125 (video) — any party member can grab them.
+                    foreach (var p in players)
+                        CollectHearts(p);
 
                     Npc[] pack;
                     Npc? fleeingAlpha;
@@ -799,12 +804,15 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         continue; // between waves or encounter done
 
                     var now = Environment.TickCount64;
-                    var target = new Vector3(player.Position.X, player.Position.Y, player.Position.Z);
                     var dt = TickMs / 1000f;
 
-                    // The defeated Alpha runs for the fog (kept out of _wolves so nothing else touches him).
+                    // The defeated Alpha runs for the fog (kept out of _wolves so nothing else touches him). He
+                    // flees away from the nearest standing player (or any player if the whole party is down).
                     if (fleeingAlpha is not null)
-                        TickFleeingAlpha(player, fleeingAlpha, now, dt);
+                    {
+                        var alphaHere = new Vector3(fleeingAlpha.Position.X, fleeingAlpha.Position.Y, fleeingAlpha.Position.Z);
+                        TickFleeingAlpha(NearestLivePlayer(alphaHere, players) ?? players[0], fleeingAlpha, now, dt);
+                    }
 
                     foreach (var wolf in pack)
                     {
@@ -819,15 +827,19 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
                         var here = new Vector3(wolf.Position.X, wolf.Position.Y, wolf.Position.Z);
 
-                        // Player is knocked down: DISENGAGE — amble back to the spawn post and idle there until
-                        // they revive (shared tick; resets Charging/Planted so the wolf re-engages cleanly).
-                        if (player.IsDead)
+                        // Whole party down: DISENGAGE — amble back to the spawn post and idle there until someone
+                        // revives (shared tick; resets Charging/Planted so the wolf re-engages cleanly). Otherwise
+                        // this wolf's target is the nearest player still standing.
+                        var tgt = NearestLivePlayer(here, players);
+                        if (tgt is null)
                         {
                             TickMobReturnHome(wolf, state, dt);
                             continue;
                         }
 
-                        // ROAMER: amble between random waypoints at walk speed until the player closes in
+                        var target = new Vector3(tgt.Position.X, tgt.Position.Y, tgt.Position.Z);
+
+                        // ROAMER: amble between random waypoints at walk speed until a player closes in
                         // (proximity — the live trigger) or hits it (OnNpcDamaged). Either fires the howl
                         // via EngageRoamer. Scenery until then, matching the video's load-in wolf. Once it
                         // has howled it stops roaming (falls through to the hold+charge gate below).
@@ -838,11 +850,11 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                             if (dxr * dxr + dzr * dzr <= RoamerAggroRange * RoamerAggroRange)
                             {
                                 _logger.LogInformation("Frostfang arena: player closed in on the roamer -> howl + wave 1.");
-                                EngageRoamer(player, wolf, state);
+                                EngageRoamer(tgt, wolf, state);
                             }
                             else
                             {
-                                TickRoamer(player, wolf, state, here, now, dt);
+                                TickRoamer(tgt, wolf, state, here, now, dt);
                                 continue;
                             }
                         }
@@ -853,13 +865,13 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         {
                             if (now < state.ChargeAtTicks)
                                 continue;
-                            BeginCharge(player, wolf, state);
+                            BeginCharge(tgt, wolf, state);
                         }
 
                         // CHARGING: converge on an owned slot around the player, plant + bite in range — the
                         // shared tick (identical to the pre-spawned zones; wolves just use MobChaseSpeed=6 and
                         // the pack-wide bite spacing lives on the base attack gate now).
-                        TickMobCombat(wolf, state, player, target, now, dt);
+                        TickMobCombat(wolf, state, tgt, target, now, dt);
                     }
                 }
 

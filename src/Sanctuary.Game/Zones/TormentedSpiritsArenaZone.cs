@@ -635,19 +635,24 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                 {
                     await Task.Delay(TickMs);
 
-                    if (player.Zone != this)
-                    {
-                        _logger.LogInformation("Spirit arena: AI loop exit — player left the zone (run {run}).", run);
-                        return;
-                    }
-
                     if (run != _encounterRun)
                     {
                         _logger.LogInformation("Spirit arena: AI loop exit — superseded by a new run (run {run}).", run);
                         return;
                     }
 
-                    CollectHearts(player);
+                    // Target the whole GROUP: each spirit picks its nearest live player every tick, so the pack
+                    // spreads across the party and re-targets when a player falls. Loop lifetime is the run + any
+                    // players remaining (not one anchor leaving).
+                    var players = ActivePlayers();
+                    if (players.Length == 0)
+                    {
+                        _logger.LogInformation("Spirit arena: AI loop exit — all players left the zone (run {run}).", run);
+                        return;
+                    }
+
+                    foreach (var p in players)
+                        CollectHearts(p);
 
                     Npc[] pack;
                     lock (_stateLock)
@@ -657,7 +662,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                         continue;
 
                     var now = Environment.TickCount64;
-                    var target = new Vector3(player.Position.X, player.Position.Y, player.Position.Z);
                     var dt = TickMs / 1000f;
 
                     foreach (var spirit in pack)
@@ -671,25 +675,30 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                         if (state is null)
                             continue;
 
-                        // Player knocked down: disengage to the spawn post + idle (shared).
-                        if (player.IsDead)
+                        var here = new Vector3(spirit.Position.X, spirit.Position.Y, spirit.Position.Z);
+
+                        // Whole party down: disengage to the spawn post + idle (shared). Otherwise chase the
+                        // nearest player still standing.
+                        var tgt = NearestLivePlayer(here, players);
+                        if (tgt is null)
                         {
                             TickMobReturnHome(spirit, state, dt);
                             continue;
                         }
 
+                        var target = new Vector3(tgt.Position.X, tgt.Position.Y, tgt.Position.Z);
+
                         // Pre-spawned mobs engage on APPROACH (or when damaged), then run the shared combat tick.
                         if (!state.Charging)
                         {
-                            var here = new Vector3(spirit.Position.X, spirit.Position.Y, spirit.Position.Z);
                             var dx = target.X - here.X;
                             var dz = target.Z - here.Z;
                             if (dx * dx + dz * dz > SpiritAggroRange * SpiritAggroRange)
                                 continue;
-                            BeginCharge(player, spirit, state);
+                            BeginCharge(tgt, spirit, state);
                         }
 
-                        TickMobCombat(spirit, state, player, target, now, dt);
+                        TickMobCombat(spirit, state, tgt, target, now, dt);
                     }
                 }
 

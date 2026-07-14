@@ -153,7 +153,11 @@ public abstract class CombatEncounterZone : BaseZone
     /// <summary>Chase/return speed. The pre-spawned zones drift at 5; Frostfang wolves charge at 6.</summary>
     protected virtual float MobChaseSpeed => 5f;
 
-    private long _lastPackAttackTicks; // pack-wide attack spacing (the shared attack gate)
+    // Attack spacing is per-TARGET, not pack-wide: the pack won't all bite the same player at once, but two
+    // players being attacked by different mobs each get their own cadence (a single pack-wide gate made a group
+    // share one bite budget so each player barely got hit). Solo (one target) is identical to the old behavior.
+    // Touched only from the single per-zone AI loop, so a plain dictionary is safe.
+    private readonly Dictionary<ulong, long> _lastAttackTicksByTarget = [];
 
     /// <summary>Send a packet to every player currently in this encounter instance (per-zone one-liner).</summary>
     protected abstract void Broadcast(ISerializablePacket packet);
@@ -164,6 +168,30 @@ public abstract class CombatEncounterZone : BaseZone
         if (MathF.Abs(delta) <= maxDelta)
             return goal;
         return current + MathF.Sign(delta) * maxDelta;
+    }
+
+    /// <summary>The nearest player to <paramref name="pos"/> that ISN'T knocked out, or null if every player
+    /// is down. Mobs pick their target with this each tick so the pack spreads across a group and re-targets
+    /// when a player falls — instead of the whole pack fixating on one player (and going home the moment that
+    /// one dies, ignoring everyone else still fighting).</summary>
+    protected static Player? NearestLivePlayer(Vector3 pos, IReadOnlyList<Player> players)
+    {
+        Player? best = null;
+        var best2 = float.MaxValue;
+        foreach (var p in players)
+        {
+            if (p.IsDead)
+                continue;
+            var dx = p.Position.X - pos.X;
+            var dz = p.Position.Z - pos.Z;
+            var d2 = dx * dx + dz * dz;
+            if (d2 < best2)
+            {
+                best2 = d2;
+                best = p;
+            }
+        }
+        return best;
     }
 
     /// <summary>Player is knocked down: disengage — amble back to the spawn post and idle there. Call this
@@ -228,10 +256,11 @@ public abstract class CombatEncounterZone : BaseZone
                 Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = np, Rotation = rot, State = 1, Unknown = 0 });
             }
 
-            if (now >= state.NextAttackTicks && now - _lastPackAttackTicks >= MobAttackGlobalGapMs && !player.IsDead)
+            _lastAttackTicksByTarget.TryGetValue(player.Guid, out var lastAttackOnTarget);
+            if (now >= state.NextAttackTicks && now - lastAttackOnTarget >= MobAttackGlobalGapMs && !player.IsDead)
             {
                 state.NextAttackTicks = now + MobAttackCooldownMs;
-                _lastPackAttackTicks = now;
+                _lastAttackTicksByTarget[player.Guid] = now;
                 PerformMobAttack(mob, player);
             }
         }
