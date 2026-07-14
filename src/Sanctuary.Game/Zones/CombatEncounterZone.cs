@@ -1,15 +1,29 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading.Tasks;
 
 using Microsoft.Extensions.Logging;
 
+using Sanctuary.Core.IO;
 using Sanctuary.Game.Entities;
 using Sanctuary.Game.Resources.Definitions.Zones;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Zones;
+
+/// <summary>Shared per-mob combat state for the encounter AI (chase / attack / plant / idle / return-home).
+/// Subclasses extend it with their own extras (Frostfang's roamer + charge-delay + howl).</summary>
+public class EncounterMobState
+{
+    public bool Charging;
+    public float SlotAngle;
+    public long NextAttackTicks;
+    public Vector4 Home;    // spawn post — mobs walk back here and idle while the player is knocked down
+    public bool Idling;     // true once parked at Home (broadcast the idle stop only once)
+    public bool Planted;    // true once stopped in attack range — stop re-broadcasting position (attack jitter)
+}
 
 /// <summary>Shared base for the combat-encounter zones — the generic data-driven <see cref="EncounterArenaZone"/>
 /// plus the bespoke <see cref="FrostfangArenaZone"/> and <see cref="TormentedSpiritsArenaZone"/>. It owns the
@@ -117,6 +131,132 @@ public abstract class CombatEncounterZone : BaseZone
     {
         _logger.LogInformation("{label}: {name} used the exit door.", EncounterLogName, player.Name);
         ReturnHome(player);
+    }
+
+    // ── Shared enemy AI ───────────────────────────────────────────────────────────────────────────────
+    // Chase to an owned slot around the player, plant + attack in range, disengage to the spawn post and idle
+    // while the player is knocked down. Subclasses run their own aggro/charge gating (and Frostfang its
+    // roamer/waves), then call TickMobCombat for engaged mobs / TickMobReturnHome while the player is down.
+
+    protected const int TickMs = 300;
+    protected const float MobYSpeed = 12f;
+    protected const float MobAttackRange = 2.6f;
+    protected const float MobEngageRadius = 1.9f;
+    protected const int MobAttackCooldownMs = 4000;   // per-mob
+    protected const int MobAttackGlobalGapMs = 1200;  // pack-wide minimum spacing
+    protected const int MobAttackDamage = 150;
+    protected const int MobAttackCritDamage = 300;
+    protected const int MobAttackCritPercent = 10;
+    protected const int MobAttackFxId = 5409;         // live melee-hit composite
+    protected const int MobAttackCritFxId = 5622;
+
+    /// <summary>Chase/return speed. The pre-spawned zones drift at 5; Frostfang wolves charge at 6.</summary>
+    protected virtual float MobChaseSpeed => 5f;
+
+    private long _lastPackAttackTicks; // pack-wide attack spacing (the shared attack gate)
+
+    /// <summary>Send a packet to every player currently in this encounter instance (per-zone one-liner).</summary>
+    protected abstract void Broadcast(ISerializablePacket packet);
+
+    protected static float MoveToward(float current, float goal, float maxDelta)
+    {
+        var delta = goal - current;
+        if (MathF.Abs(delta) <= maxDelta)
+            return goal;
+        return current + MathF.Sign(delta) * maxDelta;
+    }
+
+    /// <summary>Player is knocked down: disengage — amble back to the spawn post and idle there. Call this
+    /// (instead of TickMobCombat) for every mob while the player is down; resets Charging/Planted so the mob
+    /// re-engages cleanly on revive.</summary>
+    protected void TickMobReturnHome(Npc mob, EncounterMobState state, float dt)
+    {
+        state.Charging = false;
+        state.Planted = false;
+        var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
+        var toHome = new Vector2(state.Home.X - here.X, state.Home.Z - here.Z);
+        var distHome = toHome.Length();
+        if (distHome > 0.6f)
+        {
+            state.Idling = false;
+            var step = MathF.Min(MobChaseSpeed * dt, distHome);
+            var dir = toHome / distHome;
+            var ny = MoveToward(here.Y, state.Home.Y, MobYSpeed * dt);
+            var np = new Vector4(here.X + dir.X * step, ny, here.Z + dir.Y * step, mob.Position.W);
+            var frot = new Quaternion(dir.X, 0f, dir.Y, 0f);
+            mob.UpdatePosition(np, frot);
+            Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = np, Rotation = frot, State = 0, Unknown = 0 });
+        }
+        else if (!state.Idling)
+        {
+            state.Idling = true; // arrived — plant idle once (State 1 = standing)
+            Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = mob.Position, Rotation = mob.Rotation, State = 1, Unknown = 0 });
+        }
+    }
+
+    /// <summary>Engaged-mob combat tick (player alive): converge on an owned slot around the player, plant
+    /// once in attack range (re-broadcasting every tick bobbed the model + fought the swing = jitter), and
+    /// attack on the per-mob cooldown gated by the pack-wide spacing.</summary>
+    protected void TickMobCombat(Npc mob, EncounterMobState state, Player player, Vector3 playerPos, long now, float dt)
+    {
+        var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
+        var slot = playerPos + new Vector3(MathF.Sin(state.SlotAngle), 0f, MathF.Cos(state.SlotAngle)) * MobEngageRadius;
+        var toPlayerH = new Vector2(playerPos.X - here.X, playerPos.Z - here.Z);
+        var distToPlayerH = toPlayerH.Length();
+        var face = distToPlayerH > 0.01f ? toPlayerH / distToPlayerH : new Vector2(0f, 1f);
+        var rot = new Quaternion(face.X, 0f, face.Y, 0f);
+        var newY = MoveToward(here.Y, playerPos.Y, MobYSpeed * dt);
+
+        if (distToPlayerH > MobAttackRange)
+        {
+            state.Planted = false;
+            var toSlot = new Vector2(slot.X - here.X, slot.Z - here.Z);
+            var distToSlot = toSlot.Length();
+            var step = MathF.Min(MobChaseSpeed * dt, distToSlot);
+            var dir = distToSlot > 0.01f ? toSlot / distToSlot : Vector2.Zero;
+            var np = new Vector4(here.X + dir.X * step, newY, here.Z + dir.Y * step, mob.Position.W);
+            mob.UpdatePosition(np, rot);
+            Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = np, Rotation = rot, State = 0, Unknown = 0 });
+        }
+        else
+        {
+            if (!state.Planted)
+            {
+                state.Planted = true;
+                var np = new Vector4(here.X, newY, here.Z, mob.Position.W);
+                mob.UpdatePosition(np, rot);
+                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = np, Rotation = rot, State = 1, Unknown = 0 });
+            }
+
+            if (now >= state.NextAttackTicks && now - _lastPackAttackTicks >= MobAttackGlobalGapMs && !player.IsDead)
+            {
+                state.NextAttackTicks = now + MobAttackCooldownMs;
+                _lastPackAttackTicks = now;
+                PerformMobAttack(mob, player);
+            }
+        }
+    }
+
+    /// <summary>One mob attack: real damage (knocks the player out at 0 -> the fail flow), the floating
+    /// number/bar + hit FX, and an explicit swing clip for boss models whose default contact event doesn't
+    /// animate (the Abominable Snowman).</summary>
+    protected void PerformMobAttack(Npc attacker, Player player)
+    {
+        var crit = Random.Shared.Next(100) < MobAttackCritPercent;
+        var dmg = crit ? MobAttackCritDamage : MobAttackDamage;
+        player.TakeDamage(dmg);
+        var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
+        Broadcast(new CombatPacketAttackProcessed
+        {
+            AttackerGuid = attacker.Guid,
+            TargetGuid = player.Guid,
+            Damage = dmg,
+            MaxHealth = maxHp,
+            CompositeEffectId = crit ? MobAttackCritFxId : MobAttackFxId,
+            CurrentHealth = player.CurrentHitpoints,
+        });
+        if (CombatNpc.ExplicitAttackAnimByModel.TryGetValue(attacker.ModelId, out var swingAnimId))
+            Broadcast(new PlayerUpdatePacketSetAnimation { Guid = attacker.Guid, AnimationId = swingAnimId });
     }
 
     public override void OnPlayerKnockedOut(Player player)

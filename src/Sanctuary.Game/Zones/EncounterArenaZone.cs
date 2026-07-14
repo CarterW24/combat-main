@@ -42,20 +42,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
     private const int CharState_Charging = 0x8001;
     private const int MovementTypePhysics = 2;
 
-    // Chase/claw tuning (from the spirit AI).
-    private const int TickMs = 300;
-    private const float YSpeed = 12f;
-    private const float ClawRange = 2.6f;
-    private const float EngageRadius = 1.9f;
-    private const float ChaseSpeed = 5f;
+    // Chase/claw tuning lives in CombatEncounterZone now; only the approach-aggro range is per-zone here.
     private const float AggroRange = 16f;
-    private const int ClawCooldownMs = 4000;
-    private const int ClawGlobalGapMs = 1200;
-    private const int ClawDamage = 150;
-    private const int ClawCritDamage = 300;
-    private const int ClawCritPercent = 10;
-    private const int ClawFxId = 5409;
-    private const int ClawCritFxId = 5622;
 
     // Exit door (Frostfang/Spirits recipe).
     private const int DoorModelId = 846;
@@ -68,16 +56,7 @@ public sealed class EncounterArenaZone : CombatEncounterZone
     private const int DoorBadgeType = 7;
     private const int DoorBadgeUnknown3 = 102;
 
-    private sealed class MobState
-    {
-        public bool Charging;
-        public long NextClawTicks;
-        public float SlotAngle;
-        public Vector4 Home;    // spawn post — mobs walk back here and idle while the player is knocked down
-        public bool Idling;     // true once parked at Home (so we broadcast the idle stop only once)
-        public bool Planted;    // true once stopped in attack range — stop re-broadcasting position every tick
-                                // (that bobbed the model + fought the swing animation = the attack jitter)
-    }
+    private sealed class MobState : EncounterMobState { }
 
     private readonly object _stateLock = new();
     private readonly List<Npc> _mobs = [];
@@ -180,7 +159,7 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         }
     }
 
-    private void Broadcast(ISerializablePacket packet)
+    protected override void Broadcast(ISerializablePacket packet)
     {
         foreach (var p in ActivePlayers())
             p.SendTunneled(packet);
@@ -513,7 +492,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         {
             try
             {
-                var lastPackClaw = 0L;
                 for (var elapsed = 0; elapsed < 15 * 60 * 1000; elapsed += TickMs)
                 {
                     await Task.Delay(TickMs);
@@ -541,37 +519,17 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                         if (state is null)
                             continue;
 
-                        var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
-
-                        // Player is knocked down: DISENGAGE — amble back to the home post and idle there until
-                        // they revive. Reset Charging so the mob re-engages cleanly on revive.
+                        // Player knocked down: disengage to the spawn post + idle (shared).
                         if (player.IsDead)
                         {
-                            state.Charging = false;
-                            state.Planted = false;
-                            var toHome = new Vector2(state.Home.X - here.X, state.Home.Z - here.Z);
-                            var distHome = toHome.Length();
-                            if (distHome > 0.6f)
-                            {
-                                state.Idling = false;
-                                var stepH = MathF.Min(ChaseSpeed * dt, distHome);
-                                var dirH = toHome / distHome;
-                                var nyH = MoveToward(here.Y, state.Home.Y, YSpeed * dt);
-                                var npH = new Vector4(here.X + dirH.X * stepH, nyH, here.Z + dirH.Y * stepH, mob.Position.W);
-                                var frotH = new Quaternion(dirH.X, 0f, dirH.Y, 0f);
-                                mob.UpdatePosition(npH, frotH);
-                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = npH, Rotation = frotH, State = 0, Unknown = 0 });
-                            }
-                            else if (!state.Idling)
-                            {
-                                state.Idling = true; // arrived — plant it idle once (State 1 = standing)
-                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = mob.Guid, Position = mob.Position, Rotation = mob.Rotation, State = 1, Unknown = 0 });
-                            }
+                            TickMobReturnHome(mob, state, dt);
                             continue;
                         }
 
+                        // Aggro on approach, then run the shared chase/plant/attack tick.
                         if (!state.Charging)
                         {
+                            var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
                             var dx = target.X - here.X;
                             var dz = target.Z - here.Z;
                             if (dx * dx + dz * dz > AggroRange * AggroRange)
@@ -579,72 +537,7 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                             BeginCharge(mob, state);
                         }
 
-                        var slot = target + new Vector3(MathF.Sin(state.SlotAngle), 0f, MathF.Cos(state.SlotAngle)) * EngageRadius;
-                        var toPlayerH = new Vector2(target.X - here.X, target.Z - here.Z);
-                        var distToPlayerH = toPlayerH.Length();
-                        var face = distToPlayerH > 0.01f ? toPlayerH / distToPlayerH : new Vector2(0f, 1f);
-                        var rot = new Quaternion(face.X, 0f, face.Y, 0f);
-                        var newY = MoveToward(here.Y, target.Y, YSpeed * dt);
-
-                        if (distToPlayerH > ClawRange)
-                        {
-                            state.Planted = false;
-                            var toSlot = new Vector2(slot.X - here.X, slot.Z - here.Z);
-                            var distToSlot = toSlot.Length();
-                            var step = MathF.Min(ChaseSpeed * dt, distToSlot);
-                            var dir = distToSlot > 0.01f ? toSlot / distToSlot : Vector2.Zero;
-                            var newPos = new Vector4(here.X + dir.X * step, newY, here.Z + dir.Y * step, mob.Position.W);
-                            mob.UpdatePosition(newPos, rot);
-                            Broadcast(new PlayerUpdatePacketUpdatePosition
-                            {
-                                Guid = mob.Guid, Position = newPos, Rotation = rot, State = 0, Unknown = 0,
-                            });
-                        }
-                        else
-                        {
-                            // In attack range: plant ONCE (stop + face), then just claw. Re-broadcasting the
-                            // position every tick (with the per-tick Y-lerp) bobbed the model and fought the
-                            // swing clip — that was the attack jitter. The claw's AttackProcessed drives the
-                            // swing without moving the actor.
-                            if (!state.Planted)
-                            {
-                                state.Planted = true;
-                                var newPos = new Vector4(here.X, newY, here.Z, mob.Position.W);
-                                mob.UpdatePosition(newPos, rot);
-                                Broadcast(new PlayerUpdatePacketUpdatePosition
-                                {
-                                    Guid = mob.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
-                                });
-                            }
-
-                            if (now >= state.NextClawTicks && now - lastPackClaw >= ClawGlobalGapMs && !player.IsDead)
-                            {
-                                state.NextClawTicks = now + ClawCooldownMs;
-                                lastPackClaw = now;
-                                var crit = _rng.Next(100) < ClawCritPercent;
-                                var dmg = crit ? ClawCritDamage : ClawDamage;
-
-                                // REAL damage now (was cosmetic 2500/2500): drop the player's HP and knock
-                                // them out at 0 -> OnPlayerKnockedOut runs the KO-counter / fail flow.
-                                player.TakeDamage(dmg);
-                                var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
-
-                                Broadcast(new CombatPacketAttackProcessed
-                                {
-                                    AttackerGuid = mob.Guid,
-                                    TargetGuid = player.Guid,
-                                    Damage = dmg,
-                                    MaxHealth = maxHp,
-                                    CompositeEffectId = crit ? ClawCritFxId : ClawFxId,
-                                    CurrentHealth = player.CurrentHitpoints,
-                                });
-
-                                // Boss models whose default contact event doesn't animate (Abominable
-                                // Snowman) need an explicit swing clip so they don't claw while frozen.
-                                if (Sanctuary.Game.Entities.CombatNpc.ExplicitAttackAnimByModel.TryGetValue(mob.ModelId, out var swingAnimId))
-                                    Broadcast(new PlayerUpdatePacketSetAnimation { Guid = mob.Guid, AnimationId = swingAnimId });
-                            }
-                        }
+                        TickMobCombat(mob, state, player, target, now, dt);
                     }
                 }
             }
@@ -658,9 +551,9 @@ public sealed class EncounterArenaZone : CombatEncounterZone
     private void BeginCharge(Npc mob, MobState state)
     {
         state.Charging = true;
-        state.NextClawTicks = Environment.TickCount64 + 1000 + _rng.Next(1500);
+        state.NextAttackTicks = Environment.TickCount64 + 1000 + _rng.Next(1500);
         Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = mob.Guid, ExpectedSpeed = 3f });
-        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = mob.Guid, ExpectedSpeed = ChaseSpeed });
+        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = mob.Guid, ExpectedSpeed = MobChaseSpeed });
         Broadcast(new PlayerUpdatePacketUpdateCharacterState
         {
             Guid = mob.Guid,
@@ -831,13 +724,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         player.TeleportToZone(home, returnPos, home.SpawnRotation, sky: null, geometryId: 0);
     }
 
-    private static float MoveToward(float current, float goal, float maxDelta)
-    {
-        var delta = goal - current;
-        if (MathF.Abs(delta) <= maxDelta)
-            return goal;
-        return current + MathF.Sign(delta) * maxDelta;
-    }
 
     #endregion
 }

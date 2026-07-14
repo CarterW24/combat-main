@@ -88,7 +88,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private const float AlphaScale = 1.7f;     // live AddNpc scale (was 1.6 guessed from video)
 
     private const float RoamSpeed = 3f;        // live ExpectedSpeed while ambling
-    private const float ChaseSpeed = 6f;       // live ExpectedSpeed while charging (all wolves)
+    // Charge speed (live 6.0 for all wolves) is the shared MobChaseSpeed override above.
     // The roamer's fight-kickoff HOWL (live idx 28467-28469, both on the roamer, one tick before wave 1's
     // AddNpc burst): a rear-up cast pose + a "commanding shout" composite over its head. THIS is what
     // summons the pack — no wolf spawns until the howl fires. Trigger is PROXIMITY (the live capture shows
@@ -152,22 +152,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private const int CoinsPopFxId = 5192;       // PlayCompositeEffect on the coins at the win moment
     private const float CoinsKnockMagnitude = 0.0712f; // live Knockback magnitude
 
-    // Chase-and-bite AI. Wolves surround the player (each owns a slot on a ring) instead of stacking.
-    private const int TickMs = 300;
-    private const float YSpeed = 12f;          // vertical convergence to the player's REAL ground height
-    private const float BiteRange = 2.6f;
-    private const float EngageRadius = 1.9f;   // ring the wolves try to stand on around the player
-    // Live bite pacing is SPARSE: ~30 bites over ~80s across up to 12 wolves (~1 per 2.7s pack-wide).
-    private const int BiteCooldownMs = 4000;   // per-wolf
-    private const int BiteGlobalGapMs = 1200;  // pack-wide minimum spacing
-    // Live wire damage was 3-5 (rare 9/12 crits, crit fx 5622) — vs a leveled 7828-HP ninja. Our
-    // player pool is still the cosmetic 2500, so keep the bite FELT like the video's L1 archer
-    // (~4-6% per bite) and rescale when the real HP pool lands (STATUS.md task).
-    private const int BiteDamage = 150;
-    private const int BiteCritDamage = 300;
-    private const int BiteCritPercent = 10;
-    private const int BiteFxId = 5409;         // live hit composite effect on every normal bite
-    private const int BiteCritFxId = 5622;     // live crit hit effect
+    // Chase-and-bite AI now runs on the shared CombatEncounterZone tick (TickMobCombat / TickMobReturnHome).
+    // Wolves charge a touch faster than the pre-spawned zones' default 5; everything else uses the base tuning.
+    protected override float MobChaseSpeed => 6f;
 
     // Defeated-Alpha flee run (video 1:25-1:35: he turns and sprints off into the fog until he's gone).
     private const float FleeSpeed = 9f;        // a touch faster than the chase so he clearly gets away
@@ -219,20 +206,15 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private int _healTagCounter = 300;         // unique effect-tag ids for concurrent heart pickups
     private readonly List<Npc> _hearts = [];
 
-    private sealed class WolfState
+    // Charging / SlotAngle / NextAttackTicks / Home / Idling / Planted now live on the shared EncounterMobState.
+    private sealed class WolfState : EncounterMobState
     {
-        public bool Charging;
         public long ChargeAtTicks;   // Environment.TickCount64 when the charge kicks in
-        public long NextBiteTicks;
-        public float SlotAngle;
         // Roamer wander state
         public bool IsRoamer;
         public bool Howled;          // roamer has howled; standing in the pose until ChargeAtTicks, then charges
         public Vector2? WanderTarget;
         public long WanderPauseUntil;
-        public Vector4 Home;         // spawn post — wolves walk back here and idle while the player is down
-        public bool Idling;          // true once parked at Home (broadcast the idle stop only once)
-        public bool Planted;         // true once stopped in bite range — stop re-broadcasting position (jitter)
     }
 
     private readonly object _stateLock = new();
@@ -418,7 +400,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
     /// <summary>Broadcast a shared encounter packet to every player currently in this arena instance.
     /// For a solo player this is exactly the old per-player send; for a party it drives everyone.</summary>
-    private void Broadcast(ISerializablePacket packet)
+    protected override void Broadcast(ISerializablePacket packet)
     {
         foreach (var p in ActivePlayers())
             p.SendTunneled(packet);
@@ -786,8 +768,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
             try
             {
-                var lastPackBite = 0L;
-
                 for (var elapsed = 0; elapsed < 15 * 60 * 1000; elapsed += TickMs)
                 {
                     await Task.Delay(TickMs);
@@ -840,29 +820,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         var here = new Vector3(wolf.Position.X, wolf.Position.Y, wolf.Position.Z);
 
                         // Player is knocked down: DISENGAGE — amble back to the spawn post and idle there until
-                        // they revive. Reset the charge so the wolf re-engages cleanly on revive.
+                        // they revive (shared tick; resets Charging/Planted so the wolf re-engages cleanly).
                         if (player.IsDead)
                         {
-                            state.Charging = false;
-                            state.Planted = false;
-                            var toHome = new Vector2(state.Home.X - here.X, state.Home.Z - here.Z);
-                            var distHome = toHome.Length();
-                            if (distHome > 0.6f)
-                            {
-                                state.Idling = false;
-                                var stepH = MathF.Min(ChaseSpeed * dt, distHome);
-                                var dirH = toHome / distHome;
-                                var nyH = MoveToward(here.Y, state.Home.Y, YSpeed * dt);
-                                var npH = new Vector4(here.X + dirH.X * stepH, nyH, here.Z + dirH.Y * stepH, wolf.Position.W);
-                                var frotH = new Quaternion(dirH.X, 0f, dirH.Y, 0f);
-                                wolf.UpdatePosition(npH, frotH);
-                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = wolf.Guid, Position = npH, Rotation = frotH, State = 0, Unknown = 0 });
-                            }
-                            else if (!state.Idling)
-                            {
-                                state.Idling = true;
-                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = wolf.Guid, Position = wolf.Position, Rotation = wolf.Rotation, State = 1, Unknown = 0 });
-                            }
+                            TickMobReturnHome(wolf, state, dt);
                             continue;
                         }
 
@@ -895,83 +856,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                             BeginCharge(player, wolf, state);
                         }
 
-                        // CHARGING: converge on an owned slot around the player at live chase speed.
-                        var slot = target + new Vector3(MathF.Sin(state.SlotAngle), 0f, MathF.Cos(state.SlotAngle)) * EngageRadius;
-
-                        var toPlayerH = new Vector2(target.X - here.X, target.Z - here.Z);
-                        var distToPlayerH = toPlayerH.Length();
-
-                        // op125 ROTATION = a normalized FACING DIRECTION vector (x, 0, z) — live-wire
-                        // convention (client reader sub_8E5940 reads 3 raw floats; W unused).
-                        var face = distToPlayerH > 0.01f ? toPlayerH / distToPlayerH : new Vector2(0f, 1f);
-                        var rot = new Quaternion(face.X, 0f, face.Y, 0f);
-
-                        // Converge vertically to the player's real ground height (no server heightmap).
-                        var newY = MoveToward(here.Y, target.Y, YSpeed * dt);
-
-                        if (distToPlayerH > BiteRange)
-                        {
-                            state.Planted = false;
-                            var toSlot = new Vector2(slot.X - here.X, slot.Z - here.Z);
-                            var distToSlot = toSlot.Length();
-                            var step = MathF.Min(ChaseSpeed * dt, distToSlot);
-                            var dir = distToSlot > 0.01f ? toSlot / distToSlot : Vector2.Zero;
-
-                            var newPos = new Vector4(here.X + dir.X * step, newY, here.Z + dir.Y * step, wolf.Position.W);
-
-                            wolf.UpdatePosition(newPos, rot);
-                            // State bit0 SET means "no speed" client-side (RE'd) -> send 0 while MOVING.
-                            // Broadcast so every party member sees the wolf move (solo = one recipient).
-                            Broadcast(new PlayerUpdatePacketUpdatePosition
-                            {
-                                Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 0, Unknown = 0,
-                            });
-                        }
-                        else
-                        {
-                            // In bite range: plant ONCE (stop + face), then just bite. Re-broadcasting the
-                            // position every tick (with the per-tick Y-lerp) bobbed the model and fought the
-                            // bite clip — that was the attack jitter.
-                            if (!state.Planted)
-                            {
-                                state.Planted = true;
-                                var newPos = new Vector4(here.X, newY, here.Z, wolf.Position.W);
-                                wolf.UpdatePosition(newPos, rot);
-                                Broadcast(new PlayerUpdatePacketUpdatePosition
-                                {
-                                    Guid = wolf.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
-                                });
-                            }
-
-                            // Bites — live pacing is sparse (~1 per 2.7s across the whole pack), each
-                            // one a CombatPacketAttackProcessed: wolf attacker (plays the bite clip),
-                            // player target (incoming number/recoil), fx 5409 / crit 5622. The wolves
-                            // anchor on the leader; broadcast so all members see the bite land on them.
-                            if (now >= state.NextBiteTicks && now - lastPackBite >= BiteGlobalGapMs && !player.IsDead)
-                            {
-                                state.NextBiteTicks = now + BiteCooldownMs;
-                                lastPackBite = now;
-
-                                var crit = _rng.Next(100) < BiteCritPercent;
-                                var dmg = crit ? BiteCritDamage : BiteDamage;
-
-                                // REAL damage now (was cosmetic 2500/2500): drop the player's HP and knock them
-                                // out at 0 -> OnPlayerKnockedOut runs the KO-counter / fail flow (5 knockouts =
-                                // the encounter fails, sent home with no rewards).
-                                player.TakeDamage(dmg);
-                                var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
-
-                                Broadcast(new CombatPacketAttackProcessed
-                                {
-                                    AttackerGuid = wolf.Guid,
-                                    TargetGuid = player.Guid,
-                                    Damage = dmg,
-                                    MaxHealth = maxHp,
-                                    CompositeEffectId = crit ? BiteCritFxId : BiteFxId,
-                                    CurrentHealth = player.CurrentHitpoints,
-                                });
-                            }
-                        }
+                        // CHARGING: converge on an owned slot around the player, plant + bite in range — the
+                        // shared tick (identical to the pre-spawned zones; wolves just use MobChaseSpeed=6 and
+                        // the pack-wide bite spacing lives on the base attack gate now).
+                        TickMobCombat(wolf, state, player, target, now, dt);
                     }
                 }
 
@@ -1020,7 +908,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         var dir = to / d;
         var step = MathF.Min(RoamSpeed * dt, d);
-        var newPos = new Vector4(here.X + dir.X * step, MoveToward(here.Y, GroundY, YSpeed * dt),
+        var newPos = new Vector4(here.X + dir.X * step, MoveToward(here.Y, GroundY, MobYSpeed * dt),
             here.Z + dir.Y * step, wolf.Position.W);
         var rot = new Quaternion(dir.X, 0f, dir.Y, 0f);
 
@@ -1037,10 +925,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private void BeginCharge(Player player, Npc wolf, WolfState state)
     {
         state.Charging = true;
-        state.NextBiteTicks = Environment.TickCount64 + 1000 + _rng.Next(1500);
+        state.NextAttackTicks = Environment.TickCount64 + 1000 + _rng.Next(1500);
 
         Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = wolf.Guid, ExpectedSpeed = RoamSpeed });
-        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = wolf.Guid, ExpectedSpeed = ChaseSpeed });
+        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = wolf.Guid, ExpectedSpeed = MobChaseSpeed });
 
         if (!ReferenceEquals(wolf, _alpha))
         {
@@ -1135,7 +1023,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         var step = FleeSpeed * dt;
         var newPos = new Vector4(
             here.X + dir.X * step,
-            MoveToward(here.Y, GroundY, YSpeed * dt),
+            MoveToward(here.Y, GroundY, MobYSpeed * dt),
             here.Z + dir.Y * step,
             alpha.Position.W);
         var rot = new Quaternion(dir.X, 0f, dir.Y, 0f);
@@ -1596,13 +1484,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     protected override int FailInstanceId => EncounterInstanceId;
     protected override string EncounterLogName => "Frostfang arena";
 
-    private static float MoveToward(float current, float goal, float maxDelta)
-    {
-        var delta = goal - current;
-        if (MathF.Abs(delta) <= maxDelta)
-            return goal;
-        return current + MathF.Sign(delta) * maxDelta;
-    }
+    // MoveToward is the shared CombatEncounterZone helper now.
 
     #endregion
 }

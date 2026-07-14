@@ -83,7 +83,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                                                  // (same value our Frostfang pack uses)
 
     private const int SpiritHealth = 1500;       // Difficulty 2: ~2 ninja basic hits (Frostfang wolves = 1)
-    private const float SpiritChaseSpeed = 5f;   // a touch under wolf charge (6) — ghosts drift, not sprint
     private const float SpiritAggroRange = 14f;  // pre-spawned mobs engage on approach (no charge-at-spawn)
 
     private const int SpawnPoofFxId = 46;        // the live wave-wolf spawn poof — reused for materializing
@@ -98,18 +97,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     private const int TombstoneHealth = 1500;
     private static readonly int[] TombstoneModelIds = [893, 894, 896]; // bs_gravestone_01/02/04.adr
 
-    // Chase-and-claw AI (the Frostfang loop, retuned).
-    private const int TickMs = 300;
-    private const float YSpeed = 12f;
-    private const float ClawRange = 2.6f;
-    private const float EngageRadius = 1.9f;
-    private const int ClawCooldownMs = 4000;
-    private const int ClawGlobalGapMs = 1200;
-    private const int ClawDamage = 150;
-    private const int ClawCritDamage = 300;
-    private const int ClawCritPercent = 10;
-    private const int ClawFxId = 5409;           // the generic melee-hit composite (live on wolf bites)
-    private const int ClawCritFxId = 5622;
+    // Chase-and-claw AI tuning lives in CombatEncounterZone now (shared by all encounter zones).
 
     // Pre-spawned spirit positions — scattered through the graveyard around center (141, 160).
     // Hand-placed (no capture): a loose ring through the graves, none on the player's south approach.
@@ -169,15 +157,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     /// grants a bit more.</summary>
     public const int EncounterXp = 15;
 
-    private sealed class SpiritState
-    {
-        public bool Charging;
-        public long NextClawTicks;
-        public float SlotAngle;
-        public Vector4 Home;    // spawn post — spirits drift back here and idle while the player is down
-        public bool Idling;     // true once parked at Home (broadcast the idle stop only once)
-        public bool Planted;    // true once stopped in claw range — stop re-broadcasting position (jitter)
-    }
+    private sealed class SpiritState : EncounterMobState { }
 
     private readonly object _stateLock = new();
     private readonly List<Npc> _spirits = [];
@@ -273,7 +253,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
     /// <summary>Broadcast a shared encounter packet to every player currently in this arena instance.
     /// For a solo player this is exactly the old per-player send; for a party it drives everyone.</summary>
-    private void Broadcast(ISerializablePacket packet)
+    protected override void Broadcast(ISerializablePacket packet)
     {
         foreach (var p in ActivePlayers())
             p.SendTunneled(packet);
@@ -650,7 +630,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
             try
             {
-                var lastPackClaw = 0L;
 
                 for (var elapsed = 0; elapsed < 15 * 60 * 1000; elapsed += TickMs)
                 {
@@ -692,39 +671,17 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                         if (state is null)
                             continue;
 
-                        var here = new Vector3(spirit.Position.X, spirit.Position.Y, spirit.Position.Z);
-
-                        // Player is knocked down: DISENGAGE — drift back to the spawn post and idle there until
-                        // they revive. Reset Charging so the spirit re-engages cleanly on revive.
+                        // Player knocked down: disengage to the spawn post + idle (shared).
                         if (player.IsDead)
                         {
-                            state.Charging = false;
-                            state.Planted = false;
-                            var toHome = new Vector2(state.Home.X - here.X, state.Home.Z - here.Z);
-                            var distHome = toHome.Length();
-                            if (distHome > 0.6f)
-                            {
-                                state.Idling = false;
-                                var stepH = MathF.Min(SpiritChaseSpeed * dt, distHome);
-                                var dirH = toHome / distHome;
-                                var nyH = MoveToward(here.Y, state.Home.Y, YSpeed * dt);
-                                var npH = new Vector4(here.X + dirH.X * stepH, nyH, here.Z + dirH.Y * stepH, spirit.Position.W);
-                                var frotH = new Quaternion(dirH.X, 0f, dirH.Y, 0f);
-                                spirit.UpdatePosition(npH, frotH);
-                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = spirit.Guid, Position = npH, Rotation = frotH, State = 0, Unknown = 0 });
-                            }
-                            else if (!state.Idling)
-                            {
-                                state.Idling = true;
-                                Broadcast(new PlayerUpdatePacketUpdatePosition { Guid = spirit.Guid, Position = spirit.Position, Rotation = spirit.Rotation, State = 1, Unknown = 0 });
-                            }
+                            TickMobReturnHome(spirit, state, dt);
                             continue;
                         }
 
-                        // Pre-spawned mobs engage on APPROACH (or when damaged — OnNpcDamaged): the
-                        // graveyard stands still until the player wades in.
+                        // Pre-spawned mobs engage on APPROACH (or when damaged), then run the shared combat tick.
                         if (!state.Charging)
                         {
+                            var here = new Vector3(spirit.Position.X, spirit.Position.Y, spirit.Position.Z);
                             var dx = target.X - here.X;
                             var dz = target.Z - here.Z;
                             if (dx * dx + dz * dz > SpiritAggroRange * SpiritAggroRange)
@@ -732,71 +689,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                             BeginCharge(player, spirit, state);
                         }
 
-                        var slot = target + new Vector3(MathF.Sin(state.SlotAngle), 0f, MathF.Cos(state.SlotAngle)) * EngageRadius;
-
-                        var toPlayerH = new Vector2(target.X - here.X, target.Z - here.Z);
-                        var distToPlayerH = toPlayerH.Length();
-                        var face = distToPlayerH > 0.01f ? toPlayerH / distToPlayerH : new Vector2(0f, 1f);
-                        var rot = new Quaternion(face.X, 0f, face.Y, 0f);
-                        var newY = MoveToward(here.Y, target.Y, YSpeed * dt);
-
-                        if (distToPlayerH > ClawRange)
-                        {
-                            state.Planted = false;
-                            var toSlot = new Vector2(slot.X - here.X, slot.Z - here.Z);
-                            var distToSlot = toSlot.Length();
-                            var step = MathF.Min(SpiritChaseSpeed * dt, distToSlot);
-                            var dir = distToSlot > 0.01f ? toSlot / distToSlot : Vector2.Zero;
-
-                            var newPos = new Vector4(here.X + dir.X * step, newY, here.Z + dir.Y * step, spirit.Position.W);
-
-                            spirit.UpdatePosition(newPos, rot);
-                            Broadcast(new PlayerUpdatePacketUpdatePosition
-                            {
-                                Guid = spirit.Guid, Position = newPos, Rotation = rot, State = 0, Unknown = 0,
-                            });
-                        }
-                        else
-                        {
-                            // In claw range: plant ONCE (stop + face), then just claw. Re-broadcasting the
-                            // position every tick (with the per-tick Y-lerp) bobbed the model and fought the
-                            // claw clip — that was the attack jitter.
-                            if (!state.Planted)
-                            {
-                                state.Planted = true;
-                                var newPos = new Vector4(here.X, newY, here.Z, spirit.Position.W);
-                                spirit.UpdatePosition(newPos, rot);
-                                Broadcast(new PlayerUpdatePacketUpdatePosition
-                                {
-                                    Guid = spirit.Guid, Position = newPos, Rotation = rot, State = 1, Unknown = 0,
-                                });
-                            }
-
-                            // Spirits anchor on the leader; broadcast so all members see the claw land.
-                            if (now >= state.NextClawTicks && now - lastPackClaw >= ClawGlobalGapMs && !player.IsDead)
-                            {
-                                state.NextClawTicks = now + ClawCooldownMs;
-                                lastPackClaw = now;
-
-                                var crit = _rng.Next(100) < ClawCritPercent;
-                                var dmg = crit ? ClawCritDamage : ClawDamage;
-
-                                // REAL damage now (was cosmetic 2500/2500): drop the player's HP + knock them
-                                // out at 0 -> OnPlayerKnockedOut runs the knockout-counter / window flow.
-                                player.TakeDamage(dmg);
-                                var maxHp = player.Stats.TryGetValue(Sanctuary.Packet.Common.CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
-
-                                Broadcast(new CombatPacketAttackProcessed
-                                {
-                                    AttackerGuid = spirit.Guid,
-                                    TargetGuid = player.Guid,
-                                    Damage = dmg,
-                                    MaxHealth = maxHp,
-                                    CompositeEffectId = crit ? ClawCritFxId : ClawFxId,
-                                    CurrentHealth = player.CurrentHitpoints,
-                                });
-                            }
-                        }
+                        TickMobCombat(spirit, state, player, target, now, dt);
                     }
                 }
 
@@ -813,10 +706,10 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     private void BeginCharge(Player player, Npc spirit, SpiritState state)
     {
         state.Charging = true;
-        state.NextClawTicks = Environment.TickCount64 + 1000 + _rng.Next(1500);
+        state.NextAttackTicks = Environment.TickCount64 + 1000 + _rng.Next(1500);
 
         Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = spirit.Guid, ExpectedSpeed = 3f });
-        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = spirit.Guid, ExpectedSpeed = SpiritChaseSpeed });
+        Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = spirit.Guid, ExpectedSpeed = MobChaseSpeed });
         Broadcast(new PlayerUpdatePacketUpdateCharacterState
         {
             Guid = spirit.Guid,
@@ -1208,13 +1101,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         player.TeleportToZone(home, returnPos, home.SpawnRotation, sky: null, geometryId: 0);
     }
 
-    private static float MoveToward(float current, float goal, float maxDelta)
-    {
-        var delta = goal - current;
-        if (MathF.Abs(delta) <= maxDelta)
-            return goal;
-        return current + MathF.Sign(delta) * maxDelta;
-    }
 
     #endregion
 }
