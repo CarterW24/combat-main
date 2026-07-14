@@ -189,14 +189,17 @@ public static class ActivityPacketJoinActivityRequestHandler
 
             connection.SendTunneled(miniGameInfoPacket);
         }
-        // ★ ATLAS-MAP COMBAT DUNGEONS: clicking a dungeon marker on the atlas sends JoinActivityRequest
-        // with its activity id. If it's one of our data-driven dungeons (DungeonCatalog), enter the
-        // instance directly — the same server-side transfer the GO! button / world entry NPC uses (pulls
-        // the party in for co-op).
-        else if (Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.ContainsKey(packet.ActivityId))
+        // ★ COMBAT DUNGEONS: pressing Play on a dungeon in the minigames menu's "Battles" section (and
+        // clicking its marker on the atlas) sends JoinActivityRequest with its activity id. Don't drop the
+        // player straight into the instance — open the dungeon START PANEL first (name/description/difficulty
+        // + reward preview + the green GO!), exactly like clicking the dungeon's overworld entrance does.
+        // GO! then routes back through EncounterParticipantRequestEntranceHandler -> EnterEncounterArena
+        // (which is what actually transfers the player, and pulls their party in for co-op).
+        else if (Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.TryGetValue(packet.ActivityId, out var dungeon))
         {
-            _logger.LogInformation("Atlas join -> combat dungeon activity {id}.", packet.ActivityId);
-            EncounterParticipantRequestEntranceHandler.EnterEncounterArena(connection, packet.ActivityId);
+            _logger.LogInformation("Battles/atlas join -> dungeon start panel for activity {id} ({name}).",
+                packet.ActivityId, dungeon.Comment);
+            Sanctuary.Game.Zones.StartingZone.SendDungeonOffer(connection.Player, dungeon);
         }
 
         return true;

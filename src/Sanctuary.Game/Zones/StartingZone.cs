@@ -713,7 +713,7 @@ public sealed class StartingZone : BaseZone
     /// <summary>Open the dungeon start panel (adventure offer + auto-ready GO!) for a data-driven dungeon —
     /// the same offer/handshake the Growler/Spirit entries use, keyed to this dungeon's activity id so the
     /// GO! button routes to its EncounterArenaZone.</summary>
-    private static void SendDungeonOffer(Player player, Sanctuary.Game.Dungeons.DungeonDefinition dungeon)
+    public static void SendDungeonOffer(Player player, Sanctuary.Game.Dungeons.DungeonDefinition dungeon)
     {
         const int instanceId = 1;
 
