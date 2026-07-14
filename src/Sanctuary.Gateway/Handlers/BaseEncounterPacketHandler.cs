@@ -180,25 +180,21 @@ public static class BaseEncounterPacketHandler
         return true;
     }
 
-    // LEAVE BUTTON (op41/sub109 RequestExit): bail out of a combat instance back to the overworld — the
-    // same UseExitDoor -> ReturnHome the victory portal uses (no-ops if the player isn't in that zone,
-    // e.g. this also fires as the client closes the encounter UI after a win, when already home).
+    // LEAVE BUTTON (op41/sub109 RequestExit): bail out of a combat instance back to the overworld. Uses
+    // LeaveEncounter, NOT UseExitDoor — the latter is the VICTORY door and now raises a "You Win!" card, which
+    // would be flat wrong for a quit. LeaveEncounter tears down immediately when no card is up, and when one IS
+    // up (the client also fires RequestExit as it closes the result panel) it exits exactly as closing the card
+    // does. No-ops when the player isn't in an encounter (e.g. this fires again once they're already home).
     private static bool HandleRequestExit(GatewayConnection connection)
     {
         var player = connection.Player;
-        switch (player.Zone)
+
+        if (player.Zone is CombatEncounterZone encounter)
         {
-            case EncounterArenaZone arena:
-                _logger.LogInformation("Leave button (RequestExit) in {zone} — returning {name} to the overworld.", arena.Name, player.Name);
-                arena.UseExitDoor(player);
-                break;
-            case FrostfangArenaZone frostfang:
-                frostfang.UseExitDoor(player);
-                break;
-            case TormentedSpiritsArenaZone spirits:
-                spirits.UseExitDoor(player);
-                break;
+            _logger.LogInformation("Leave button (RequestExit) in {zone} — returning {name} to the overworld.", encounter.Name, player.Name);
+            encounter.LeaveEncounter(player);
         }
+
         return true;
     }
 }

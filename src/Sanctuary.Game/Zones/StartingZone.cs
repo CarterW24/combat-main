@@ -24,6 +24,7 @@ public sealed class StartingZone : BaseZone
     private readonly IResourceManager _resourceManager;
     private readonly StartingZoneDefinition _zoneDefinition;
     private readonly Sanctuary.Game.Quests.IQuestManager _questManager;
+    private readonly Sanctuary.Game.Party.IPartyManager _partyManager;
 
     public StartingZone(StartingZoneDefinition zoneDefinition, IServiceProvider serviceProvider)
         : base(zoneDefinition, serviceProvider)
@@ -33,6 +34,7 @@ public sealed class StartingZone : BaseZone
         _zoneManager = serviceProvider.GetRequiredService<IZoneManager>();
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
         _questManager = serviceProvider.GetRequiredService<Sanctuary.Game.Quests.IQuestManager>();
+        _partyManager = serviceProvider.GetRequiredService<Sanctuary.Game.Party.IPartyManager>();
 
         // Spawn all static NPCs in the zone
         SpawnNpcs();
@@ -902,6 +904,38 @@ public sealed class StartingZone : BaseZone
             killer.SendTunneled(clear);
     }
 
+    /// <summary>How far a party member can be from the kill and still share its XP. Stops a party-mate on the
+    /// other side of the map from leeching, but is generous enough that anyone actually in the fight counts.</summary>
+    private const float XpShareRange = 100f;
+
+    /// <summary>Overworld kills pay the whole PARTY, not just whoever landed the last hit — so players fighting
+    /// together both level up. Every nearby member gets the FULL reward (not a split), which is how the dungeon
+    /// zones already pay out. Members must be in this zone and within <see cref="XpShareRange"/> of the kill.
+    /// Solo players (no party) are unaffected: the killer just gets their XP as before.</summary>
+    private void AwardSharedXp(Player killer, int xp, Vector4 killPos)
+    {
+        killer.AwardXp(xp);
+
+        var party = _partyManager.GetParty(killer);
+        if (party is null)
+            return;
+
+        var range2 = XpShareRange * XpShareRange;
+
+        foreach (var member in party.Members)
+        {
+            if (member.Guid == killer.Guid || member.Zone != this)
+                continue;
+
+            var dx = member.Position.X - killPos.X;
+            var dz = member.Position.Z - killPos.Z;
+            if (dx * dx + dz * dz > range2)
+                continue; // too far from the fight to have taken part
+
+            member.AwardXp(xp);
+        }
+    }
+
     public override void OnNpcKilled(Player killer, Npc npc)
     {
         if (ReferenceEquals(npc, _trainingDummy))
@@ -921,7 +955,7 @@ public sealed class StartingZone : BaseZone
                 return;
             worldEnemy.IsDead = true;
 
-            killer.AwardXp(worldEnemy.XpReward);
+            AwardSharedXp(killer, worldEnemy.XpReward, worldEnemy.Position);
 
             // Capture what we need to rebuild it before Dispose() clears the entity.
             int modelId = worldEnemy.ModelId, nameId = worldEnemy.NameId, level = worldEnemy.Level;

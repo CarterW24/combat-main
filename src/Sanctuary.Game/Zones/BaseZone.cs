@@ -126,9 +126,8 @@ public abstract class BaseZone : IZone, IDisposable
     // knockout would fire during a LATER knockout and revive the player instantly, skipping the countdown.
     private readonly ConcurrentDictionary<ulong, int> _reviveGeneration = new();
 
-    /// <summary>How long the "TRY AGAIN!" fail card sits before the encounter tears down and teleports the
-    /// player home — otherwise the state-remove + teleport wipe the card instantly.</summary>
-    protected const int FailCardHoldMs = 4000;
+    // (The old FailCardHoldMs timer is gone: the fail card now sits until the player CLOSES it —
+    // CombatEncounterZone.ShowEndScreenAndExit waits for the client's ClosedMinigameEndScreen.)
 
     /// <summary>Show the persistent "TRY AGAIN!" fail end-screen. Three things are needed and were missing:
     /// (1) clear the knockdown UI — Player.Knockout leaves the client in IsKnockedOut|IsRooted, which wipes

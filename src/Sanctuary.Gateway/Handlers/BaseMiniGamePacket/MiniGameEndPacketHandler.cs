@@ -34,23 +34,17 @@ public static class MiniGameEndPacketHandler
 
         connection.SendTunneled(miniGameLeavePacket);
 
-        // LEAVE BUTTON: this op39/sub6 is the minigame UI's "Leave" button. In a combat dungeon/encounter
-        // it must also take the player back to the overworld (same as the victory exit door) — otherwise
-        // the button just closed the panel and left them stuck in the instance. Route to whichever arena
-        // they're in; UseExitDoor -> ReturnHome no-ops if they're not actually in that zone.
+        // LEAVE BUTTON: this op39/sub6 is the minigame UI's "Leave" button. In a combat dungeon/encounter it
+        // must also take the player back to the overworld — otherwise the button just closed the panel and
+        // left them stuck in the instance. LeaveEncounter (NOT UseExitDoor, which is the victory door and
+        // raises a "You Win!" card): bails out with no card, or, if a result card is already up, treats this
+        // as the player dismissing it and exits the same way.
         var player = connection.Player;
-        switch (player.Zone)
+
+        if (player.Zone is CombatEncounterZone encounter)
         {
-            case EncounterArenaZone arena:
-                _logger.LogInformation("Leave button pressed in {zone} — returning {name} to the overworld.", arena.Name, player.Name);
-                arena.UseExitDoor(player);
-                break;
-            case FrostfangArenaZone frostfang:
-                frostfang.UseExitDoor(player);
-                break;
-            case TormentedSpiritsArenaZone spirits:
-                spirits.UseExitDoor(player);
-                break;
+            _logger.LogInformation("Leave button pressed in {zone} — returning {name} to the overworld.", encounter.Name, player.Name);
+            encounter.LeaveEncounter(player);
         }
 
         return true;
