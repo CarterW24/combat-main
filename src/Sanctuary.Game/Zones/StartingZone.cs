@@ -662,9 +662,9 @@ public sealed class StartingZone : BaseZone
     // Each atlas dungeon marker is a NotificationType=3 PointOfInterest. Fast-travel drops you at its
     // overworld position, where we place a clickable entrance whose click opens the dungeon start panel;
     // GO! routes through EncounterParticipantRequestEntranceHandler -> EnterEncounterArena. The atlas
-    // markers map to the BIG walk-through dungeon worlds (catalog id 900000 + poiId — the real dungeon
-    // worlds like sg_robgoblin_trove), NOT the small scattered encounter arenas.
-    private const int AtlasDungeonIdBase = 900000;
+    // markers map to the BIG walk-through dungeon worlds (the real dungeon worlds like sg_robgoblin_trove),
+    // NOT the small scattered encounter arenas. Look them up by POI id (DungeonCatalog.ByAtlasPoi) — the
+    // catalog is keyed by the REAL client activity id now, so the old "900000 + poiId" key is gone.
 
     /// <summary>Model 511 = human_invisible_m.adr (Models.txt): an invisible CHARACTER actor — renders
     /// nothing, is still sent to the client (so it's clickable via its nameplate/actor box), and unlike the
@@ -678,7 +678,7 @@ public sealed class StartingZone : BaseZone
         {
             if (poi.NotificationType != 3)
                 continue;
-            if (!Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.TryGetValue(AtlasDungeonIdBase + poi.Id, out var dungeon))
+            if (!Sanctuary.Game.Dungeons.DungeonCatalog.ByAtlasPoi.TryGetValue(poi.Id, out var dungeon))
                 continue;
             if (!TryCreateNpc(out var entrance))
                 continue;
@@ -797,8 +797,8 @@ public sealed class StartingZone : BaseZone
 
         foreach (var dungeon in Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.Values)
         {
-            if (dungeon.ActivityId >= AtlasDungeonIdBase)
-                continue; // atlas walk-through dungeons already have their own entrances
+            if (dungeon.PoiId != 0)
+                continue; // atlas walk-through dungeons already have their own entrances (PoiId = the marker)
 
             var anchor = FindThematicAnchor(dungeon, anchors, used)
                          ?? PickSpreadAnchor(anchors, used, ref spreadCursor);

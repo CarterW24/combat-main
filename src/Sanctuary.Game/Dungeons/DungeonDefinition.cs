@@ -21,7 +21,18 @@ public sealed class DungeonEnemy
 /// combat-encounter set, assigned worlds + enemies by theme (some approximate; tune per dungeon later).</summary>
 public sealed class DungeonDefinition
 {
+    /// <summary>The REAL client activity id (ClientActivityDefinitions). This is the id the client sends in
+    /// JoinActivityRequest when you click the dungeon in the minigames menu's "Battles" section (Category 10)
+    /// AND the id the atlas entrance / GO! button routes on — so it must match the client's own definition,
+    /// or the join falls through and nothing launches.</summary>
     public required int ActivityId;
+
+    /// <summary>For the BIG walk-through dungeons: the overworld atlas POI id (NotificationType=3 marker) that
+    /// this dungeon hangs off, used by StartingZone.SpawnDungeonEntrances to place the clickable entrance.
+    /// 0 for the small arena encounters (they have no atlas marker — they're entered via the wandering
+    /// "Battle Starter" NPCs instead). Non-zero is therefore also the "is an atlas dungeon" discriminator.</summary>
+    public int PoiId;
+
     public required string World;
     public required float CenterX;
     public required float CenterZ;
@@ -790,9 +801,9 @@ public static class DungeonCatalog
         // scales its grid + spreads enemies across the map (walk-through) for these. ==========
 
         // 900052  ATLAS DUNGEON (POI 52) Arachnia's Lair -> bw_spider_lair
-        [900052] = new()
+        [12] = new()
         {
-            ActivityId = 900052, Comment = "Arachnia's Lair",
+            ActivityId = 12, PoiId = 52, Comment = "Arachnia's Lair",
             World = "bw_spider_lair", CenterX = 273f, CenterZ = 223f, GroundY = 31f, Radius = 383f,
             TitleNameId = 2273, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -803,9 +814,9 @@ public static class DungeonCatalog
         },
 
         // 900053  ATLAS DUNGEON (POI 53) Hot Springs Haven -> sh_yeti_cave
-        [900053] = new()
+        [31] = new()
         {
-            ActivityId = 900053, Comment = "Hot Springs Haven",
+            ActivityId = 31, PoiId = 53, Comment = "Hot Springs Haven",
             World = "sh_yeti_cave", CenterX = 228f, CenterZ = 358f, GroundY = 81f, Radius = 195f,
             TitleNameId = 3269, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -816,9 +827,9 @@ public static class DungeonCatalog
         },
 
         // 900054  ATLAS DUNGEON (POI 54) Bandit Hideout -> sg_bandit_hideout
-        [900054] = new()
+        [29] = new()
         {
-            ActivityId = 900054, Comment = "Bandit Hideout",
+            ActivityId = 29, PoiId = 54, Comment = "Bandit Hideout",
             World = "sg_bandit_hideout", CenterX = 153f, CenterZ = 168f, GroundY = 34f, Radius = 200f,
             TitleNameId = 5172, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -830,9 +841,9 @@ public static class DungeonCatalog
         },
 
         // 900055  ATLAS DUNGEON (POI 55) Tavern Cellar -> sg_tavern_cellar
-        [900055] = new()
+        [30] = new()
         {
-            ActivityId = 900055, Comment = "Tavern Cellar",
+            ActivityId = 30, PoiId = 55, Comment = "Tavern Cellar",
             World = "sg_tavern_cellar", CenterX = 124f, CenterZ = 75f, GroundY = 19f, Radius = 162f,
             TitleNameId = 5493, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -844,9 +855,9 @@ public static class DungeonCatalog
         },
 
         // 900056  ATLAS DUNGEON (POI 56) The Snarling Hedges -> bw_snarling_hedges
-        [900056] = new()
+        [17] = new()
         {
-            ActivityId = 900056, Comment = "The Snarling Hedges",
+            ActivityId = 17, PoiId = 56, Comment = "The Snarling Hedges",
             World = "bw_snarling_hedges", CenterX = 669f, CenterZ = 622f, GroundY = 0f, Radius = 600f,
             TitleNameId = 21188, DescriptionId = 382845, Difficulty = 5, Xp = 50,
             Enemies =
@@ -857,9 +868,9 @@ public static class DungeonCatalog
         },
 
         // 900057  ATLAS DUNGEON (POI 57) Snowy Canyon -> sh_canyon_combat
-        [900057] = new()
+        [15] = new()
         {
-            ActivityId = 900057, Comment = "Snowy Canyon",
+            ActivityId = 15, PoiId = 57, Comment = "Snowy Canyon",
             World = "sh_canyon_combat", CenterX = 137f, CenterZ = 165f, GroundY = 43f, Radius = 575f,
             TitleNameId = 4229, DescriptionId = 382845, Difficulty = 5, Xp = 50,
             Enemies =
@@ -870,9 +881,9 @@ public static class DungeonCatalog
         },
 
         // 900058  ATLAS DUNGEON (POI 58) The Bat Cave! -> sh_bat_cave
-        [900058] = new()
+        [27] = new()
         {
-            ActivityId = 900058, Comment = "The Bat Cave!",
+            ActivityId = 27, PoiId = 58, Comment = "The Bat Cave!",
             World = "sh_bat_cave", CenterX = 415f, CenterZ = 294f, GroundY = 82f, Radius = 195f,
             TitleNameId = 6456, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -884,9 +895,9 @@ public static class DungeonCatalog
         },
 
         // 900059  ATLAS DUNGEON (POI 59) Frostfang Caverns -> sh_frostfang_cavern
-        [900059] = new()
+        [33] = new()
         {
-            ActivityId = 900059, Comment = "Frostfang Caverns",
+            ActivityId = 33, PoiId = 59, Comment = "Frostfang Caverns",
             World = "sh_frostfang_cavern", CenterX = 221f, CenterZ = 348f, GroundY = 80f, Radius = 313f,
             TitleNameId = 5698, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -897,9 +908,9 @@ public static class DungeonCatalog
         },
 
         // 900060  ATLAS DUNGEON (POI 60) Robgoblin Treasure Trove -> sg_robgoblin_trove
-        [900060] = new()
+        [32] = new()
         {
-            ActivityId = 900060, Comment = "Robgoblin Treasure Trove",
+            ActivityId = 32, PoiId = 60, Comment = "Robgoblin Treasure Trove",
             World = "sg_robgoblin_trove", CenterX = 250f, CenterZ = 143f, GroundY = 30f, Radius = 205f,
             TitleNameId = 5697, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -911,9 +922,9 @@ public static class DungeonCatalog
         },
 
         // 900061  ATLAS DUNGEON (POI 61) Deep Mines -> sh_deep_mines
-        [900061] = new()
+        [34] = new()
         {
-            ActivityId = 900061, Comment = "Deep Mines",
+            ActivityId = 34, PoiId = 61, Comment = "Deep Mines",
             World = "sh_deep_mines", CenterX = 121f, CenterZ = 136f, GroundY = 15f, Radius = 200f,
             TitleNameId = 5699, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -925,9 +936,9 @@ public static class DungeonCatalog
         },
 
         // 900062  ATLAS DUNGEON (POI 62) Bixie Hive -> sg_bixie_hive
-        [900062] = new()
+        [37] = new()
         {
-            ActivityId = 900062, Comment = "Bixie Hive",
+            ActivityId = 37, PoiId = 62, Comment = "Bixie Hive",
             World = "sg_bixie_hive", CenterX = 246f, CenterZ = 321f, GroundY = 81f, Radius = 200f,
             TitleNameId = 5702, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -939,9 +950,9 @@ public static class DungeonCatalog
         },
 
         // 900063  ATLAS DUNGEON (POI 63) Forgotten Caves -> sg_changeling_caverns
-        [900063] = new()
+        [38] = new()
         {
-            ActivityId = 900063, Comment = "Forgotten Caves",
+            ActivityId = 38, PoiId = 63, Comment = "Forgotten Caves",
             World = "sg_changeling_caverns", CenterX = 370f, CenterZ = 346f, GroundY = 27f, Radius = 180f,
             TitleNameId = 5703, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -953,9 +964,9 @@ public static class DungeonCatalog
         },
 
         // 900064  ATLAS DUNGEON (POI 64) Danger Peaks -> sh_howling_hills
-        [900064] = new()
+        [46] = new()
         {
-            ActivityId = 900064, Comment = "Danger Peaks",
+            ActivityId = 46, PoiId = 64, Comment = "Danger Peaks",
             World = "sh_howling_hills", CenterX = 223f, CenterZ = 142f, GroundY = 47f, Radius = 340f,
             TitleNameId = 5711, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -966,9 +977,9 @@ public static class DungeonCatalog
         },
 
         // 900065  ATLAS DUNGEON (POI 65) Forest Troll Fort -> sg_troll_fort
-        [900065] = new()
+        [43] = new()
         {
-            ActivityId = 900065, Comment = "Forest Troll Fort",
+            ActivityId = 43, PoiId = 65, Comment = "Forest Troll Fort",
             World = "sg_troll_fort", CenterX = 131f, CenterZ = 111f, GroundY = 80f, Radius = 329f,
             TitleNameId = 5708, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -980,9 +991,9 @@ public static class DungeonCatalog
         },
 
         // 900066  ATLAS DUNGEON (POI 66) Briarheart Caverns -> bw_briarheart_caverns
-        [900066] = new()
+        [42] = new()
         {
-            ActivityId = 900066, Comment = "Briarheart Caverns",
+            ActivityId = 42, PoiId = 66, Comment = "Briarheart Caverns",
             World = "bw_briarheart_caverns", CenterX = -53f, CenterZ = -198f, GroundY = 18f, Radius = 200f,
             TitleNameId = 5707, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -993,9 +1004,9 @@ public static class DungeonCatalog
         },
 
         // 900067  ATLAS DUNGEON (POI 67) Trail of Betrayal -> bw_trail_of_betrayal
-        [900067] = new()
+        [41] = new()
         {
-            ActivityId = 900067, Comment = "Trail of Betrayal",
+            ActivityId = 41, PoiId = 67, Comment = "Trail of Betrayal",
             World = "bw_trail_of_betrayal", CenterX = 138f, CenterZ = 199f, GroundY = 54f, Radius = 314f,
             TitleNameId = 5706, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1007,9 +1018,9 @@ public static class DungeonCatalog
         },
 
         // 900068  ATLAS DUNGEON (POI 68) Highroad Hijinx -> sg_highroad_hijinx
-        [900068] = new()
+        [45] = new()
         {
-            ActivityId = 900068, Comment = "Highroad Hijinx",
+            ActivityId = 45, PoiId = 68, Comment = "Highroad Hijinx",
             World = "sg_highroad_hijinx", CenterX = 204f, CenterZ = 192f, GroundY = 43f, Radius = 300f,
             TitleNameId = 5710, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1021,9 +1032,9 @@ public static class DungeonCatalog
         },
 
         // 900069  ATLAS DUNGEON (POI 69) Floren Forest -> sg_floren_forest
-        [900069] = new()
+        [40] = new()
         {
-            ActivityId = 900069, Comment = "Floren Forest",
+            ActivityId = 40, PoiId = 69, Comment = "Floren Forest",
             World = "sg_floren_forest", CenterX = 244f, CenterZ = 215f, GroundY = 18f, Radius = 370f,
             TitleNameId = 5705, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1034,9 +1045,9 @@ public static class DungeonCatalog
         },
 
         // 900070  ATLAS DUNGEON (POI 70) Mugwort's Hollow -> sg_mugworts_hollow
-        [900070] = new()
+        [39] = new()
         {
-            ActivityId = 900070, Comment = "Mugwort's Hollow",
+            ActivityId = 39, PoiId = 70, Comment = "Mugwort's Hollow",
             World = "sg_mugworts_hollow", CenterX = 231f, CenterZ = 257f, GroundY = -14f, Radius = 354f,
             TitleNameId = 5704, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1047,9 +1058,9 @@ public static class DungeonCatalog
         },
 
         // 900071  ATLAS DUNGEON (POI 71) Briar Patch -> bw_briar_patch
-        [900071] = new()
+        [23] = new()
         {
-            ActivityId = 900071, Comment = "Briar Patch",
+            ActivityId = 23, PoiId = 71, Comment = "Briar Patch",
             World = "bw_briar_patch", CenterX = 197f, CenterZ = 233f, GroundY = -14f, Radius = 331f,
             TitleNameId = 5078, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1060,9 +1071,9 @@ public static class DungeonCatalog
         },
 
         // 900072  ATLAS DUNGEON (POI 72) Croaking Vale -> bw_vale_of_thorns
-        [900072] = new()
+        [59] = new()
         {
-            ActivityId = 900072, Comment = "Croaking Vale",
+            ActivityId = 59, PoiId = 72, Comment = "Croaking Vale",
             World = "bw_vale_of_thorns", CenterX = 166f, CenterZ = 311f, GroundY = -4f, Radius = 300f,
             TitleNameId = 18219, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1072,9 +1083,9 @@ public static class DungeonCatalog
         },
 
         // 900073  ATLAS DUNGEON (POI 73) Howling Hills -> sh_howling_hills
-        [900073] = new()
+        [21] = new()
         {
-            ActivityId = 900073, Comment = "Howling Hills",
+            ActivityId = 21, PoiId = 73, Comment = "Howling Hills",
             World = "sh_howling_hills", CenterX = 223f, CenterZ = 142f, GroundY = 47f, Radius = 340f,
             TitleNameId = 6488, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1085,9 +1096,9 @@ public static class DungeonCatalog
         },
 
         // 900074  ATLAS DUNGEON (POI 74) Dark Spore Depths -> bw_mushroom_cave
-        [900074] = new()
+        [19] = new()
         {
-            ActivityId = 900074, Comment = "Dark Spore Depths",
+            ActivityId = 19, PoiId = 74, Comment = "Dark Spore Depths",
             World = "bw_mushroom_cave", CenterX = 197f, CenterZ = 187f, GroundY = 30f, Radius = 299f,
             TitleNameId = 4469, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1098,9 +1109,9 @@ public static class DungeonCatalog
         },
 
         // 900075  ATLAS DUNGEON (POI 75) Mushroom Cavern -> bw_mushroom_cave
-        [900075] = new()
+        [25] = new()
         {
-            ActivityId = 900075, Comment = "Mushroom Cavern",
+            ActivityId = 25, PoiId = 75, Comment = "Mushroom Cavern",
             World = "bw_mushroom_cave", CenterX = 197f, CenterZ = 187f, GroundY = 30f, Radius = 299f,
             TitleNameId = 4187, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1111,9 +1122,9 @@ public static class DungeonCatalog
         },
 
         // 900076  ATLAS DUNGEON (POI 76) Bristlewood Glade -> bw_bristlewood_glade
-        [900076] = new()
+        [36] = new()
         {
-            ActivityId = 900076, Comment = "Bristlewood Glade",
+            ActivityId = 36, PoiId = 76, Comment = "Bristlewood Glade",
             World = "bw_bristlewood_glade", CenterX = 137f, CenterZ = 437f, GroundY = -38f, Radius = 120f,
             TitleNameId = 5701, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1124,9 +1135,9 @@ public static class DungeonCatalog
         },
 
         // 900077  ATLAS DUNGEON (POI 77) Vale of the Ancients -> bw_vale_of_thorns
-        [900077] = new()
+        [52] = new()
         {
-            ActivityId = 900077, Comment = "Vale of the Ancients",
+            ActivityId = 52, PoiId = 77, Comment = "Vale of the Ancients",
             World = "bw_vale_of_thorns", CenterX = 166f, CenterZ = 311f, GroundY = -4f, Radius = 300f,
             TitleNameId = 18143, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1137,9 +1148,9 @@ public static class DungeonCatalog
         },
 
         // 900078  ATLAS DUNGEON (POI 78) Treeleaf's Retreat -> bw_treeleaf_retreat
-        [900078] = new()
+        [28] = new()
         {
-            ActivityId = 900078, Comment = "Treeleaf's Retreat",
+            ActivityId = 28, PoiId = 78, Comment = "Treeleaf's Retreat",
             World = "bw_treeleaf_retreat", CenterX = 269f, CenterZ = 221f, GroundY = -9f, Radius = 500f,
             TitleNameId = 5133, DescriptionId = 382845, Difficulty = 5, Xp = 50,
             Enemies =
@@ -1150,9 +1161,9 @@ public static class DungeonCatalog
         },
 
         // 900079  ATLAS DUNGEON (POI 79) Grexan's Camp -> sg_bandit_hideout
-        [900079] = new()
+        [26] = new()
         {
-            ActivityId = 900079, Comment = "Grexan's Camp",
+            ActivityId = 26, PoiId = 79, Comment = "Grexan's Camp",
             World = "sg_bandit_hideout", CenterX = 153f, CenterZ = 168f, GroundY = 34f, Radius = 200f,
             TitleNameId = 162, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1164,9 +1175,9 @@ public static class DungeonCatalog
         },
 
         // 900080  ATLAS DUNGEON (POI 80) Darvon's Descent -> sg_changeling_caverns
-        [900080] = new()
+        [58] = new()
         {
-            ActivityId = 900080, Comment = "Darvon's Descent",
+            ActivityId = 58, PoiId = 80, Comment = "Darvon's Descent",
             World = "sg_changeling_caverns", CenterX = 370f, CenterZ = 346f, GroundY = 27f, Radius = 180f,
             TitleNameId = 7697, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1178,9 +1189,9 @@ public static class DungeonCatalog
         },
 
         // 900082  ATLAS DUNGEON (POI 82) Sweetwater Climb -> wc_sweetwater_climb
-        [900082] = new()
+        [116] = new()
         {
-            ActivityId = 900082, Comment = "Sweetwater Climb",
+            ActivityId = 116, PoiId = 82, Comment = "Sweetwater Climb",
             World = "wc_sweetwater_climb", CenterX = 182f, CenterZ = 95f, GroundY = 63f, Radius = 300f,
             TitleNameId = 71769, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1192,9 +1203,9 @@ public static class DungeonCatalog
         },
 
         // 900083  ATLAS DUNGEON (POI 83) Den of Secrets -> mv_den_of_secrets
-        [900083] = new()
+        [117] = new()
         {
-            ActivityId = 900083, Comment = "Den of Secrets",
+            ActivityId = 117, PoiId = 83, Comment = "Den of Secrets",
             World = "mv_den_of_secrets", CenterX = 290f, CenterZ = 239f, GroundY = 9f, Radius = 155f,
             TitleNameId = 71770, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1206,9 +1217,9 @@ public static class DungeonCatalog
         },
 
         // 900084  ATLAS DUNGEON (POI 84) Cray Caves -> ss_cray_caves
-        [900084] = new()
+        [115] = new()
         {
-            ActivityId = 900084, Comment = "Cray Caves",
+            ActivityId = 115, PoiId = 84, Comment = "Cray Caves",
             World = "ss_cray_caves", CenterX = 324f, CenterZ = 230f, GroundY = 70f, Radius = 225f,
             TitleNameId = 71694, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1220,9 +1231,9 @@ public static class DungeonCatalog
         },
 
         // 900085  ATLAS DUNGEON (POI 85) Cracked Claw Caverns -> bs_cracked_claw_caverns
-        [900085] = new()
+        [118] = new()
         {
-            ActivityId = 900085, Comment = "Cracked Claw Caverns",
+            ActivityId = 118, PoiId = 85, Comment = "Cracked Claw Caverns",
             World = "bs_cracked_claw_caverns", CenterX = 181f, CenterZ = 268f, GroundY = 39f, Radius = 125f,
             TitleNameId = 71771, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1234,9 +1245,9 @@ public static class DungeonCatalog
         },
 
         // 900086  ATLAS DUNGEON (POI 86) Tanglewood Fort -> bw_tanglewood_fort
-        [900086] = new()
+        [158] = new()
         {
-            ActivityId = 900086, Comment = "Tanglewood Fort",
+            ActivityId = 158, PoiId = 86, Comment = "Tanglewood Fort",
             World = "bw_tanglewood_fort", CenterX = 452f, CenterZ = 467f, GroundY = -52f, Radius = 500f,
             TitleNameId = 23555, DescriptionId = 382845, Difficulty = 5, Xp = 50,
             Enemies =
@@ -1248,9 +1259,9 @@ public static class DungeonCatalog
         },
 
         // 900087  ATLAS DUNGEON (POI 87) Sheep Watch -> sg_sheep_watch
-        [900087] = new()
+        [119] = new()
         {
-            ActivityId = 900087, Comment = "Sheep Watch",
+            ActivityId = 119, PoiId = 87, Comment = "Sheep Watch",
             World = "sg_sheep_watch", CenterX = 386f, CenterZ = 549f, GroundY = -57f, Radius = 300f,
             TitleNameId = 71772, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1261,9 +1272,9 @@ public static class DungeonCatalog
         },
 
         // 900088  ATLAS DUNGEON (POI 88) Haunted Mines -> sg_haunted_mines
-        [900088] = new()
+        [91] = new()
         {
-            ActivityId = 900088, Comment = "Haunted Mines",
+            ActivityId = 91, PoiId = 88, Comment = "Haunted Mines",
             World = "sg_haunted_mines", CenterX = 80f, CenterZ = 73f, GroundY = 23f, Radius = 114f,
             TitleNameId = 5700, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1277,7 +1288,7 @@ public static class DungeonCatalog
         // 900089  ATLAS DUNGEON (POI 89) Hewey's Escape -> sg_bandit_hideout
         [900089] = new()
         {
-            ActivityId = 900089, Comment = "Hewey's Escape",
+            ActivityId = 900089, PoiId = 89, Comment = "Hewey's Escape",
             World = "sg_bandit_hideout", CenterX = 153f, CenterZ = 168f, GroundY = 34f, Radius = 200f,
             TitleNameId = 102010, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1289,9 +1300,9 @@ public static class DungeonCatalog
         },
 
         // 900090  ATLAS DUNGEON (POI 90) Misty Mountain -> gl_misty_mountain
-        [900090] = new()
+        [159] = new()
         {
-            ActivityId = 900090, Comment = "Misty Mountain",
+            ActivityId = 159, PoiId = 90, Comment = "Misty Mountain",
             World = "gl_misty_mountain", CenterX = 273f, CenterZ = 408f, GroundY = 40f, Radius = 300f,
             TitleNameId = 71773, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1302,9 +1313,9 @@ public static class DungeonCatalog
         },
 
         // 900119  ATLAS DUNGEON (POI 119) Bone Bog Cemetery -> bs_bone_bog_cemetery
-        [900119] = new()
+        [339] = new()
         {
-            ActivityId = 900119, Comment = "Bone Bog Cemetery",
+            ActivityId = 339, PoiId = 119, Comment = "Bone Bog Cemetery",
             World = "bs_bone_bog_cemetery", CenterX = 611f, CenterZ = 664f, GroundY = -32f, Radius = 250f,
             TitleNameId = 414849, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1318,7 +1329,7 @@ public static class DungeonCatalog
         // 900121  ATLAS DUNGEON (POI 121) Cursed Graveyard! -> bs_bone_bog_cemetery
         [900121] = new()
         {
-            ActivityId = 900121, Comment = "Cursed Graveyard!",
+            ActivityId = 900121, PoiId = 121, Comment = "Cursed Graveyard!",
             World = "bs_bone_bog_cemetery", CenterX = 611f, CenterZ = 664f, GroundY = -32f, Radius = 250f,
             TitleNameId = 115822, DescriptionId = 382845, Difficulty = 4, Xp = 44,
             Enemies =
@@ -1332,7 +1343,7 @@ public static class DungeonCatalog
         // 900146  ATLAS DUNGEON (POI 146) The Rumbledome -> gw_rumbledome
         [900146] = new()
         {
-            ActivityId = 900146, Comment = "The Rumbledome",
+            ActivityId = 900146, PoiId = 146, Comment = "The Rumbledome",
             World = "gw_rumbledome", CenterX = 154f, CenterZ = 323f, GroundY = 72f, Radius = 100f,
             TitleNameId = 439064, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1346,7 +1357,7 @@ public static class DungeonCatalog
         // 900148  ATLAS DUNGEON (POI 148) Sandscale Oasis -> ss_cray_caves
         [900148] = new()
         {
-            ActivityId = 900148, Comment = "Sandscale Oasis",
+            ActivityId = 900148, PoiId = 148, Comment = "Sandscale Oasis",
             World = "ss_cray_caves", CenterX = 324f, CenterZ = 230f, GroundY = 70f, Radius = 225f,
             TitleNameId = 439065, DescriptionId = 382845, Difficulty = 3, Xp = 38,
             Enemies =
@@ -1443,4 +1454,11 @@ public static class DungeonCatalog
     public static readonly IReadOnlySet<int> EnemyModelIds =
         ByActivity.Values.SelectMany(d => d.Enemies).Select(e => e.ModelId)
             .Concat(WorldEnemyModelIds).ToHashSet();
+
+    /// <summary>The BIG walk-through (atlas) dungeons keyed by their overworld atlas POI id. These are now
+    /// keyed in <see cref="ByActivity"/> by their REAL client activity id (so the minigames menu's "Battles"
+    /// section can launch them), which means StartingZone can no longer derive the catalog key from the POI id
+    /// — it looks the dungeon up here instead.</summary>
+    public static readonly IReadOnlyDictionary<int, DungeonDefinition> ByAtlasPoi =
+        ByActivity.Values.Where(d => d.PoiId != 0).ToDictionary(d => d.PoiId);
 }
