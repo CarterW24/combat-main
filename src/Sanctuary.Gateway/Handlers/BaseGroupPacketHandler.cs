@@ -329,14 +329,17 @@ public static class BaseGroupPacketHandler
                         // fills the Headshot portrait slot ONLY when the provider string matches "Headshot"
                         // (the group roster reads that slot). A null/empty provider is silently discarded.
                         var img = PacketPortraitDataRequestHandler.BuildImageData(subject, "Headshot", includeAttachments: false);
-                        _logger.LogInformation("PORTRAIT push (PNG) -> {to} for {subj}",
-                            recipient.Name?.FullName, subject.Name?.FullName);
+                        // Log the sizes: an oversized op156 has been seen to silently not arrive, so if the
+                        // portrait doesn't render this tells us whether the packet was even plausible.
+                        _logger.LogInformation("PORTRAIT push (PNG) -> {to} for {subj} (guid={guid} png={png}B packet={pkt}B)",
+                            recipient.Name?.FullName, subject.Name?.FullName, subject.Guid,
+                            img.PngPayload?.Length ?? 0, img.Serialize().Length);
                         recipient.SendTunneled(img);
                     }
                     else
                     {
-                        _logger.LogInformation("PORTRAIT render-trigger -> {to} for {subj} (no PNG on disk)",
-                            recipient.Name?.FullName, subject.Name?.FullName);
+                        _logger.LogInformation("PORTRAIT render-trigger -> {to} for {subj} (guid={guid}, no PNG on disk)",
+                            recipient.Name?.FullName, subject.Name?.FullName, subject.Guid);
                         recipient.SendTunneled(new PacketGeneratePortraitRequest
                         {
                             Guid = subject.Guid,

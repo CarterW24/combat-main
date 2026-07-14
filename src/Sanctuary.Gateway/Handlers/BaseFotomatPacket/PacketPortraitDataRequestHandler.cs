@@ -49,6 +49,16 @@ public static class PacketPortraitDataRequestHandler
             return true;
         }
 
+        // Don't answer with an EMPTY PngPayload. A reply with no PNG doesn't merely fail to render — it fills
+        // the client's portrait slot with nothing and BLANKS it. The client asks us for its OWN headshot on
+        // load; if we have no file, stay quiet and let it keep the copy it renders locally.
+        if (!HasHeadshot(target))
+        {
+            _logger.LogInformation("FOTOMAT: no headshot on disk for {name} (guid {guid}, provider {provider}) — not replying (an empty payload would blank the slot).",
+                target.Name?.FullName, packet.Guid, packet.Provider);
+            return true;
+        }
+
         connection.SendTunneled(BuildImageData(target, packet.Provider));
 
         return true;
