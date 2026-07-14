@@ -426,24 +426,24 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             startCastingFx = 0;
 
             var tagId = System.Threading.Interlocked.Increment(ref _castFxTagCounter);
-            player.SendTunneled(new PlayerUpdatePacketAddEffectTagCompositeEffect
+            player.SendTunneledToVisible(new PlayerUpdatePacketAddEffectTagCompositeEffect
             {
                 Guid = player.Guid,
                 TagId = tagId,
                 CompositeEffectId = ability.CastEffectId,
                 SourceGuid = player.Guid,
-            });
+            }, sendToSelf: true);
             var stopMs = ability.CastEffectStopMs;
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await Task.Delay(stopMs);
-                    player.SendTunneled(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
+                    player.SendTunneledToVisible(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
                     {
                         Guid = player.Guid,
                         TagId = tagId,
-                    });
+                    }, sendToSelf: true);
                 }
                 catch (Exception ex)
                 {
@@ -465,19 +465,22 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             HasActionProgress = false,        // no cast/progress bar for a basic melee swing
         };
 
-        connection.SendTunneled(startCasting);
+        // Broadcast the cast to everyone who can see the caster (not just their own screen) so party
+        // members watch each other swing/shoot. Was connection.SendTunneled (caster-only) — that's why a
+        // teammate saw enemies die but never saw the moves/FX/animations/sounds that killed them.
+        player.SendTunneledToVisible(startCasting, sendToSelf: true);
 
         // COMBAT WIP: weapon-empowering specials (Mysticism / Mystical Blade) bind their FX to the SWORD
         // (item slot 7) instead of the body — the effect rides on the weapon. (SlotCompositeEffectOverride
         // op35/sub31: Guid + slot + composite effect.)
         if (ability.SwordEffectId > 0)
         {
-            connection.SendTunneled(new PlayerUpdatePacketSlotCompositeEffectOverride
+            player.SendTunneledToVisible(new PlayerUpdatePacketSlotCompositeEffectOverride
             {
                 Guid = player.Guid,
                 Slot = NinjaWeaponAbilities.WeaponSlot, // 7 = the equipped weapon
                 CompositeEffect = ability.SwordEffectId,
-            });
+            }, sendToSelf: true);
         }
 
         // COMBAT WIP: Shadow Army (any special with SummonCount>0) spawns temporary shadow-clone NPCs
@@ -996,14 +999,15 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 player.EnterWorldCombat();
 
                 // Caster-side end FX plays ONCE regardless of how many victims (e.g. Dragonstrike's land FX).
+                // Broadcast to visible players (sendToSelf) so teammates see it too.
                 if (casterEndEffectId > 0)
                 {
-                    player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+                    player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
                     {
                         Guid = player.Guid,
                         CompositeEffectId = casterEndEffectId,
                         Position = player.Position,
-                    });
+                    }, sendToSelf: true);
                 }
 
                 foreach (var target in targets)
@@ -1019,24 +1023,24 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     // field) silently dropped EVERY impact effect — play it explicitly instead.
                     if (effectId > 0)
                     {
-                        player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+                        player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
                         {
                             Guid = target.Guid,
                             CompositeEffectId = effectId,
                             Position = target.Position,
-                        });
+                        }, sendToSelf: true);
                     }
 
                     // EnemyExtraEffectId plays an ADDITIONAL effect on each victim on top of the hit FX
                     // (e.g. Soul Power's purple ring around the enemy).
                     if (enemyExtraEffectId > 0)
                     {
-                        player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
+                        player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
                         {
                             Guid = target.Guid,
                             CompositeEffectId = enemyExtraEffectId,
                             Position = target.Position,
-                        });
+                        }, sendToSelf: true);
                     }
 
                     // COOLDOWN FIX (2026-07-03, ground-truthed against the 04-01 capture): the real server
@@ -1047,7 +1051,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     // the floating number + health bar + recoil and NEVER touches the action-bar timer.
                     //   Real wire order (04-01): Guid=SOURCE(player), Guid2=VICTIM(enemy), leading bool=01,
                     //   i2=maxHP, i3=curHP-after, i4=-damage (the delta = the floating number).
-                    player.SendTunneled(new PlayerUpdatePacketHitPointModification
+                    player.SendTunneledToVisible(new PlayerUpdatePacketHitPointModification
                     {
                         Guid = player.Guid,           // source / attacker
                         Guid2 = target.Guid,          // victim
@@ -1055,7 +1059,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                         Unknown2 = target.MaxHealth,  // max HP (bar denominator)
                         Unknown3 = target.Health,     // current HP AFTER the hit (bar position)
                         Unknown4 = -damage,           // delta = -damage -> the floating number
-                    });
+                    }, sendToSelf: true);
 
                     _logger.LogInformation(
                         "Ability hit {name} ({guid}) for {dmg} -> {hp}/{max} HP (killed={killed})",
