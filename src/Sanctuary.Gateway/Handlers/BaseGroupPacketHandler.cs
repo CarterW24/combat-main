@@ -304,29 +304,49 @@ public static class BaseGroupPacketHandler
         foreach (var m in members)
             m.SendTunneled(update);
 
-        // Push each member's portrait (Fotomat PlayerImageData) to everyone so the roster headshots fill.
-        // A same-zone member's portrait cache entry is a HIT, so the client never sends a PortraitDataRequest
-        // for it — without this unsolicited push the entry stays an empty stub (silhouette). Frida-verified
-        // 2026-07-11: the group row looks up the member's player guid (e.g. 0x1a1) and never fetches it.
+        // Fill each member's roster headshot on every other member's client. A same-zone member's portrait
+        // cache entry is a HIT, so the client never sends a PortraitDataRequest for it — without an unsolicited
+        // push/trigger the entry stays an empty stub (silhouette). Frida-verified 2026-07-11: the group row
+        // looks up the member's player guid (e.g. 0x1a1) and never fetches it.
+        //
+        // TWO ways to fill it, and picking the wrong one BLANKS the slot:
+        //   * PNG on disk  -> push PlayerImageData (sub3) carrying the bytes. Proven to render.
+        //   * no PNG       -> DON'T push. A PlayerImageData with an empty PngPayload doesn't merely fail to
+        //                     render, it fills the Headshot slot with nothing and blanks it — which is what we
+        //                     were doing for every member, since no client ever uploads its headshot and the
+        //                     Images/ folder is normally empty. Send GeneratePortraitRequest (sub1) instead:
+        //                     the client renders the 70x70 portrait ITSELF for whatever guid we name, so each
+        //                     client draws its team-mates locally with no server-side PNG at all.
         foreach (var recipient in members)
         {
             foreach (var subject in members)
             {
-                // ★ Provider MUST be "Headshot" — the client's Fotomat receive handler (FUN_00bd4a50)
-                // fills the Headshot portrait slot ONLY when the provider string matches "Headshot"
-                // (the group roster reads that slot). A null/empty provider is silently discarded, which
-                // is why earlier pushes never rendered.
                 try
                 {
-                    var img = PacketPortraitDataRequestHandler.BuildImageData(subject, "Headshot", includeAttachments: false);
-                    var bytes = img.Serialize();
-                    _logger.LogInformation("PORTRAIT push -> {to} for {subj} ({bytes} bytes)",
-                        recipient.Name?.FullName, subject.Name?.FullName, bytes.Length);
-                    recipient.SendTunneled(img);
+                    if (PacketPortraitDataRequestHandler.HasHeadshot(subject))
+                    {
+                        // ★ Provider MUST be "Headshot" — the client's Fotomat receive handler (FUN_00bd4a50)
+                        // fills the Headshot portrait slot ONLY when the provider string matches "Headshot"
+                        // (the group roster reads that slot). A null/empty provider is silently discarded.
+                        var img = PacketPortraitDataRequestHandler.BuildImageData(subject, "Headshot", includeAttachments: false);
+                        _logger.LogInformation("PORTRAIT push (PNG) -> {to} for {subj}",
+                            recipient.Name?.FullName, subject.Name?.FullName);
+                        recipient.SendTunneled(img);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("PORTRAIT render-trigger -> {to} for {subj} (no PNG on disk)",
+                            recipient.Name?.FullName, subject.Name?.FullName);
+                        recipient.SendTunneled(new PacketGeneratePortraitRequest
+                        {
+                            Guid = subject.Guid,
+                            Provider = "Headshot",
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "PORTRAIT push failed for {subj} -> {to}",
+                    _logger.LogError(ex, "PORTRAIT fill failed for {subj} -> {to}",
                         subject.Name?.FullName, recipient.Name?.FullName);
                 }
             }

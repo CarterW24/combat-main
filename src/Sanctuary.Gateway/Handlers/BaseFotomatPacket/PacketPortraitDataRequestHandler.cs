@@ -114,6 +114,14 @@ public static class PacketPortraitDataRequestHandler
         };
     }
 
+    /// <summary>True when a real headshot PNG exists on disk for this player (<c>Images/&lt;charId&gt;/headshot.png</c>
+    /// or <c>Images/&lt;guid&gt;/headshot.png</c>). Callers MUST check this before pushing a
+    /// <see cref="PacketPlayerImageData"/>: pushing one with an EMPTY PngPayload doesn't just fail to render —
+    /// it fills the client's Headshot slot with nothing, blanking it. With no PNG, trigger a client-side
+    /// render (<see cref="PacketGeneratePortraitRequest"/>) instead of pushing an empty payload.</summary>
+    public static bool HasHeadshot(Player target) =>
+        ReadHeadshot(GuidHelper.GetPlayerId(target.Guid)) is not null || ReadHeadshot(target.Guid) is not null;
+
     private static byte[]? ReadHeadshot(ulong id)
     {
         var path = Path.Combine("Images", id.ToString(), "headshot.png");
