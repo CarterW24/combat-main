@@ -68,14 +68,7 @@ public abstract class CombatEncounterZone : BaseZone
 
     public void EndEncounterForPlayer(Player player, bool won)
     {
-        // If we already put the end screen up and waited for the player to dismiss it (ShowEndScreenAndExit),
-        // do NOT re-send GameOver here — that would pop the card back open on the way out, right after they
-        // closed it. Only the paths that tear down WITHOUT having shown a card send it.
-        bool alreadyShown;
-        lock (_exitLock)
-            alreadyShown = _endScreenShown.Remove(player.Guid);
-
-        if (won && !alreadyShown)
+        if (won)
             player.SendTunneled(new MiniGameGameOverPacket(won: true));
         player.SendTunneled(new MiniGameStateRemovePacket());
         player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
@@ -85,76 +78,13 @@ public abstract class CombatEncounterZone : BaseZone
         _logger.LogInformation("{label}: encounter released for {name}.", EncounterLogName, player.Name);
     }
 
-    // ── End-screen exit ───────────────────────────────────────────────────────────────────────────────
-    // Retail flow: finishing (or failing) a dungeon puts a result card up and you stay in the instance until
-    // you DISMISS it — only then are you sent back to the overworld. We used to teleport immediately on the
-    // exit-door click (win) and on a fixed 4s timer (fail), which yanked the player out from under the card.
-    // Now we show the card, mark the player as awaiting its close, and do the teardown + teleport when the
-    // client reports the dismissal (BaseCommandPacket sub-op 42, CommandPacketClosedMinigameEndScreen).
-
-    private readonly object _exitLock = new();
-    private readonly Dictionary<ulong, bool> _awaitingClose = []; // guid -> revive on return (fail = true)
-    private readonly HashSet<ulong> _endScreenShown = [];
-
-    /// <summary>Backstop for a client that never reports the close (panel dismissed some other way, packet
-    /// lost, player idles on the card forever). Without it they'd be stranded in the instance.</summary>
-    private const int EndScreenFallbackMs = 60_000;
-
-    /// <summary>Put the result card up and WAIT for the player to close it before tearing the encounter down
-    /// and sending them home. <paramref name="won"/> picks the "You Win!" vs "TRY AGAIN!" variant;
-    /// <paramref name="reviveOnReturn"/> revives them on arrival (the fail path, where they're knocked out —
-    /// arriving dead used to block firing even through a job-swap).</summary>
-    protected void ShowEndScreenAndExit(Player player, bool won, bool reviveOnReturn)
-    {
-        lock (_exitLock)
-        {
-            if (!_awaitingClose.TryAdd(player.Guid, reviveOnReturn))
-                return; // already showing them a card
-            _endScreenShown.Add(player.Guid);
-        }
-
-        if (won)
-            player.SendTunneled(new MiniGameGameOverPacket(won: true));
-        else
-            SendFailEndScreen(player); // stands them up + Won=0 + the persistent "TRY AGAIN!" card
-
-        _logger.LogInformation("{label}: end screen shown to {name} (won={won}) — waiting for close.",
-            EncounterLogName, player.Name, won);
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(EndScreenFallbackMs);
-                OnEndScreenClosed(player); // no-op if they already closed it
-            }
-            catch (Exception ex) { _logger.LogError(ex, "End-screen fallback exit failed."); }
-        });
-    }
-
-    /// <summary>The player dismissed the result card (or the fallback fired): NOW tear the encounter down and
-    /// send them home. Idempotent — only the first call for a given player does anything, so the fallback and
-    /// a real close can't double-teleport.</summary>
-    public void OnEndScreenClosed(Player player)
-    {
-        bool revive;
-        lock (_exitLock)
-        {
-            if (!_awaitingClose.Remove(player.Guid, out revive))
-                return; // not waiting on a card (already left, or never showed one)
-        }
-
-        if (player.Zone != this)
-            return;
-
-        _logger.LogInformation("{label}: {name} closed the end screen — returning to the overworld.",
-            EncounterLogName, player.Name);
-
-        ReturnHome(player);
-
-        if (revive)
-            player.Respawn();
-    }
+    // ── Result cards ─────────────────────────────────────────────────────────────────────────────────
+    // DO NOT gate the exit on the player closing the card. The client does NOT report the dismissal: we tried
+    // routing BaseCommandPacket sub-op 42 (CommandPacketClosedMinigameEndScreen) and it never arrives for these
+    // encounter cards (nor does Leave/RequestExit) — the player just sat in the instance clicking the exit door
+    // with nothing happening. The card is raised as part of the teardown instead (EndEncounterForPlayer sends
+    // GameOver, and the score card comes from the zone's win flow / SendFailEndScreen), and the teleport goes
+    // out with it — which is the behavior that actually works in-game.
 
     /// <summary>Forget a player's knockout tally (call on encounter start/complete so a fresh run starts at 0).</summary>
     protected void ResetKnockouts(ulong guid)
@@ -207,32 +137,21 @@ public abstract class CombatEncounterZone : BaseZone
 
     public void UseExitDoor(Player player)
     {
-        // WIN: the door raises the "You Win!" card and we sit tight — the teleport home happens when the
-        // player closes it (OnEndScreenClosed), not the instant they click the door.
+        // WIN: the victory door tears down + teleports home. EndEncounterForPlayer(won: true) raises the
+        // "You Win!" card on the way out; the player reads/closes it once they're back. (Waiting for them to
+        // close it first does NOT work — the client never reports the dismissal, so they got stuck.)
         _logger.LogInformation("{label}: {name} used the exit door.", EncounterLogName, player.Name);
-        ShowEndScreenAndExit(player, won: true, reviveOnReturn: false);
+        ReturnHome(player);
     }
 
-    /// <summary>The minigame UI's LEAVE button (op39/sub6) and RequestExit (op41/sub109) — NOT a win, so it
-    /// must never raise a "You Win!" card. If a result card is already up this is the player dismissing it
-    /// (the client fires RequestExit as the panel closes), so exit exactly as closing the card does; otherwise
-    /// it's a mid-run bail-out: tear down and teleport out immediately, with no card.</summary>
+    /// <summary>The minigame UI's LEAVE button (op39/sub6) and RequestExit (op41/sub109): bail out of the
+    /// instance back to the overworld. Same teardown + teleport as the exit door.</summary>
     public void LeaveEncounter(Player player)
     {
-        bool awaitingCard;
-        lock (_exitLock)
-            awaitingCard = _awaitingClose.ContainsKey(player.Guid);
-
-        if (awaitingCard)
-        {
-            OnEndScreenClosed(player);
-            return;
-        }
-
         if (player.Zone != this)
             return;
 
-        _logger.LogInformation("{label}: {name} left the encounter (no result card).", EncounterLogName, player.Name);
+        _logger.LogInformation("{label}: {name} left the encounter.", EncounterLogName, player.Name);
         ReturnHome(player);
     }
 
@@ -413,10 +332,22 @@ public abstract class CombatEncounterZone : BaseZone
 
         if (kos >= KnockoutLimit)
         {
-            // Out of lives — FAIL. Raise the persistent "TRY AGAIN!" card and WAIT: the teardown + teleport
-            // home (and the revive, so they don't arrive knocked out — that used to block firing even through
-            // a job-swap) all happen when the player closes it, not on a timer.
-            ShowEndScreenAndExit(player, won: false, reviveOnReturn: true);
+            // Out of lives — FAIL. Persistent "TRY AGAIN!" end-screen (SendFailEndScreen: clears the knockdown
+            // UI + Won=0 + score card), HOLD it, THEN tear down + teleport home and REVIVE so the player arrives
+            // ALIVE (a fail used to strand them knocked out, which blocked firing even through a job-swap).
+            // The hold is a timer because the client never reports the card being closed — see the note on
+            // the result cards above.
+            SendFailEndScreen(player);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(FailCardHoldMs);
+                    ReturnHome(player);
+                    player.Respawn();
+                }
+                catch (Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
+            });
             return;
         }
 
