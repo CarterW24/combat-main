@@ -47,6 +47,25 @@ public static class PacketChatHandler
             CommandRouter.Initialize(serviceProvider);
             _commandRouterInitialized = true;
         }
+
+        var adminLogger = loggerFactory.CreateLogger("Admin");
+
+        ChatCommandRegistry.Initialize(_zoneManager, _dbContextFactory, adminLogger);
+    }
+
+    private static void SendMuteNotice(GatewayConnection connection)
+    {
+        DateTimeOffset? mutedUntil = connection.Player.MutedUntil;
+
+        var packet = new PacketChat
+        {
+            Channel = ChatChannel.System,
+            FromName = connection.Player.Name,
+            ToName = connection.Player.Name,
+            Message = $"You are muted until {mutedUntil:u} and cannot send chat messages."
+        };
+
+        connection.Player.SendTunneled(packet);
     }
 
     public static bool HandlePacket(GatewayConnection connection, ReadOnlySpan<byte> data)
@@ -235,6 +254,24 @@ public static class PacketChatHandler
         if (packet.Message is { } ffMsg && ffMsg.StartsWith("!frostfang"))
         {
             HandleFrostfangTest(connection, ffMsg);
+            return true;
+        }
+
+        if (packet.Message == null)
+        {
+            _logger.LogWarning("Received {name} packet with null message. ( {packet} )", nameof(PacketChat), packet);
+            return false;
+        }
+        
+        if (packet.Message.StartsWith("!admin"))
+        {
+            ChatCommandRegistry.HandleCommand(connection, packet.Message);
+            return true;
+        }
+
+        if (connection.Player.IsMuted())
+        {
+            SendMuteNotice(connection);
             return true;
         }
 

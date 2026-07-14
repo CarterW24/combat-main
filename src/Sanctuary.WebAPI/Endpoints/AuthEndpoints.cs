@@ -102,8 +102,7 @@ public static class AuthEndpoints
             Password = hashedPassword,
             MaxCharacters = 5,
             IsMember = true,
-            IsAdmin = false,
-            IsLocked = false
+            IsAdmin = false
         };
 
         await databaseContext.Users.AddAsync(dbUser, cancellationToken);

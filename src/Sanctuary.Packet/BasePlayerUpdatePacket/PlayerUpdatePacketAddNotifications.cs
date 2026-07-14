@@ -9,7 +9,7 @@ public class PlayerUpdatePacketAddNotifications : BasePlayerUpdatePacket, ISeria
 {
     public new const short OpCode = 10;
 
-    public List<NotificationInfo> Notifications = new List<NotificationInfo>();
+    public List<NotificationInfo> Notifications { get; set; } = [];
 
     public PlayerUpdatePacketAddNotifications() : base(OpCode)
     {

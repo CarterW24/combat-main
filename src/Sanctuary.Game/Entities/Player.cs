@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -78,7 +78,12 @@ public sealed class Player : ClientPcData, IEntity
     public int ChatBubbleBackgroundColor { get; set; }
     public int ChatBubbleSize { get; set; }
 
-    public ClientPcProfile ActiveProfile => Profiles.Single(x => x.Id == ActiveProfileId);
+    public bool IsAdmin { get; set; }
+    public bool IsMod { get; set; }
+    public DateTimeOffset? MutedUntil { get; set; }
+
+    public ClientPcProfile ActiveProfile =>
+        Profiles.FirstOrDefault(x => x.Id == ActiveProfileId) ?? Profiles.First();
 
     public Mount? Mount { get; set; }
 
@@ -151,7 +156,8 @@ public sealed class Player : ClientPcData, IEntity
     /// </summary>
     public System.Action? PendingQuestEndAction { get; set; }
 
-    public void Disconnect() => _connection.Disconnect();
+
+    private readonly ConcurrentQueue<(DateTimeOffset SendAt, ISerializablePacket Packet, bool SendToSelf)> _delayedPackets = new();
 
     public Vector4 StartingZonePosition { get; set; }
     public Quaternion StartingZoneRotation { get; set; }
@@ -216,6 +222,23 @@ public sealed class Player : ClientPcData, IEntity
             SendTunneled(packet);
     }
 
+    public void SendTunneledToVisibleDelayed(ISerializablePacket packet, int delayMs, bool sendToSelf = false)
+    {
+        _delayedPackets.Enqueue((DateTimeOffset.UtcNow.AddMilliseconds(delayMs), packet, sendToSelf));
+    }
+
+    public bool IsMuted()
+    {
+        DateTimeOffset currentTime = DateTimeOffset.UtcNow;
+        DateTimeOffset? mutedUntil = MutedUntil;
+        return mutedUntil.HasValue && mutedUntil > currentTime;
+    }
+
+    public void Disconnect()
+    {
+        _connection.Disconnect();
+    }
+
     #endregion
 
     #region Update
@@ -233,6 +256,12 @@ public sealed class Player : ClientPcData, IEntity
             TemporaryAppearanceExpiresAt.Value <= DateTimeOffset.UtcNow)
         {
             RemoveTemporaryAppearance();
+        }
+
+        while (_delayedPackets.TryPeek(out var delayed) && delayed.SendAt <= DateTimeOffset.UtcNow)
+        {
+            if (_delayedPackets.TryDequeue(out delayed))
+                SendTunneledToVisible(delayed.Packet, delayed.SendToSelf);
         }
     }
 
@@ -835,16 +864,19 @@ public sealed class Player : ClientPcData, IEntity
         }, sendToSelf: true);
     }
 
-    public void UpdatePosition(Vector4 position, Quaternion rotation)
+    public void UpdatePosition(Vector4 position, Quaternion rotation, bool updateZoneArea = true)
     {
         Position = position;
         Rotation = rotation;
+
+        Mount?.UpdatePosition(position, rotation, updateZoneArea);
 
         if (Visible)
         {
             UpdateZoneTile();
 
-            UpdateZoneArea();
+            if (updateZoneArea)
+                UpdateZoneArea();
         }
     }
 
@@ -925,9 +957,11 @@ public sealed class Player : ClientPcData, IEntity
         Zone.TryRemovePlayer(Guid);
 
         // Add to new zone/zonetile
+
         zone.TryAddPlayer(this);
 
         // Teleport to new zone
+
         Visible = false;
 
         Zone = zone;
@@ -1006,6 +1040,9 @@ public sealed class Player : ClientPcData, IEntity
     {
         foreach (var npc in npcs)
         {
+            if (npc is Mount)
+                continue;
+
             var playerUpdatePacketAddNpc = npc.GetAddNpcPacket();
 
             // Vendors bake a static badge into the AddNpc packet itself (npc.NotificationImageSetId).
@@ -1146,9 +1183,20 @@ public sealed class Player : ClientPcData, IEntity
     {
         foreach (var player in players)
         {
-            var playerUpdatePacketAddPc = player.GetAddPcPacket();
+            if (player.Mount is not null)
+            {
+                var addPc = player.GetAddPcPacket();
+                addPc.MountGuid = 0;
+                addPc.MountSeat = -1;
+                addPc.MountQueuePosition = -1;
+                addPc.NameVerticalOffset = 0;
 
-            SendTunneled(playerUpdatePacketAddPc);
+                SendTunneled(addPc);
+                SendTunneled(player.Mount.GetAddNpcPacket());
+                SendTunneled(player.Mount.GetMountResponsePacket());
+            }
+            else
+                SendTunneled(player.GetAddPcPacket());
         }
 
         foreach (var player in players)
@@ -1209,11 +1257,10 @@ public sealed class Player : ClientPcData, IEntity
     {
         foreach (var player in players)
         {
-            var playerUpdatePacketRemovePlayer = new PlayerUpdatePacketRemovePlayer();
+            SendTunneled(new PlayerUpdatePacketRemovePlayer { Guid = player.Guid });
 
-            playerUpdatePacketRemovePlayer.Guid = player.Guid;
-
-            SendTunneled(playerUpdatePacketRemovePlayer);
+            if (player.Mount is not null)
+                SendTunneled(new PlayerUpdatePacketRemovePlayer { Guid = player.Mount.Guid });
         }
 
         foreach (var player in players)
@@ -1405,7 +1452,7 @@ public sealed class Player : ClientPcData, IEntity
             TemporaryAppearanceExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(durationMs);
 
         if (effectId != 0)
-            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = effectId, Position = Position }, true);
+            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = effectId, Position = Position, Clear = false }, true);
 
         SendTunneledToVisible(new PlayerUpdatePacketUpdateTemporaryAppearance { Guid = Guid, TemporaryAppearance = modelId }, true);
     }
@@ -1417,7 +1464,7 @@ public sealed class Player : ClientPcData, IEntity
 
         if (_temporaryAppearanceEffectId != 0)
         {
-            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = _temporaryAppearanceEffectId, Position = Position }, true);
+            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect { Guid = Guid, CompositeEffectId = _temporaryAppearanceEffectId, Position = Position, Clear = false }, true);
             _temporaryAppearanceEffectId = 0;
         }
 
@@ -1471,6 +1518,7 @@ public sealed class Player : ClientPcData, IEntity
 
         ZoneTile.Entities.Remove(Guid, out _);
 
+        ZoneTile.Entities.Remove(Guid, out _);
         Zone.TryRemovePlayer(Guid);
     }
 }

@@ -1,3 +1,4 @@
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -73,7 +74,9 @@ public class Npc : IEntity
     /// + ActiveProfile != 0, all at spawn time.
     /// </summary>
     public int Disposition { get; set; } = 1;
-    public System.Action<Player>? InteractAction { get; set; }
+
+    public Action<Player>? InteractAction { get; set; }
+    public Action? UpdateEverySecondAction { get; set; }
 
     /// <summary>Non-zero = show a combat-encounter "Battle Starter" badge over this NPC's head (op35/sub10
     /// AddNotifications, Type 3 = combat category = red crossed-swords + red minimap dot). 24 is the live
@@ -228,9 +231,10 @@ public class Npc : IEntity
 
     public virtual void UpdateEverySecond()
     {
+        UpdateEverySecondAction?.Invoke();
     }
 
-    public void UpdatePosition(Vector4 position, Quaternion rotation)
+    public void UpdatePosition(Vector4 position, Quaternion rotation, bool updateZoneArea = true)
     {
         Position = position;
         Rotation = rotation;
@@ -323,6 +327,7 @@ public class Npc : IEntity
             Unknown36 = default, // AnimationEvent
             TemporaryAppearance = default,
 
+            // playerUpdatePacketAddNpc.EffectTags = TODO
 
             Unknown38 = EnemyStatus,
             Unknown39 = default,
@@ -332,6 +337,7 @@ public class Npc : IEntity
 
             HasTilt = default,
 
+            // playerUpdatePacketAddNpc.Customization = TODO
 
             Tilt = default,
 
@@ -361,6 +367,9 @@ public class Npc : IEntity
             Unknown57 = default,
             Unknown58 = default,
 
+            // playerUpdatePacketAddNpc.Head = TODO
+            // playerUpdatePacketAddNpc.Hair = TODO
+            // playerUpdatePacketAddNpc.ModelCustomization = TODO
 
             ReplaceTerrainObject = default,
 
