@@ -230,16 +230,26 @@ public class GatewayConnection : UdpConnection
         Player.ModelCustomization = dbCharacter.ModelCustomization;
         Player.ModelCustomizationId = dbCharacter.ModelCustomizationId ?? 0;
 
-        // COMBAT/INSTANCE WIP: always spawn at the starting-zone spawn (right by the training dummy) on login,
-        // ignoring the saved DB position. During the encounter/instance RE we constantly teleport-probe to test
-        // coords (e.g. !frostfang) which can persist a floorless position and make the next login fall through
-        // the map. Forcing the spawn makes login a reliable recovery point. (Revert to the saved-position logic
-        // below once instance entry is stable.)
-        //   var position = dbCharacter.PositionX.HasValue && dbCharacter.PositionY.HasValue && dbCharacter.PositionZ.HasValue
-        //       ? new Vector4(dbCharacter.PositionX.Value, dbCharacter.PositionY.Value, dbCharacter.PositionZ.Value, 1f)
-        //       : startingZone.SpawnPosition;
-        var position = startingZone.SpawnPosition;
-        var rotation = startingZone.SpawnRotation;
+        // Restore the player's saved overworld position on login so they log back in where they logged out.
+        // SavePlayerToDatabase (on disconnect) only ever persists a valid overworld position — the live
+        // position when in the starting zone, or the pre-instance entry point (StartingZonePosition) if they
+        // logged out inside an instance — so the restored spot is always solid ground, never a floorless
+        // instance/probe coord. A brand-new character with no saved position falls back to the spawn.
+        Vector4 position;
+        Quaternion rotation;
+
+        if (dbCharacter.PositionX.HasValue && dbCharacter.PositionY.HasValue && dbCharacter.PositionZ.HasValue)
+        {
+            position = new Vector4(dbCharacter.PositionX.Value, dbCharacter.PositionY.Value, dbCharacter.PositionZ.Value, 1f);
+            rotation = dbCharacter.RotationX.HasValue && dbCharacter.RotationZ.HasValue
+                ? new Quaternion(dbCharacter.RotationX.Value, 0f, dbCharacter.RotationZ.Value, 0f)
+                : startingZone.SpawnRotation;
+        }
+        else
+        {
+            position = startingZone.SpawnPosition;
+            rotation = startingZone.SpawnRotation;
+        }
 
         Player.UpdatePosition(position, rotation);
 
