@@ -3,6 +3,7 @@ using System.Linq;
 
 using Sanctuary.Game.Entities;
 using Sanctuary.Packet;
+using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
@@ -92,6 +93,44 @@ public static class ArcherWeaponAbilities
     /// <summary>True when the player is an Archer whose active job rank has unlocked the given trait level.</summary>
     public static bool HasTrait(Player player, int traitLevel) =>
         player.ActiveProfileId == ArcherProfileId && player.ActiveProfile.Rank >= traitLevel;
+
+    // The four traits as they appear in the AbilitiesScreen's "Traits" section. NameId/DescriptionId are the
+    // real Global.Text ids (reversed from en_us_data via Jenkins lookup2, 2026-07-14): names 420934-37,
+    // descriptions 420958-61. IconId = the client IMAGE_ID (ImageSetMappings.txt, type6/Medium = the _64 art):
+    // Precision 33, Marksmanship 31; Reflexes reuses evasion 22570, Lucky Shot reuses advantage 39861 (no
+    // dedicated art ships for those two). Entries are PASSIVE (IsActivateable=false) so the panel lists them as
+    // traits and locks each until the active job rank reaches RequiredLevel.
+    private static readonly (int NameId, int DescId, int IconId, int Level)[] Traits =
+    [
+        (420934, 420958, 33,    PrecisionLevel),     // Precision
+        (420935, 420959, 31,    MarksmanshipLevel),  // Marksmanship
+        (420936, 420960, 22570, ReflexesLevel),      // Reflexes (evasion icon)
+        (420937, 420961, 39861, LuckyShotLevel),     // Lucky Shot (advantage icon)
+    ];
+
+    /// <summary>The Archer's four traits as passive AbilityExperience entries for the profile ability list
+    /// (drives the AbilitiesScreen Traits section). <paramref name="rank"/> = the profile's current rank, used
+    /// to mark unlocked traits (Level = rank so an unlocked trait doesn't read as locked, while
+    /// RequiredLevel keeps the "unlocked at N" gate for the still-locked ones).</summary>
+    public static List<AbilityExperience> BuildTraitEntries(int rank)
+    {
+        var list = new List<AbilityExperience>(Traits.Length);
+        foreach (var t in Traits)
+        {
+            list.Add(new AbilityExperience
+            {
+                Present = 1,
+                IsActivateable = false,      // passive => shown in the Traits section
+                NameId = t.NameId,
+                DescriptionId = t.DescId,
+                IconId = t.IconId,
+                Level = rank >= t.Level ? rank : 0,
+                RequiredLevel = t.Level,     // the "Unlocked at level N" lock
+            });
+        }
+        list.Add(new AbilityExperience { Present = 0 }); // terminator (the profile reader stops at Present==0)
+        return list;
+    }
 
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)
     private const int SpecialAnim = 1106;     // com_range_special_01 (refine per-special via !anim)

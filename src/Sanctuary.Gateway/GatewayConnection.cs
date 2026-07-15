@@ -329,6 +329,13 @@ public class GatewayConnection : UdpConnection
                 }
             }
 
+            // TRAITS: the AbilitiesScreen's "Traits" section is the profile's passive ability entries
+            // (AbilityExperience with IsActivateable=false), each locked until the job rank reaches its
+            // RequiredLevel. Archer's four are data'd (real name/desc/icon ids); other jobs' trait tables
+            // aren't mined yet, so they keep an empty list for now.
+            if (profileData.Id == Sanctuary.Game.Combat.ArcherWeaponAbilities.ArcherProfileId)
+                clientPcProfile.AbilityExperiences = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildTraitEntries(clientPcProfile.Rank);
+
             Player.Profiles.Add(clientPcProfile);
 
             if (!Player.ProfileTypes.Any(x => x.Type == profileData.Type))
