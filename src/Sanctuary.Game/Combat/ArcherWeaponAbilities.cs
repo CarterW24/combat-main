@@ -199,18 +199,25 @@ public static class ArcherWeaponAbilities
     {
         var list = new List<AbilityExperience>(TraitData.Length + 3);
 
-        if (weaponDefId != 0 && ByWeaponDefId.TryGetValue(weaponDefId, out var weapon))
-        {
-            var basic = BuildActiveEntry(weapon.Basic);
-            if (basic is not null) list.Add(basic);
-            var special = BuildActiveEntry(weapon.Special);
-            if (special is not null) list.Add(special);
-        }
+        // Resolve the equipped bow to its ability pair; ANY unmapped/absent bow (e.g. the starter "Student
+        // Archer Bow" 4266, which isn't in the tiered kit) falls back to the tier-1 Barrage/Volley pair so the
+        // Attack / Special Attack columns still populate instead of rendering "undefined".
+        var weapon = weaponDefId != 0 && ByWeaponDefId.TryGetValue(weaponDefId, out var w) ? w : FallbackWeapon;
+
+        var basic = BuildActiveEntry(weapon.Basic);
+        if (basic is not null) list.Add(basic);
+        var special = BuildActiveEntry(weapon.Special);
+        if (special is not null) list.Add(special);
 
         AppendTraits(list, rank);
         list.Add(new AbilityExperience { Present = 0 }); // terminator
         return list;
     }
+
+    /// <summary>Panel display pair for an archer whose equipped bow isn't in the tiered kit — tier-1
+    /// Barrage/Volley (the starter abilities). Only drives the AbilitiesScreen columns; unmapped bows still
+    /// FIRE the bare shot in combat (a separate concern — map the bow into ByWeaponDefId to unify them).</summary>
+    private static readonly ArcherWeapon FallbackWeapon = Volleys(BowIcon, 350, 506);
 
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)
     private const int SpecialAnim = 1106;     // com_range_special_01 (refine per-special via !anim)
