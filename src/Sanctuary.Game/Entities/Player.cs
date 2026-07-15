@@ -718,13 +718,15 @@ public sealed class Player : ClientPcData, IEntity
         _levelUpBurstAtTicks = Environment.TickCount64 + LevelUpBurstDelayMs;
     }
 
-    /// <summary>Rebuild the active profile's trait (passive ability) list to the current rank so the
-    /// AbilitiesScreen Traits panel reflects newly-unlocked traits after a level-up, not just on relog. Only
-    /// Archer is data'd; other jobs leave their (empty) list untouched. Call before any profile re-send.</summary>
+    /// <summary>Rebuild the active profile's ability list — the equipped bow's active abilities plus the traits,
+    /// to the current rank — so the AbilitiesScreen reflects newly-unlocked traits (and the equipped bow's
+    /// ability rows) after a level-up / job-swap, not just on relog. Only Archer is data'd; other jobs leave
+    /// their (empty) list untouched. Call before any profile re-send.</summary>
     public void RefreshTraits()
     {
         if (ActiveProfileId == Combat.ArcherWeaponAbilities.ArcherProfileId)
-            ActiveProfile.AbilityExperiences = Combat.ArcherWeaponAbilities.BuildTraitEntries(ActiveProfile.Rank);
+            ActiveProfile.AbilityExperiences = Combat.ArcherWeaponAbilities.BuildProfileAbilityList(
+                ActiveProfile.Rank, GetEquippedWeaponDefinitionId());
     }
 
     /// <summary>Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).</summary>

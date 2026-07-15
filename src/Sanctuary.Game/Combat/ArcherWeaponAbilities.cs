@@ -116,6 +116,13 @@ public static class ArcherWeaponAbilities
     public static List<AbilityExperience> BuildTraitEntries(int rank)
     {
         var list = new List<AbilityExperience>(TraitData.Length + 1);
+        AppendTraits(list, rank);
+        list.Add(new AbilityExperience { Present = 0 }); // terminator
+        return list;
+    }
+
+    private static void AppendTraits(List<AbilityExperience> list, int rank)
+    {
         foreach (var t in TraitData)
         {
             // The padlock is driven by the ability's RANK (this Level field), NOT a compare to RequiredLevel —
@@ -134,6 +141,73 @@ public static class ArcherWeaponAbilities
                 RequiredLevel = t.Level,     // "Unlocked at level N" caption
             });
         }
+    }
+
+    // ── ACTIVE ABILITIES (the AbilitiesScreen's non-Traits rows) ──────────────────────────────────────────
+    // The screen's active-ability rows are the ACTIVATABLE (IsActivateable=true) entries of the same profile
+    // ability list. With none present the client rendered the rows as "undefined"; giving each the equipped
+    // bow's real ability name/desc/icon fixes that. Name/DescriptionId reversed from en_us_data via Jenkins
+    // lookup2 (the same 4209xx "Global.Text" block the traits came from). "Stunning Shot"'s NAME id lives deep
+    // in the id space (not cheaply reversible), so it falls back to the generic "Special Attack" label; a few
+    // higher-tier descriptions weren't mined and stay 0 (name is what the row shows — desc is only the tooltip).
+    private static readonly IReadOnlyDictionary<string, (int NameId, int DescId)> AbilityText = new Dictionary<string, (int, int)>
+    {
+        ["Barrage"]        = (420256, 420257),
+        ["Volley"]         = (420258, 420259),
+        ["Icy Arrow"]      = (420384, 420385),
+        ["Blizzard Blast"] = (420386, 420387),
+        ["Charged Shot"]   = (420567, 420568),
+        ["Explosive Shot"] = (420584, 420585),
+        ["Multi-Shot"]     = (421006, 421007),
+        ["Splitting Arrow"]= (421008, 421009),
+        ["Power Shot"]     = (421184, 421185),
+        ["Stunning Shot"]  = (426588, 421192), // name id not cheaply reversible -> generic "Special Attack"
+        ["Smoldering Shot"]= (421245, 0),
+        ["Flaming Arrow"]  = (421244, 0),
+        ["Electric Arrow"] = (421260, 0),
+        ["Lightning Call"] = (421272, 0),
+        ["Sonic Arrow"]    = (421261, 0),
+        ["Sonic Boom"]     = (421273, 0),
+        ["Cover Fire"]     = (421284, 0),
+        ["Ricochet"]       = (421296, 0),
+        ["Ember Arrow"]    = (421285, 0),
+        ["Firebomb"]       = (421297, 0),
+    };
+
+    private static AbilityExperience? BuildActiveEntry(WeaponAbility ability)
+    {
+        if (!AbilityText.TryGetValue(ability.Name, out var text))
+            return null; // unmapped name (e.g. the bare "Shoot") — skip rather than render "undefined"
+
+        return new AbilityExperience
+        {
+            Present = text.NameId,       // DISTINCT record id (basic != special names, so no collision)
+            IsActivateable = true,       // activatable => shown as an ability row, not a trait
+            NameId = text.NameId,
+            DescriptionId = text.DescId,
+            IconId = ability.IconImageId,
+            Level = 1,                   // rank 1 = owned/usable (unlocked)
+            RequiredLevel = 0,
+        };
+    }
+
+    /// <summary>The full profile ability list for an Archer: the equipped bow's two active abilities (basic +
+    /// special) followed by the four traits, ending with the Present=0 terminator. Feeds the AbilitiesScreen —
+    /// which only refreshes on a profile (re)send, so equipping a different bow updates the rows on next relog
+    /// / job-swap, not instantly (same limitation the Traits panel has).</summary>
+    public static List<AbilityExperience> BuildProfileAbilityList(int rank, int weaponDefId)
+    {
+        var list = new List<AbilityExperience>(TraitData.Length + 3);
+
+        if (weaponDefId != 0 && ByWeaponDefId.TryGetValue(weaponDefId, out var weapon))
+        {
+            var basic = BuildActiveEntry(weapon.Basic);
+            if (basic is not null) list.Add(basic);
+            var special = BuildActiveEntry(weapon.Special);
+            if (special is not null) list.Add(special);
+        }
+
+        AppendTraits(list, rank);
         list.Add(new AbilityExperience { Present = 0 }); // terminator
         return list;
     }

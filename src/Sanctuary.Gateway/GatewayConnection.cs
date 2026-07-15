@@ -290,10 +290,15 @@ public class GatewayConnection : UdpConnection
             clientPcProfile.LevelXpRaw = dbProfile.LevelXP;      // raw XP into the current level
             clientPcProfile.RankPercent = Sanctuary.Game.Leveling.JobLeveling.RankPercent(clientPcProfile.Rank, clientPcProfile.LevelXpRaw);
 
+            var equippedWeaponDefId = 0;
+
             foreach (var dbItem in dbProfile.Items)
             {
                 if (!_resourceManager.ClientItemDefinitions.TryGetValue(dbItem.Definition, out var clientItemDefinition))
                     continue;
+
+                if (clientItemDefinition.Slot == 7) // weapon slot — drives the archer's active ability rows
+                    equippedWeaponDefId = dbItem.Definition;
 
                 if (clientPcProfile.Items.TryGetValue(clientItemDefinition.Slot, out var profileItem))
                     profileItem.Id = dbItem.Id;
@@ -329,16 +334,18 @@ public class GatewayConnection : UdpConnection
                 }
             }
 
-            // TRAITS: the AbilitiesScreen's Traits section is the profile's passive ability entries
-            // (AbilityExperience, IsActivateable=false), each locked until the job rank reaches RequiredLevel.
-            // Archer's four are data'd with real name/desc/icon ids and DISTINCT record ids (duplicate ids
-            // crash the client — live-bisected). Other jobs' trait tables aren't mined yet, so they keep the
-            // default empty list.
+            // ABILITIES + TRAITS: the AbilitiesScreen reads the profile's ability entries — activatable ones
+            // (IsActivateable=true) become the ability rows, passives (IsActivateable=false) the Traits section,
+            // each locked until the job rank reaches RequiredLevel. Archer's are data'd with real name/desc/icon
+            // ids and DISTINCT record ids (duplicate ids crash the client — live-bisected). The active rows track
+            // the equipped bow; without them the client rendered the rows "undefined". Other jobs' tables aren't
+            // mined yet, so they keep the default empty list.
             if (profileData.Id == Sanctuary.Game.Combat.ArcherWeaponAbilities.ArcherProfileId)
             {
-                clientPcProfile.AbilityExperiences = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildTraitEntries(clientPcProfile.Rank);
-                _logger.LogInformation("TRAITS: archer profile rank={rank} (dbLevel={db}) -> traits unlock at 5/10/15/20.",
-                    clientPcProfile.Rank, dbProfile.Level);
+                clientPcProfile.AbilityExperiences = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildProfileAbilityList(
+                    clientPcProfile.Rank, equippedWeaponDefId);
+                _logger.LogInformation("TRAITS: archer profile rank={rank} (dbLevel={db}) weapon={wpn} -> traits unlock at 5/10/15/20.",
+                    clientPcProfile.Rank, dbProfile.Level, equippedWeaponDefId);
             }
 
             Player.Profiles.Add(clientPcProfile);
