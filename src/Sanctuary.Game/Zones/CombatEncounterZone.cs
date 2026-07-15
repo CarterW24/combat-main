@@ -293,19 +293,29 @@ public abstract class CombatEncounterZone : BaseZone
     /// animate (the Abominable Snowman).</summary>
     protected void PerformMobAttack(Npc attacker, Player player)
     {
-        // ARCHER TRAIT — Reflexes (L15): chance to DODGE the incoming attack entirely — no damage, no floating
-        // number (which reads as a miss). No dodge animation: the client's dodge clip id isn't confirmed and a
-        // wrong clip would look worse than none.
-        if (Combat.ArcherWeaponAbilities.HasTrait(player, Combat.ArcherWeaponAbilities.ReflexesLevel)
-            && Random.Shared.Next(100) < Combat.ArcherWeaponAbilities.ReflexesDodgePercent)
+        var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
+
+        // DODGE (base avoidance + Archer's Reflexes): the player evades — plays the com_dodge sidestep and takes
+        // no damage. Still show the attacker's swing (Damage 0) so it reads as "attacked and missed".
+        if (player.TryDodgeIncomingAttack())
         {
+            Broadcast(new CombatPacketAttackProcessed
+            {
+                AttackerGuid = attacker.Guid,
+                TargetGuid = player.Guid,
+                Damage = 0,
+                MaxHealth = maxHp,
+                CurrentHealth = player.CurrentHitpoints,
+                Bool1 = true, // dodge/miss flag (best-effort "Dodge" text; harmless if the client ignores it)
+            });
+            if (CombatNpc.ExplicitAttackAnimByModel.TryGetValue(attacker.ModelId, out var missAnim))
+                Broadcast(new PlayerUpdatePacketSetAnimation { Guid = attacker.Guid, AnimationId = missAnim });
             return;
         }
 
         var crit = Random.Shared.Next(100) < MobAttackCritPercent;
         var dmg = crit ? MobAttackCritDamage : MobAttackDamage;
         player.TakeDamage(dmg);
-        var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
         Broadcast(new CombatPacketAttackProcessed
         {
             AttackerGuid = attacker.Guid,

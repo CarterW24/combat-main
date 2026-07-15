@@ -476,6 +476,35 @@ public sealed class Player : ClientPcData, IEntity
             EnterWorldCombat(); // taking a hit puts you in combat too (weapon drawn, HP bars, damage text)
     }
 
+    // --- DODGE (avoidance) ---------------------------------------------------------------------------
+    /// <summary>com_dodge — the sidestep clip (AnimationGroups.xml id 1406). Played on a successful dodge.</summary>
+    public const int DodgeAnimId = 1406;
+
+    /// <summary>Base dodge chance every player has, before job bonuses.</summary>
+    public const int BaseDodgePercent = 5;
+
+    /// <summary>Total chance (%) to dodge an incoming enemy attack: the base avoidance plus any job bonus
+    /// (Archer's Reflexes trait adds its dodge % at rank 15+).</summary>
+    public int DodgePercent()
+    {
+        var pct = BaseDodgePercent;
+        if (Combat.ArcherWeaponAbilities.HasTrait(this, Combat.ArcherWeaponAbilities.ReflexesLevel))
+            pct += Combat.ArcherWeaponAbilities.ReflexesDodgePercent;
+        return pct;
+    }
+
+    /// <summary>Roll to dodge an incoming enemy attack. On a dodge, plays the sidestep (com_dodge) so it reads
+    /// as an evade and returns true so the caller deals no damage. The caller should still show the attacker's
+    /// swing (an AttackProcessed with Damage 0) so it looks like the enemy attacked and missed.</summary>
+    public bool TryDodgeIncomingAttack()
+    {
+        if (IsDead || Random.Shared.Next(100) >= DodgePercent())
+            return false;
+
+        SendTunneledToVisible(new PlayerUpdatePacketSetAnimation { Guid = Guid, AnimationId = DodgeAnimId }, sendToSelf: true);
+        return true;
+    }
+
     // --- Overworld "in combat" state (client op41 sub132 SetInWorldCombat + sub133 SetIsFighting) ---
     // These flags draw the weapon, show enemy HP bars + floating damage numbers, and put the client in its
     // combat mode. We enter on ANY overworld combat action — dealing damage, TAKING damage, or pressing an
