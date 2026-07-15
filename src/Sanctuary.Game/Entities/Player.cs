@@ -689,7 +689,7 @@ public sealed class Player : ClientPcData, IEntity
         var p = ActiveProfile;
         return new AbilityExperience
         {
-            Unknown = 1,                 // non-zero = a present/valid entry (0 terminates the profile list)
+            Present = 1,                 // non-zero = a present/valid entry (0 terminates the profile list)
             NameId = p.NameId,
             DescriptionId = p.DescriptionId,
             IconId = p.Icon,

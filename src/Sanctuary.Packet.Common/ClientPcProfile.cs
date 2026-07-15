@@ -93,7 +93,7 @@ public class ClientPcProfile : ISerializableType
         {
             abilityExperience.Serialize(writer);
 
-            if (abilityExperience.Unknown == 0)
+            if (abilityExperience.Present == 0)
                 break;
         }
     }

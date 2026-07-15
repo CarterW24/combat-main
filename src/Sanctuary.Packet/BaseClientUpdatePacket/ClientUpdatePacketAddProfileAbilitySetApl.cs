@@ -35,12 +35,12 @@ public class ClientUpdatePacketAddProfileAbilitySetApl : BaseClientUpdatePacket,
         {
             abilityExperience.Serialize(writer);
 
-            if (abilityExperience.Unknown == 0)
+            if (abilityExperience.Present == 0)
                 return writer.Buffer; // entry was the terminator
         }
 
         // explicit terminator (Id == 0)
-        new AbilityExperience { Unknown = 0 }.Serialize(writer);
+        new AbilityExperience { Present = 0 }.Serialize(writer);
 
         return writer.Buffer;
     }
