@@ -493,14 +493,16 @@ public sealed class Player : ClientPcData, IEntity
         return pct;
     }
 
-    /// <summary>Roll to dodge an incoming enemy attack. On a dodge, plays the sidestep (com_dodge) so it reads
-    /// as an evade and returns true so the caller deals no damage. The caller should still show the attacker's
-    /// swing (an AttackProcessed with Damage 0) so it looks like the enemy attacked and missed.</summary>
-    public bool TryDodgeIncomingAttack()
+    /// <summary>Roll to dodge an incoming enemy attack from <paramref name="attackerGuid"/>. On a dodge, sends the
+    /// client's dedicated AttackTargetDodged packet (op32/6) so it renders the floating "Dodge" text over this
+    /// player and lets the attacker play its swing, then layers the sidestep (com_dodge) clip on top so the evade
+    /// reads clearly. Returns true so the caller deals no damage.</summary>
+    public bool TryDodgeIncomingAttack(ulong attackerGuid)
     {
         if (IsDead || Random.Shared.Next(100) >= DodgePercent())
             return false;
 
+        SendTunneledToVisible(new CombatPacketAttackTargetDodged { AttackerGuid = attackerGuid, TargetGuid = Guid }, sendToSelf: true);
         SendTunneledToVisible(new PlayerUpdatePacketSetAnimation { Guid = Guid, AnimationId = DodgeAnimId }, sendToSelf: true);
         return true;
     }

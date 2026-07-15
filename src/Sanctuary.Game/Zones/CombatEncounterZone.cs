@@ -295,19 +295,11 @@ public abstract class CombatEncounterZone : BaseZone
     {
         var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
 
-        // DODGE (base avoidance + Archer's Reflexes): the player evades — plays the com_dodge sidestep and takes
-        // no damage. Still show the attacker's swing (Damage 0) so it reads as "attacked and missed".
-        if (player.TryDodgeIncomingAttack())
+        // DODGE (base avoidance + Archer's Reflexes): the player evades — the AttackTargetDodged packet renders the
+        // "Dodge" text + plays the attacker's swing, and the com_dodge sidestep layers on top; no damage is dealt.
+        // Boss models whose default contact event doesn't animate still need their explicit swing clip.
+        if (player.TryDodgeIncomingAttack(attacker.Guid))
         {
-            Broadcast(new CombatPacketAttackProcessed
-            {
-                AttackerGuid = attacker.Guid,
-                TargetGuid = player.Guid,
-                Damage = 0,
-                MaxHealth = maxHp,
-                CurrentHealth = player.CurrentHitpoints,
-                Bool1 = true, // dodge/miss flag (best-effort "Dodge" text; harmless if the client ignores it)
-            });
             if (CombatNpc.ExplicitAttackAnimByModel.TryGetValue(attacker.ModelId, out var missAnim))
                 Broadcast(new PlayerUpdatePacketSetAnimation { Guid = attacker.Guid, AnimationId = missAnim });
             return;

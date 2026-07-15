@@ -275,21 +275,11 @@ public class CombatNpc : Npc
 
         finalDamage = Math.Max(1, finalDamage); // Always deal at least 1 damage
 
-        // DODGE (base avoidance + Archer's Reflexes): the player evades — plays com_dodge and takes no damage.
-        // Still show OUR swing (Damage 0) so it reads as "attacked and missed".
-        if (target.TryDodgeIncomingAttack())
+        // DODGE (base avoidance + Archer's Reflexes): the player evades — the AttackTargetDodged packet renders the
+        // "Dodge" text + plays our swing, and the com_dodge sidestep layers on top; no damage is dealt. Models
+        // whose default contact event doesn't animate still need their explicit swing clip.
+        if (target.TryDodgeIncomingAttack(Guid))
         {
-            var miss = new CombatPacketAttackProcessed
-            {
-                AttackerGuid = Guid,
-                TargetGuid = target.Guid,
-                Damage = 0,
-                MaxHealth = target.Stats[CharacterStatId.MaxHealth].Int,
-                CurrentHealth = target.CurrentHitpoints,
-                Bool1 = true, // dodge/miss flag (best-effort "Dodge" text; harmless if the client ignores it)
-            };
-            foreach (var p in VisiblePlayers.Values)
-                p.SendTunneled(miss);
             if (ExplicitAttackAnimByModel.TryGetValue(ModelId, out var missAnim))
                 foreach (var p in VisiblePlayers.Values)
                     p.SendTunneled(new PlayerUpdatePacketSetAnimation { Guid = Guid, AnimationId = missAnim });
