@@ -3,6 +3,7 @@ using System.Linq;
 
 using Sanctuary.Game.Entities;
 using Sanctuary.Packet;
+using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
@@ -92,6 +93,45 @@ public static class ArcherWeaponAbilities
     /// <summary>True when the player is an Archer whose active job rank has unlocked the given trait level.</summary>
     public static bool HasTrait(Player player, int traitLevel) =>
         player.ActiveProfileId == ArcherProfileId && player.ActiveProfile.Rank >= traitLevel;
+
+    // The four traits for the AbilitiesScreen's Traits section — real client ids. NameId/DescriptionId were
+    // reversed from en_us_data via Jenkins lookup2 (names 420934-37, descriptions 420958-61); IconId from
+    // ImageSetMappings.txt type6/64px art (Precision 33, Marksmanship 31; Reflexes reuses evasion 22570, Lucky
+    // Shot reuses advantage 39861 — no dedicated art ships for those two).
+    private static readonly (int NameId, int DescId, int IconId, int Level)[] TraitData =
+    [
+        (420934, 420958, 33,    PrecisionLevel),
+        (420935, 420959, 31,    MarksmanshipLevel),
+        (420936, 420960, 22570, ReflexesLevel),
+        (420937, 420961, 39861, LuckyShotLevel),
+    ];
+
+    /// <summary>The four Archer traits as passive AbilityExperience entries (IsActivateable=false, gated by
+    /// RequiredLevel) for the profile's ability list — this is what fills the AbilitiesScreen Traits panel.
+    /// The list ends with a Present=0 terminator (the profile reader stops there).
+    ///
+    /// ★ Present MUST be DISTINCT per entry (we use the NameId): an earlier version set Present=1 on all four,
+    /// which crashed the client on connect — live-bisected 2026-07-14 (distinct ids parse cleanly at any count;
+    /// the "fixed buffer overflow" theory was wrong). Present is the record Id / list control (0 = terminator).</summary>
+    public static List<AbilityExperience> BuildTraitEntries(int rank)
+    {
+        var list = new List<AbilityExperience>(TraitData.Length + 1);
+        foreach (var t in TraitData)
+        {
+            list.Add(new AbilityExperience
+            {
+                Present = t.NameId,          // DISTINCT, non-zero record id (duplicate ids crash the client)
+                IsActivateable = false,      // passive => shown in the Traits section
+                NameId = t.NameId,
+                DescriptionId = t.DescId,
+                IconId = t.IconId,
+                Level = rank >= t.Level ? rank : 0,
+                RequiredLevel = t.Level,     // "Unlocked at level N" lock
+            });
+        }
+        list.Add(new AbilityExperience { Present = 0 }); // terminator
+        return list;
+    }
 
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)
     private const int SpecialAnim = 1106;     // com_range_special_01 (refine per-special via !anim)
