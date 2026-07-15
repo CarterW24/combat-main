@@ -226,18 +226,35 @@ public static class ArcherWeaponAbilities
     /// "undefined". Returns null for a def id that isn't one of ours.</summary>
     public static (int NameId, int IconId, int CastTimeMs)? ResolveDefinition(Player player, int abilityDefId)
     {
-        var slot = abilityDefId switch
-        {
-            BasicSlotDefId => 0,
-            SpecialSlotDefId => 1,
-            SniperSlotDefId => 2,
-            RainSlotDefId => 3,
-            _ => -1,
-        };
+        var slot = SlotForDefId(abilityDefId);
         if (slot < 0)
             return null;
 
-        var ability = ResolveAbility(player, slot);
+        var (nameId, iconId) = SlotNameIcon(player.GetEquippedWeaponDefinitionId(), slot);
+        return (nameId, iconId, 0);
+    }
+
+    /// <summary>The slot ability-def ids the client requests for the AbilitiesScreen columns (BasicSlotDefId 4895
+    /// = Attack, SpecialSlotDefId 4899 = Special Attack). -1 if not one of ours.</summary>
+    public static int SlotForDefId(int abilityDefId) => abilityDefId switch
+    {
+        BasicSlotDefId => 0,
+        SpecialSlotDefId => 1,
+        SniperSlotDefId => 2,
+        RainSlotDefId => 3,
+        _ => -1,
+    };
+
+    public const int BasicAbilityDefId = BasicSlotDefId;
+    public const int SpecialAbilityDefId = SpecialSlotDefId;
+
+    /// <summary>Name+icon for an ability slot on a given equipped bow — the tier-1 Barrage/Volley pair backs any
+    /// unmapped/absent bow so the AbilitiesScreen column never reads "undefined". Used for BOTH the op36/13 reply
+    /// and the profile's ability-slot list (they must agree).</summary>
+    public static (int NameId, int IconId) SlotNameIcon(int weaponDefId, int slot)
+    {
+        var weapon = weaponDefId != 0 && ByWeaponDefId.TryGetValue(weaponDefId, out var w) ? w : FallbackWeapon;
+        var ability = slot == 1 ? weapon.Special : weapon.Basic;
         var iconId = ability.IconImageId;
 
         if (!AbilityText.TryGetValue(ability.Name, out var text))
@@ -247,7 +264,7 @@ public static class ArcherWeaponAbilities
             iconId = fb.IconImageId;
         }
 
-        return (text.NameId, iconId, 0);
+        return (text.NameId, iconId);
     }
 
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)
