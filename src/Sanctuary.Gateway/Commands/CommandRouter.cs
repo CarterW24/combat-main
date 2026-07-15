@@ -118,6 +118,8 @@ public static class CommandRouter
                 return HandleRespawn(conn);
             case "die":
                 return HandleDie(conn);
+            case "dodge":
+                return HandleDodge(conn, parts);
             case "spawnenemy":
                 return HandleSpawnEnemy(conn, parts);
             case "hp":
@@ -2042,6 +2044,36 @@ public static class CommandRouter
 
     // TEST: force a knockout so the death flow can be tested regardless of combat balance (world enemies
     // are currently weak, so you rarely actually reach 0 HP).
+    // DEV PROBE for the floating "Dodge" hit-type text. Sends the dedicated combat sub-opcodes directly at the
+    // player (decoupled from the 5% dodge roll) so we can see which one the client actually renders as text:
+    //   !dodge        -> op32/6 AttackTargetDodged  (attacker = target = you)
+    //   !dodge self   -> op32/6 with a DISTINCT attacker guid (guid+1) in case the client needs attacker != target
+    //   !dodge miss   -> op32/5 AttackAttackerMissed (same 2-guid shape)
+    private static bool HandleDodge(GatewayConnection conn, string[] parts)
+    {
+        var self = conn.Player.Guid;
+        var arg = parts.Length > 1 ? parts[1].ToLowerInvariant() : "";
+
+        if (arg == "on" || arg == "off")
+        {
+            conn.Player.ForceDodgeDebug = arg == "on";
+            SendSystem(conn, $"Force-dodge {(conn.Player.ForceDodgeDebug ? "ON — every enemy hit will dodge. Go fight a mob and watch for 'Dodge' text." : "OFF")}.");
+            return true;
+        }
+
+        if (arg == "miss")
+        {
+            conn.Player.SendTunneledToVisible(new CombatPacketAttackAttackerMissed { AttackerGuid = self, TargetGuid = self }, sendToSelf: true);
+            SendSystem(conn, "Sent op32/5 (Missed). Do you see 'Miss' text?");
+            return true;
+        }
+
+        var attacker = arg == "self" ? self + 1 : self;
+        conn.Player.SendTunneledToVisible(new CombatPacketAttackTargetDodged { AttackerGuid = attacker, TargetGuid = self }, sendToSelf: true);
+        SendSystem(conn, $"Sent op32/6 (Dodged) attacker={attacker} target={self}. Do you see 'Dodge' text?");
+        return true;
+    }
+
     private static bool HandleDie(GatewayConnection conn)
     {
         if (conn.Player.IsDead)

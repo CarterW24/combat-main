@@ -508,7 +508,11 @@ public sealed class Player : ClientPcData, IEntity
         if (!ForceDodgeDebug && Random.Shared.Next(100) >= DodgePercent())
             return false;
 
-        SendTunneledToVisible(new CombatPacketAttackTargetDodged { AttackerGuid = attackerGuid, TargetGuid = Guid }, sendToSelf: true);
+        // The dedicated op32/6 "Dodge" text is gated on a client-side combat-text map entry (hit-type key 123)
+        // our client build doesn't have, so it renders NOTHING server-side (reversed 2026-07-15). op32/5 "Miss"
+        // uses no such map and reliably shows green floating text — the working avoidance indicator. Layer the
+        // com_dodge sidestep on top so the evade still reads as a dodge, not a whiffed enemy swing.
+        SendTunneledToVisible(new CombatPacketAttackAttackerMissed { AttackerGuid = attackerGuid, TargetGuid = Guid }, sendToSelf: true);
         SendTunneledToVisible(new PlayerUpdatePacketSetAnimation { Guid = Guid, AnimationId = DodgeAnimId }, sendToSelf: true);
         return true;
     }
