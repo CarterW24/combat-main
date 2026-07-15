@@ -497,9 +497,15 @@ public sealed class Player : ClientPcData, IEntity
     /// client's dedicated AttackTargetDodged packet (op32/6) so it renders the floating "Dodge" text over this
     /// player and lets the attacker play its swing, then layers the sidestep (com_dodge) clip on top so the evade
     /// reads clearly. Returns true so the caller deals no damage.</summary>
+    /// <summary>DEV: when set (via !dodge on), every incoming attack is dodged — lets us test the op32/6 "Dodge"
+    /// text in real combat, where its client-side gate may pass (a synthetic send shows nothing).</summary>
+    public bool ForceDodgeDebug;
+
     public bool TryDodgeIncomingAttack(ulong attackerGuid)
     {
-        if (IsDead || Random.Shared.Next(100) >= DodgePercent())
+        if (IsDead)
+            return false;
+        if (!ForceDodgeDebug && Random.Shared.Next(100) >= DodgePercent())
             return false;
 
         SendTunneledToVisible(new CombatPacketAttackTargetDodged { AttackerGuid = attackerGuid, TargetGuid = Guid }, sendToSelf: true);
@@ -725,8 +731,7 @@ public sealed class Player : ClientPcData, IEntity
     public void RefreshTraits()
     {
         if (ActiveProfileId == Combat.ArcherWeaponAbilities.ArcherProfileId)
-            ActiveProfile.AbilityExperiences = Combat.ArcherWeaponAbilities.BuildProfileAbilityList(
-                ActiveProfile.Rank, GetEquippedWeaponDefinitionId());
+            ActiveProfile.AbilityExperiences = Combat.ArcherWeaponAbilities.BuildTraitEntries(ActiveProfile.Rank);
     }
 
     /// <summary>Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).</summary>

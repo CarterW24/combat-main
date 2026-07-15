@@ -334,16 +334,14 @@ public class GatewayConnection : UdpConnection
                 }
             }
 
-            // ABILITIES + TRAITS: the AbilitiesScreen reads the profile's ability entries — activatable ones
-            // (IsActivateable=true) become the ability rows, passives (IsActivateable=false) the Traits section,
-            // each locked until the job rank reaches RequiredLevel. Archer's are data'd with real name/desc/icon
-            // ids and DISTINCT record ids (duplicate ids crash the client — live-bisected). The active rows track
-            // the equipped bow; without them the client rendered the rows "undefined". Other jobs' tables aren't
-            // mined yet, so they keep the default empty list.
+            // TRAITS: the AbilitiesScreen's Traits SECTION is the profile's ability-experience list. (The Attack /
+            // Special Attack COLUMNS above it are a SEPARATE surface, fed by the op36/13 AbilityDefinition reply —
+            // NOT this list; putting active abilities here just adds extra "trait" tiles.) Archer's four traits are
+            // data'd with real name/desc/icon ids and DISTINCT record ids (dup ids crash the client — live-bisected);
+            // other jobs' tables aren't mined yet, so they keep the default empty list.
             if (profileData.Id == Sanctuary.Game.Combat.ArcherWeaponAbilities.ArcherProfileId)
             {
-                clientPcProfile.AbilityExperiences = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildProfileAbilityList(
-                    clientPcProfile.Rank, equippedWeaponDefId);
+                clientPcProfile.AbilityExperiences = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildTraitEntries(clientPcProfile.Rank);
                 _logger.LogInformation("TRAITS: archer profile rank={rank} (dbLevel={db}) weapon={wpn} -> traits unlock at 5/10/15/20.",
                     clientPcProfile.Rank, dbProfile.Level, equippedWeaponDefId);
             }

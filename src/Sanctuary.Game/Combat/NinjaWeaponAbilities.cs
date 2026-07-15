@@ -73,6 +73,23 @@ public static class NinjaWeaponAbilities
 
     public static readonly WeaponAbility BareMelee = new("Strike", MeleeIcon, 150, MeleeAnimation, MeleeHitFx);
 
+    /// <summary>Resolve a client AbilityDefinition request (op36/12) for a ninja slot def id to the equipped
+    /// weapon's icon (the op36/13 reply that fills the AbilitiesScreen Attack / Special columns). Ninja ability
+    /// NAME ids aren't mined yet, so name stays 0 for now — the icon still shows. Null for a non-ours def id.</summary>
+    public static (int NameId, int IconId, int CastTimeMs)? ResolveDefinition(Player player, int abilityDefId)
+    {
+        var slot = abilityDefId switch
+        {
+            MeleeSlotDefId => 0,
+            SpecialSlotDefId => 1,
+            _ => -1,
+        };
+        if (slot < 0)
+            return null;
+
+        return (0, ResolveAbility(player, slot).IconImageId, 0);
+    }
+
     // The 10 ninja SPECIALS, each a full kit (melee technique on slot 0 + the named "of X" special on slot 1).
     // IconImageId = the abil_ninja_* Small IMAGE_ID (real ability art). EffectId = the ability's REAL per-special
     // composite effect (CONFIRMED from ActorCompositeEffectDefinitions.xml — the game's own dedicated

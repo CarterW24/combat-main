@@ -219,6 +219,37 @@ public static class ArcherWeaponAbilities
     /// FIRE the bare shot in combat (a separate concern — map the bow into ByWeaponDefId to unify them).</summary>
     private static readonly ArcherWeapon FallbackWeapon = Volleys(BowIcon, 350, 506);
 
+    /// <summary>Resolve a client AbilityDefinition request (op36/12) for one of the archer's slot ability-def ids
+    /// to the equipped bow's real name/icon — this is what fills the AbilitiesScreen's Attack / Special Attack
+    /// COLUMNS (the op36/13 reply; NOT the Traits section, which is the ability-experience list). An unmapped bow
+    /// (bare "Shoot", not in AbilityText) falls back to the tier-1 Barrage/Volley name so the column isn't
+    /// "undefined". Returns null for a def id that isn't one of ours.</summary>
+    public static (int NameId, int IconId, int CastTimeMs)? ResolveDefinition(Player player, int abilityDefId)
+    {
+        var slot = abilityDefId switch
+        {
+            BasicSlotDefId => 0,
+            SpecialSlotDefId => 1,
+            SniperSlotDefId => 2,
+            RainSlotDefId => 3,
+            _ => -1,
+        };
+        if (slot < 0)
+            return null;
+
+        var ability = ResolveAbility(player, slot);
+        var iconId = ability.IconImageId;
+
+        if (!AbilityText.TryGetValue(ability.Name, out var text))
+        {
+            var fb = slot == 1 ? FallbackWeapon.Special : FallbackWeapon.Basic;
+            AbilityText.TryGetValue(fb.Name, out text);
+            iconId = fb.IconImageId;
+        }
+
+        return (text.NameId, iconId, 0);
+    }
+
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)
     private const int SpecialAnim = 1106;     // com_range_special_01 (refine per-special via !anim)
     private const int BasicHitFx = 7;         // PFX_Hit_Flash — the proven generic impact flash

@@ -36,6 +36,17 @@ public static class JobWeaponAbilities
             ? ArcherWeaponAbilities.ResolveAbility(player, slot)
             : NinjaWeaponAbilities.ResolveAbility(player, slot);
 
+    /// <summary>Resolve a client AbilityDefinition request (op36/12) against the active job's kit, giving the
+    /// name/icon the client shows in the AbilitiesScreen's Attack / Special Attack columns (its op36/13 reply).
+    /// Null when the job has no kit or the def id isn't one of that kit's slots.</summary>
+    public static (int NameId, int IconId, int CastTimeMs)? ResolveAbilityDefinition(Player player, int abilityDefId) =>
+        player.ActiveProfileId switch
+        {
+            ArcherWeaponAbilities.ArcherProfileId => ArcherWeaponAbilities.ResolveDefinition(player, abilityDefId),
+            NinjaWeaponAbilities.NinjaProfileId => NinjaWeaponAbilities.ResolveDefinition(player, abilityDefId),
+            _ => null,
+        };
+
     /// <summary>Auto-target reach for an unselected attack: bow range for archers, the
     /// capture-derived 7u melee envelope for everyone else (see the StartAbility handler's
     /// ground-truth notes on that value).</summary>

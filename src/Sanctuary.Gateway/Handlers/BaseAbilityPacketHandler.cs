@@ -56,11 +56,17 @@ public static class BaseAbilityPacketHandler
 
         int cooldownMs = BoomboxAbilityIds.Contains(packet.AbilityId) ? 60_000 : 0;
 
+        // Fill the name/icon from the active job's weapon kit so the AbilitiesScreen's Attack / Special Attack
+        // columns render the ability instead of "undefined". null = not one of our slot def ids (leave 0s).
+        var def = Sanctuary.Game.Combat.JobWeaponAbilities.ResolveAbilityDefinition(connection.Player, packet.AbilityId);
+
         connection.SendTunneled(new AbilityPacketAbilityDefinition
         {
             AbilityId = packet.AbilityId,
+            NameId = def?.NameId ?? 0,
+            IconId = def?.IconId ?? 0,
             CooldownMs = cooldownMs,
-            CastTimeMs = 0
+            CastTimeMs = def?.CastTimeMs ?? 0
         });
 
         return true;
