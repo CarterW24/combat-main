@@ -54,9 +54,6 @@ public static class BaseAbilityPacketHandler
         // client still has an entry rather than re-requesting forever).
         var def = Sanctuary.Game.Combat.JobWeaponAbilities.ResolveAbilityDefinition(connection.Player, packet.AbilityId);
 
-        _logger.LogInformation("ABILITYDEF request id={id} -> Name={n} Desc={d} Icon={i} (resolved={ok})",
-            packet.AbilityId, def?.NameId ?? 0, def?.DescId ?? 0, def?.IconId ?? 0, def is not null);
-
         connection.SendTunneled(new AbilityPacketAbilityDefinition
         {
             AbilityId = packet.AbilityId,

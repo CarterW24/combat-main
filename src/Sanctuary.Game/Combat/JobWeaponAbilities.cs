@@ -66,9 +66,39 @@ public static class JobWeaponAbilities
         if (toolbar is null)
             return false;
 
+        // Seed the ability-def map BEFORE the toolbar: the client requests a def (op36/12) for each toolbar slot's
+        // AbilityDefinitionId the moment it processes the toolbar, so the defs must already be present or the
+        // AbilitiesScreen columns won't have them when it opens.
+        PreloadAbilityDefinitions(player);
         player.SendTunneled(toolbar);
         PreloadAbilityEffects(player);
         return true;
+    }
+
+    // The two ability-bar slot def ids the client asks about for the AbilitiesScreen columns (shared by both
+    // combat kits: 4895 = slot 0 / Attack, 4899 = slot 1 / Special Attack).
+    private static readonly int[] SlotDefIds = { 4895, 4899 };
+
+    /// <summary>Push the equipped weapon's ability definitions to the client BEFORE it opens the AbilitiesScreen.
+    /// The screen requests a def on open (op36/12) and renders "undefined" immediately, then ignores the late
+    /// reply — so seeding the client's ability-def map up front (with the toolbar) is what makes the Attack /
+    /// Special Attack columns resolve. Sent alongside the toolbar at every delivery point.</summary>
+    public static void PreloadAbilityDefinitions(Player player)
+    {
+        foreach (var defId in SlotDefIds)
+        {
+            var def = ResolveAbilityDefinition(player, defId);
+            if (def is null)
+                continue;
+
+            player.SendTunneled(new AbilityPacketAbilityDefinition
+            {
+                AbilityId = defId,
+                NameId = def.Value.NameId,
+                DescriptionId = def.Value.DescId,
+                IconId = def.Value.IconId,
+            });
+        }
     }
 
     /// <summary>
