@@ -156,13 +156,14 @@ public static class InventoryPacketEquipByGuidHandler
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange);
 
-        // COMBAT WIP: equipping a weapon (slot 7) on a Ninja refreshes the ability toolbar to match the new
-        // weapon's granted ability (item-driven abilities — see Sanctuary.Game.Combat.NinjaWeaponAbilities).
-        if (packet.Slot == 7 && connection.Player.ActiveProfileId == NinjaWeaponAbilities.NinjaProfileId)
+        // COMBAT WIP: equipping a weapon (slot 7) on a combat job (Ninja/Wizard/Brawler) refreshes the
+        // ability toolbar to match the new weapon's granted abilities (item-driven — see
+        // Sanctuary.Game.Combat.JobWeaponAbilities).
+        if (packet.Slot == 7 && JobWeaponAbilities.IsCombatProfile(connection.Player.ActiveProfileId))
         {
-            connection.SendTunneled(NinjaWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
+            connection.SendTunneled(JobWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
 
-            _logger.LogInformation("Refreshed Ninja ability toolbar after equipping weapon definition {def}.",
+            _logger.LogInformation("Refreshed ability toolbar after equipping weapon definition {def}.",
                 clientItemDefinition.Id);
         }
 

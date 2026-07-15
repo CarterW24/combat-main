@@ -34,7 +34,14 @@ namespace Sanctuary.Game.Combat;
 // AoeRadius > 0 => the special is an AREA attack: it hits EVERY live hostile within this radius of the
 //   CASTER (not just the selected target). Matches the real server, whose AoE specials land as a sub-0.1s
 //   burst of one HitPointModification per victim in the 04-01 capture.
-public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0, float AoeRadius = 0f);
+// BuffMultiplierPct > 0 => a SELF-BUFF: for BuffDurationMs the caster's ability damage is multiplied by
+//   this percentage (200 = double). Confirmed buffs (Mystical Blade "drastically increasing your attack
+//   power", brawler Enrage) — the x2/15s numbers are provisional until a capture pins them.
+// PersistEffectId > 0 => a LOOPING composite bound to the caster as an effect tag for BuffDurationMs
+//   (AddEffectTagCompositeEffect -> timed Remove) — the buff's lingering body FX (Enrage persist 16147).
+// Reach = auto-target radius when the player attacks with NOTHING selected (melee default 7; wand basics
+//   are ranged, so wizard basics use 25).
+public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0, float AoeRadius = 0f, int BuffMultiplierPct = 0, int BuffDurationMs = 0, int PersistEffectId = 0, float Reach = 7f);
 
 public sealed record NinjaWeapon(WeaponAbility Melee, WeaponAbility Special);
 
@@ -56,8 +63,9 @@ public static class NinjaWeaponAbilities
     private const int MeleeIcon = 14407;
 
     // PROVEN-castable AbilityDefinitionIds from the original capture (client renders + lets us cast these).
-    private const int MeleeSlotDefId = 4895;
-    private const int SpecialSlotDefId = 4899;
+    // Public: the brawler/wizard toolbars (JobWeaponAbilities) reuse the same proven slot ids.
+    public const int MeleeSlotDefId = 4895;
+    public const int SpecialSlotDefId = 4899;
 
     // Live icon-probe override (set by "!ticon <melee> <special>"); null = use the ability's own icon.
     public static int? DebugMeleeIcon;
@@ -115,7 +123,8 @@ public static class NinjaWeaponAbilities
         // 75117 — Mysticism (special is "Mystical Blade")
         [75117] = new(
             new("Mystic Rush",    MeleeIcon, 2608, MeleeAnimation, MeleeHitFx),
-            new("Mystical Blade",     22980, 3000, 1061141, 0, 0, 0, 16169)), // anim weapon_power (DEDICATED); empowers the WEAPON: 16169 WFX_beam-trail_blue-purple_ninja-mystical-blade binds to the SWORD slot (SwordEffectId); NO body/enemy FX (user round-2: only on my sword, not on any bodies)
+            new("Mystical Blade",     22980, 0, 1061141, 0, 0, 0, 16169,
+                BuffMultiplierPct: 200, BuffDurationMs: 15000)), // anim weapon_power (DEDICATED); empowers the WEAPON: 16169 WFX_beam-trail_blue-purple_ninja-mystical-blade binds to the SWORD slot (SwordEffectId); NO body/enemy FX (user round-2: only on my sword). SPREADSHEET-CONFIRMED: a pure buff, NO damage ("drastically increasing your attack power") — was wrongly dealing 3000; now x2 melee damage for 15s (numbers provisional)
 
         // 75118 — Soul Power (special is "Mystical Drain")
         [75118] = new(

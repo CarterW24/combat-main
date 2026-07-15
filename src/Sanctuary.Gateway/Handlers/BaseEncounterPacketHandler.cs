@@ -19,6 +19,7 @@ public static class BaseEncounterPacketHandler
 {
     // op41 sub-opcodes (from exports/packet-opcode-map.tsv).
     private const short EncounterParticipantRequestEntrance = 108; // C2S = the GO! / "Press to Teleport" button.
+    private const short EncounterParticipantRequestExit = 109;     // C2S = the victory card's exit button (04-01 idx 38280).
 
     private static ILogger _logger = null!;
 
@@ -38,6 +39,14 @@ public static class BaseEncounterPacketHandler
 
         _logger.LogInformation("BaseEncounterPacket sub-opcode={sub} | remaining bytes={hex}",
             subOpCode, Convert.ToHexString(reader.Span));
+
+        // The victory card's exit button — leave the arena (live: 38280 RequestExit -> teleport out).
+        if (subOpCode == EncounterParticipantRequestExit)
+        {
+            if (connection.Player.Zone is Sanctuary.Game.Zones.FrostfangArenaZone arena)
+                arena.ExitEncounter(connection.Player);
+            return true;
+        }
 
         return subOpCode switch
         {

@@ -105,22 +105,22 @@ public sealed class StartingZone : BaseZone
         SendNinjaAbilityToolbar(player);
     }
 
-    // COMBAT WIP: fill the Ninja ability toolbar from the player's EQUIPPED WEAPON (see Combat/
-    // NinjaWeaponAbilities). Each "Ninja's Shadow Blade of X" grants the X ability; no Shadow Blade equipped
-    // => an empty bar. This is the zone-load populate (so no away-and-back job swap is needed).
+    // COMBAT WIP: fill the ability toolbar from the player's EQUIPPED WEAPON for any combat job
+    // (Ninja/Wizard/Brawler — see Combat/JobWeaponAbilities). Each job weapon grants its two abilities;
+    // no job weapon equipped => an empty bar. This is the zone-load populate (no away-and-back swap needed).
     private void SendNinjaAbilityToolbar(Player player)
     {
-        if (player.ActiveProfileId != NinjaWeaponAbilities.NinjaProfileId) // Ninja
+        if (!JobWeaponAbilities.IsCombatProfile(player.ActiveProfileId))
             return;
 
         var weaponDefId = player.GetEquippedWeaponDefinitionId();
-        var weapon = NinjaWeaponAbilities.GetEquippedWeapon(player);
+        var weapon = JobWeaponAbilities.GetEquippedWeapon(player);
 
         _logger.LogInformation(
-            "Ninja toolbar on zone-load: equipped weapon def={def}, mapped={mapped} ({melee}/{special}).",
+            "Ability toolbar on zone-load: equipped weapon def={def}, mapped={mapped} ({melee}/{special}).",
             weaponDefId, weapon is not null, weapon?.Melee.Name ?? "-", weapon?.Special.Name ?? "-");
 
-        player.SendTunneled(NinjaWeaponAbilities.BuildToolbar(player, _resourceManager));
+        player.SendTunneled(JobWeaponAbilities.BuildToolbar(player, _resourceManager));
     }
 
     // COMBAT WIP: spawn a single hostile "training dummy" NPC near the spawn point so we have a
@@ -132,6 +132,36 @@ public sealed class StartingZone : BaseZone
     // full (which made it look like only the last couple hits registered). Bumped to 50000 because the real
     // ninja ability damage (from the wiki: 2609 melee .. 10674 special) would otherwise one-shot a 5000 dummy.
     private const int TrainingDummyMaxHealth = 50000;
+
+    // NAMECOLOR PROOF (2026-07-15): "!namecolor [AARRGGBB]" spawns a dummy clone whose AddNpc carries a
+    // STATIC NameColor — the exact path the old float declaration mangled (int color -> float conversion
+    // = garbage bits). A purple name on this guy = live proof the field is an int ARGB (PR #2 evidence).
+    // One at a time: re-running the command replaces the previous test dummy so colors can be iterated.
+    private Npc? _nameColorTestDummy;
+
+    public void SpawnNameColorTestDummy(Player player, int argb)
+    {
+        _nameColorTestDummy?.Dispose();
+        _nameColorTestDummy = null;
+
+        if (!TryCreateNpc(out var npc))
+            return;
+
+        npc.ModelId = 4;                // same robgoblin as the training dummy
+        npc.Name = "Name Color Test";
+        npc.NameId = 0;
+        npc.NameColor = argb;           // static color — nonzero suppresses the disposition resolver
+        npc.ActiveProfile = 1;
+        npc.Scale = 1f;
+        npc.IsInteractable = false;
+        npc.Visible = true;
+
+        var pos = new Vector4(player.Position.X + 3f, player.Position.Y, player.Position.Z + 1f, 1f);
+        npc.UpdatePosition(pos, SpawnRotation);
+
+        player.OnAddVisibleNpcs(npc);
+        _nameColorTestDummy = npc;
+    }
 
     private void SpawnTrainingDummy(Player player)
     {

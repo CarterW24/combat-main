@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+using Sanctuary.Game;
 using Sanctuary.Game.Combat;
 using Sanctuary.Game.Entities;
 using Sanctuary.Game.Zones;
@@ -38,6 +39,11 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // rate is the energy/cost system, handled separately).
     private const int BasicSwingMs = 660;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, long> _nextBasicSwingTicks = new();
+
+    // SELF-BUFF damage multipliers live in Sanctuary.Game.Combat.CombatBuffs (zones feed it too — the
+    // damage powerup). Tag ids feed the buffs' looping body FX (AddEffectTagCompositeEffect); start high
+    // to stay clear of the Frostfang heart-buff tag range.
+    private static int _buffTagCounter = 600;
 
     // ENERGY / MANA (2026-07-03, SOLVED from the 2014-04-01 capture — player op38/sub13 timeline):
     //   * max = 100.
@@ -102,10 +108,24 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // (or "!anim" with no id) clears it.
     public static int? DebugAnimationOverride;
 
+    private static IResourceManager _resourceManager = null!;
+
     public static void ConfigureServices(IServiceProvider serviceProvider)
     {
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         _logger = loggerFactory.CreateLogger(nameof(AbilityPacketClientRequestStartAbilityHandler));
+        _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
+
+        // The ENERGY powerup (zone-side pickup) refills the bar we own.
+        CombatBuffs.EnergyRefillRequested += player =>
+        {
+            _energy[player.Guid] = MaxEnergy;
+            SendEnergy(player, MaxEnergy);
+        };
+
+        // Zones leave ENERGY pickups on the ground while the bar is full (they collect later,
+        // once the player has spent some energy).
+        CombatBuffs.IsEnergyFull = player => GetEnergy(player) >= MaxEnergy;
     }
 
     public static bool HandlePacket(GatewayConnection connection, ReadOnlySpan<byte> data)
@@ -127,6 +147,24 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         var player = connection.Player;
         var zone = player.Zone;
+
+        // Slot index 2 = the "3" key — a HELD POWERUP (Flame Wave / Earth Shard / Super Shield drops in
+        // the Frostfang arena; wiki: "To use the power-up, press the 3 key"). Not a weapon ability, so it
+        // bypasses the energy gate and swing pacing entirely. Outside the arena the overworld test bed
+        // (!pu / !puspawn -> HeldPowerupProbe) owns the slot.
+        if (packet.Data.Slot == 2)
+        {
+            if (zone is FrostfangArenaZone powerupArena)
+                powerupArena.UseHeldPowerup(player);
+            else
+                HeldPowerupProbe.TryUse(player, _resourceManager);
+            return true;
+        }
+
+        // Resolve the ability from the pressed slot + equipped weapon FIRST (slot 0 = basic, slot 1 =
+        // special) — cross-job via JobWeaponAbilities (ninja blades / brawler hammers / wizard wands);
+        // targeting below needs the ability's Reach (wand basics auto-target much farther than melee).
+        var ability = JobWeaponAbilities.ResolveAbility(player, packet.Data.Slot);
 
         // Resolve the ability's target. When the player has an enemy SELECTED the client sends its
         // guid — always honor that. With nothing selected, swing at what the player is actually
@@ -155,7 +193,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             // real hit distances ran 0.6–9.2, median 2.3, mean 2.7 — the bulk ≤ ~4 (basic swings), the
             // 5–9 tail almost certainly the AoE special. 7 sits inside SOE's envelope: forgiving of the
             // 300ms tick lag without grabbing far wolves. Tune toward ~5 if it feels grabby.
-            const float meleeReach = 7f;
+            var meleeReach = ability.Reach; // 7 = melee envelope (capture-derived); 25 = ranged wand basics
             var reach2 = meleeReach * meleeReach;
             var best2 = reach2;
 
@@ -176,9 +214,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         }
 
         var targetGuid = targetNpc?.Guid ?? (packet.Guid != 0 ? packet.Guid : player.Guid);
-
-        // Resolve the ability from the pressed slot + equipped weapon (slot 0 = melee, slot 1 = weapon special).
-        var ability = NinjaWeaponAbilities.ResolveAbility(player, packet.Data.Slot);
 
         // Basic attack (slot 0) is fast/spammable; specials wind up. This controls both the client-side
         // slot lock (StartCasting.ActionTime) and when the damage number resolves.
@@ -247,6 +282,41 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         if (ability.SummonCount > 0 && zone is StartingZone summonZone)
             summonZone.SummonShadowClones(player, ability.SummonCount, 12);
 
+        // SELF-BUFFS (spreadsheet-confirmed: Mystical Blade, Enrage; Protective Barrier = FX-only):
+        // register the damage multiplier and bind the lingering body FX as a timed effect tag. A pure
+        // buff has Damage 0, so the no-target early-out below is fine — the buff is already applied.
+        if (ability.BuffMultiplierPct > 0)
+            CombatBuffs.AddDamageBuff(player.Guid, ability.BuffMultiplierPct, ability.BuffDurationMs);
+
+        if (ability.PersistEffectId > 0 && ability.BuffDurationMs > 0)
+        {
+            var tagId = System.Threading.Interlocked.Increment(ref _buffTagCounter);
+            player.SendTunneled(new PlayerUpdatePacketAddEffectTagCompositeEffect
+            {
+                Guid = player.Guid,
+                TagId = tagId,
+                CompositeEffectId = ability.PersistEffectId,
+                SourceGuid = player.Guid,
+            });
+            var buffMs = ability.BuffDurationMs;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(buffMs);
+                    player.SendTunneled(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
+                    {
+                        Guid = player.Guid,
+                        TagId = tagId,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Buff persist-FX removal failed.");
+                }
+            });
+        }
+
         // AOE specials (AoeRadius > 0) hit EVERY live hostile within the radius of the CASTER — the whole
         // pack, not just the selected target. Single-target abilities keep the resolved target.
         System.Collections.Generic.List<Npc> targets;
@@ -264,6 +334,55 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 })
                 .ToList();
         }
+        else if (isBasicMelee && targetNpc is not null)
+        {
+            // FRONT-ARC BASIC (2026-07-12): live basics hit EVERYTHING in front, not one enemy — the
+            // wiki's standard primary-attack wording is "damaging all enemies in front of you", and the
+            // 04-01 capture's player LaunchAndLand packets carry target LISTS (6 attacks hit 2 wolves,
+            // one hit 4 — more multi-hits than the energy budget allows specials, so basics multi-hit).
+            // The arc is centered on the direction to the RESOLVED primary target (never the client's
+            // reported facing, which goes stale when standing still — the old "spotty" cone bug), spans
+            // ±60°, and sweeps everything within the ability's reach. No target cap (per user: skip the
+            // wizard Zap "up to 3" / Twisted Edge radial special cases for now).
+            targets = [];
+            var px = player.Position.X;
+            var pz = player.Position.Z;
+            var dirX = targetNpc.Position.X - px;
+            var dirZ = targetNpc.Position.Z - pz;
+            var dirLen = MathF.Sqrt(dirX * dirX + dirZ * dirZ);
+            if (dirLen < 0.01f)
+            {
+                targets.Add(targetNpc); // primary is on top of us — no meaningful arc direction
+            }
+            else
+            {
+                dirX /= dirLen;
+                dirZ /= dirLen;
+                var arcReach2 = ability.Reach * ability.Reach;
+                foreach (var n in zone.Npcs)
+                {
+                    if (!n.IsHostile || !n.IsDamageable || !n.IsAlive)
+                        continue;
+
+                    var dx = n.Position.X - px;
+                    var dz = n.Position.Z - pz;
+                    var d2 = dx * dx + dz * dz;
+                    if (d2 > arcReach2)
+                        continue;
+
+                    if (d2 < 0.0001f)
+                    {
+                        targets.Add(n); // standing inside us — always in the swing
+                        continue;
+                    }
+
+                    var inv = 1f / MathF.Sqrt(d2);
+                    var dot = dirX * dx * inv + dirZ * dz * inv;
+                    if (dot >= 0.5f) // cos(60°) — a 120° frontal arc
+                        targets.Add(n);
+                }
+            }
+        }
         else
         {
             targets = targetNpc is null ? [] : [targetNpc];
@@ -276,10 +395,13 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             return true;
         }
 
-        _logger.LogInformation("Ability slot {slot} = '{name}' (dmg {dmg}, anim {anim}, fx {fx}, targets {count})",
-            packet.Data.Slot, ability.Name, ability.Damage, ability.Animation, ability.EffectId, targets.Count);
+        // Active self-buff (Mystical Blade / Enrage / the damage powerup) multiplies outgoing damage.
+        var damage = CombatBuffs.ApplyDamage(player.Guid, ability.Damage);
 
-        ResolveDamageAfterCast(player, targets, ability.Damage, ability.EffectId, damageDelay,
+        _logger.LogInformation("Ability slot {slot} = '{name}' (dmg {dmg}, anim {anim}, fx {fx}, targets {count})",
+            packet.Data.Slot, ability.Name, damage, ability.Animation, ability.EffectId, targets.Count);
+
+        ResolveDamageAfterCast(player, targets, damage, ability.EffectId, damageDelay,
             ability.CasterEndEffectId, ability.EnemyExtraEffectId);
 
         return true;

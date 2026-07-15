@@ -121,12 +121,17 @@ public static class PacketChatHandler
             return true;
         }
 
-        // COMBAT WIP: "!give" grants the 10 ninja "Shadow Blade of X" weapons (item-def 75110-75119) to the
-        // character's inventory (DB + in-memory) so you can equip them and watch the ability toolbar change.
-        // Abilities are now item-driven: equip a different Shadow Blade -> different ability on the bar.
+        // COMBAT WIP: "!give" grants job weapons for ability testing (item-driven — equip a different
+        // weapon -> different abilities on the bar). "!give" = the 10 ninja Shadow Blades (75110-75119);
+        // "!give wiz" = the spreadsheet-confirmed wizard wands; "!give brawler" = the Atlas Hammer of Rage.
         if (packet.Message is { } giveMsg && giveMsg.StartsWith("!give"))
         {
-            HandleGiveNinjaWeapons(connection);
+            if (giveMsg.Contains("wiz"))
+                HandleGiveWeapons(connection, WizardWandAbilities.AllWeaponDefIds, "wizard wand");
+            else if (giveMsg.Contains("brawl"))
+                HandleGiveWeapons(connection, BrawlerWeaponAbilities.AllWeaponDefIds, "brawler weapon");
+            else
+                HandleGiveWeapons(connection, NinjaWeaponAbilities.AllWeaponDefIds, "ninja weapon");
             return true;
         }
 
@@ -136,6 +141,26 @@ public static class PacketChatHandler
         if (packet.Message is { } iconMsg && iconMsg.StartsWith("!ticon"))
         {
             HandleIconProbe(connection, iconMsg);
+            return true;
+        }
+
+        // NAMECOLOR PROOF: "!namecolor [AARRGGBB hex]" spawns a dummy clone with a STATIC nameplate color
+        // (default purple FFA020F0) — live evidence for the AddNpc NameColor float->int fix (PR #2).
+        if (packet.Message is { } ncMsg && ncMsg.StartsWith("!namecolor"))
+        {
+            var parts = ncMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var argb = unchecked((int)0xFFA020F0); // purple
+            if (parts.Length > 1 && uint.TryParse(parts[1].TrimStart('#'),
+                    System.Globalization.NumberStyles.HexNumber, null, out var hex))
+                argb = unchecked((int)hex);
+
+            if (connection.Player.Zone is Sanctuary.Game.Zones.StartingZone ncZone)
+            {
+                ncZone.SpawnNameColorTestDummy(connection.Player, argb);
+                _logger.LogInformation("!namecolor -> spawned test dummy with NameColor 0x{argb:X8}.", argb);
+            }
+            else
+                _logger.LogWarning("!namecolor -> only works in the starting zone.");
             return true;
         }
 
@@ -157,6 +182,50 @@ public static class PacketChatHandler
             var count = parts.Length > 1 && int.TryParse(parts[1], out var n) ? Math.Clamp(n, 1, 25) : 1;
             for (var i = 0; i < count; i++)
                 BaseMiniGamePacketHandler.OpenMysteryPack(connection);
+            return true;
+        }
+
+        // POWERUP TUNING (2026-07-12, no wire ground truth for held-powerup use — FX/anim found by eye):
+        //   "!pufx <flame|quake|shield> <fxId> [animId]" retargets that powerup's use-FX (and optionally
+        //   the player use-animation) live — composite ids from ActorCompositeEffectDefinitions.xml,
+        //   anim GROUP ids from AnimationGroups.xml — then "!pu <kind>" + press "3" to view.
+        //   "!pu <flame|quake|shield|energy>" hands you the powerup directly (skips the 8% drop grind).
+        if (packet.Message is { } pufxMsg && pufxMsg.StartsWith("!pufx"))
+        {
+            var parts = pufxMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            int? animId = parts.Length >= 4 && int.TryParse(parts[3], out var a) ? a : null;
+            if (parts.Length >= 3 && int.TryParse(parts[2], out var fxId) &&
+                Sanctuary.Game.Zones.FrostfangArenaZone.TrySetPowerupFx(parts[1].ToLowerInvariant(), fxId, animId))
+                _logger.LogInformation("!pufx -> {kind} use-FX now composite {fx}, anim {anim}.",
+                    parts[1], fxId, animId?.ToString() ?? "(unchanged)");
+            else
+                _logger.LogWarning("!pufx usage: !pufx <flame|quake|shield> <fxId> [animId]");
+            return true;
+        }
+
+        // "!puspawn" drops the four pickup models in a ring with real walk-over collection — the whole
+        // drop→pickup→"3" flow, testable in ANY zone (overworld test bed per user 2026-07-15).
+        if (packet.Message is { } puSpawnMsg && puSpawnMsg.StartsWith("!puspawn"))
+        {
+            if (connection.Player.Zone is Sanctuary.Game.Zones.BaseZone puZone)
+            {
+                HeldPowerupProbe.SpawnPickups(puZone, connection.Player, _resourceManager);
+                _logger.LogInformation("!puspawn -> dropped the 4 pickup models around the player.");
+            }
+            return true;
+        }
+
+        if (packet.Message is { } puMsg && puMsg.StartsWith("!pu"))
+        {
+            var parts = puMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2)
+                _logger.LogWarning("!pu usage: !pu <flame|quake|shield|energy>  (also: !puspawn, !pufx)");
+            else if (connection.Player.Zone is Sanctuary.Game.Zones.FrostfangArenaZone puArena
+                ? puArena.GrantPowerup(connection.Player, parts[1].ToLowerInvariant())
+                : HeldPowerupProbe.Grant(connection.Player, parts[1].ToLowerInvariant(), _resourceManager))
+                _logger.LogInformation("!pu -> granted {kind} powerup.", parts[1]);
+            else
+                _logger.LogWarning("!pu usage: !pu <flame|quake|shield|energy>");
             return true;
         }
 
@@ -535,7 +604,7 @@ public static class PacketChatHandler
     // COMBAT WIP — see note above. Grants the ninja Shadow Blade weapons so they can be equipped to test the
     // item-driven ability toolbar. Adds each missing weapon to the DB + in-memory inventory and pushes an
     // ItemAdd so it appears immediately. Equip one via the inventory UI -> the toolbar refreshes to its ability.
-    private static void HandleGiveNinjaWeapons(GatewayConnection connection)
+    private static void HandleGiveWeapons(GatewayConnection connection, int[] weaponDefIds, string label)
     {
         var characterId = GuidHelper.GetPlayerId(connection.Player.Guid);
 
@@ -554,7 +623,7 @@ public static class PacketChatHandler
         var nextId = dbCharacter.Items.Count > 0 ? dbCharacter.Items.Max(i => i.Id) : 0;
         var granted = 0;
 
-        foreach (var defId in NinjaWeaponAbilities.AllWeaponDefIds)
+        foreach (var defId in weaponDefIds)
         {
             if (dbCharacter.Items.Any(i => i.Definition == defId))
                 continue; // already owned
@@ -593,7 +662,7 @@ public static class PacketChatHandler
         if (granted > 0)
             dbContext.SaveChanges();
 
-        _logger.LogInformation("!give -> granted {n} ninja weapon(s) to character {id}.", granted, characterId);
+        _logger.LogInformation("!give -> granted {n} {label}(s) to character {id}.", granted, label, characterId);
     }
 
     // INSTANCE WIP — see note above. Re-zones the client into Frostfang Caverns via PacketClientBeginZoning
