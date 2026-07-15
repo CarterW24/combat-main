@@ -3,7 +3,6 @@ using System.Linq;
 
 using Sanctuary.Game.Entities;
 using Sanctuary.Packet;
-using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
@@ -93,42 +92,6 @@ public static class ArcherWeaponAbilities
     /// <summary>True when the player is an Archer whose active job rank has unlocked the given trait level.</summary>
     public static bool HasTrait(Player player, int traitLevel) =>
         player.ActiveProfileId == ArcherProfileId && player.ActiveProfile.Rank >= traitLevel;
-
-    // The four traits for the AbilitiesScreen's Traits section. NameId/DescriptionId reversed from
-    // en_us_data via Jenkins lookup2 (names 420934-37, descriptions 420958-61); IconId = ImageSetMappings.txt
-    // type6 art (Precision 33, Marksmanship 31, Reflexes=evasion 22570, Lucky Shot=advantage 39861). Present
-    // (the record Id / list control) is the NameId so each entry is DISTINCT and non-zero — an earlier attempt
-    // that set Present=1 on all four AND embedded them in the profile packet crashed the client on connect
-    // (the bulk profile parser writes the experience list into a fixed buffer with no bounds check). These are
-    // sent one-at-a-time via op36/8 UpdateAbilityExperience instead, whose reader append-with-grows the list.
-    private static readonly (int NameId, int DescId, int IconId, int Level)[] Traits =
-    [
-        (420934, 420958, 33,    PrecisionLevel),     // Precision
-        (420935, 420959, 31,    MarksmanshipLevel),  // Marksmanship
-        (420936, 420960, 22570, ReflexesLevel),      // Reflexes (evasion icon)
-        (420937, 420961, 39861, LuckyShotLevel),     // Lucky Shot (advantage icon)
-    ];
-
-    /// <summary>The four Archer traits as passive AbilityExperience entries (IsActivateable=false), each gated
-    /// by RequiredLevel. For the op36/8 delivery path (one packet per entry).</summary>
-    public static List<AbilityExperience> BuildTraitEntries(int rank)
-    {
-        var list = new List<AbilityExperience>(Traits.Length);
-        foreach (var t in Traits)
-        {
-            list.Add(new AbilityExperience
-            {
-                Present = t.NameId,          // distinct, non-zero record id
-                IsActivateable = false,      // passive => Traits section
-                NameId = t.NameId,
-                DescriptionId = t.DescId,
-                IconId = t.IconId,
-                Level = rank >= t.Level ? rank : 0,
-                RequiredLevel = t.Level,
-            });
-        }
-        return list;
-    }
 
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)
     private const int SpecialAnim = 1106;     // com_range_special_01 (refine per-special via !anim)

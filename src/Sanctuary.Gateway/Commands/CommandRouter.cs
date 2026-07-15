@@ -124,8 +124,6 @@ public static class CommandRouter
                 return HandleHp(conn, parts);
             case "xp":
                 return HandleXp(conn, parts);
-            case "traits":
-                return HandleTraits(conn);
             case "testtransform":
                 return HandleTestTransform(conn, parts);
             case "fly":
@@ -1635,29 +1633,6 @@ public static class CommandRouter
 
     // /lua <script>  - sends an ExecuteScriptPacket so the client runs the given Lua.
     // Debug/testing tool for reverse-engineering the client script API.
-    // OPT-IN TRAIT TEST (`!traits`): sends the four Archer traits to the client's ability list via op36/8
-    // UpdateAbilityExperience — one packet per entry. That reader append-with-grows the list (FUN_008f8b40 ->
-    // FUN_008bfc00 push_back), so it can't overflow the way embedding the list in the profile packet did (that
-    // crashed on connect). This is a deliberate command, NOT auto-on-login, so testing it can never brick
-    // login: if it still crashes, only the tester's session when they run it. If the Traits panel fills, we
-    // promote this to the profile-activate path.
-    private static bool HandleTraits(GatewayConnection conn)
-    {
-        if (conn.Player.ActiveProfileId != Sanctuary.Game.Combat.ArcherWeaponAbilities.ArcherProfileId)
-        {
-            SendSystem(conn, "Switch to the Archer job first, then run !traits.");
-            return true;
-        }
-
-        var entries = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildTraitEntries(conn.Player.ActiveProfile.Rank);
-        foreach (var e in entries)
-            conn.SendTunneled(new AbilityPacketUpdateAbilityExperience { Experience = e });
-
-        SendSystem(conn, $"Sent {entries.Count} archer traits (op36/8). Open the Abilities screen to check.");
-        _logger.LogInformation("!traits -> sent {n} archer trait experiences to {p}.", entries.Count, conn.Player.Name.FullName);
-        return true;
-    }
-
     private static bool HandleLua(GatewayConnection conn, string? message)
     {
         if (string.IsNullOrWhiteSpace(message))
