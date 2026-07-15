@@ -670,6 +670,10 @@ public sealed class Player : ClientPcData, IEntity
     {
         RecalculateStats(refill: true);
 
+        // Refresh the trait list to the NEW rank so a level-up that crosses a trait's unlock level flips its
+        // padlock on the spot — otherwise the traits carry their login-rank state and only update on relog.
+        RefreshTraits();
+
         // Full-screen job level-up UI (levelup_<job>.gfx) via the "JobLevelUp" client event — ClientUpdate
         // 38/15: the client reads one length-prefixed payload and parses it as the active profile.
         using var jluWriter = new PacketWriter();
@@ -681,6 +685,15 @@ public sealed class Player : ClientPcData, IEntity
         // wiped before it rendered ("effects sometimes won't show when leveling up"). Deferring it onto the
         // tick loop lands it cleanly on the character every time — still one clean burst (no 3-4 repeats).
         _levelUpBurstAtTicks = Environment.TickCount64 + LevelUpBurstDelayMs;
+    }
+
+    /// <summary>Rebuild the active profile's trait (passive ability) list to the current rank so the
+    /// AbilitiesScreen Traits panel reflects newly-unlocked traits after a level-up, not just on relog. Only
+    /// Archer is data'd; other jobs leave their (empty) list untouched. Call before any profile re-send.</summary>
+    public void RefreshTraits()
+    {
+        if (ActiveProfileId == Combat.ArcherWeaponAbilities.ArcherProfileId)
+            ActiveProfile.AbilityExperiences = Combat.ArcherWeaponAbilities.BuildTraitEntries(ActiveProfile.Rank);
     }
 
     /// <summary>Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).</summary>

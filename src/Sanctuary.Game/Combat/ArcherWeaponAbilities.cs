@@ -118,6 +118,11 @@ public static class ArcherWeaponAbilities
         var list = new List<AbilityExperience>(TraitData.Length + 1);
         foreach (var t in TraitData)
         {
+            // The padlock is driven by the ability's RANK (this Level field), NOT a compare to RequiredLevel —
+            // live-verified 2026-07-15: forcing Rank>0 on every entry unlocked ALL of them regardless of their
+            // (higher) RequiredLevel. So: Rank 1 once the job level reaches the trait's unlock level, else 0
+            // (locked). RequiredLevel is only the "Unlocked at level N" caption.
+            var unlocked = rank >= t.Level;
             list.Add(new AbilityExperience
             {
                 Present = t.NameId,          // DISTINCT, non-zero record id (duplicate ids crash the client)
@@ -125,8 +130,8 @@ public static class ArcherWeaponAbilities
                 NameId = t.NameId,
                 DescriptionId = t.DescId,
                 IconId = t.IconId,
-                Level = rank >= t.Level ? rank : 0,
-                RequiredLevel = t.Level,     // "Unlocked at level N" lock
+                Level = unlocked ? 1 : 0,    // Rank: >0 = unlocked (padlock off), 0 = locked
+                RequiredLevel = t.Level,     // "Unlocked at level N" caption
             });
         }
         list.Add(new AbilityExperience { Present = 0 }); // terminator

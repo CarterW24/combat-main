@@ -335,7 +335,11 @@ public class GatewayConnection : UdpConnection
             // crash the client — live-bisected). Other jobs' trait tables aren't mined yet, so they keep the
             // default empty list.
             if (profileData.Id == Sanctuary.Game.Combat.ArcherWeaponAbilities.ArcherProfileId)
+            {
                 clientPcProfile.AbilityExperiences = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildTraitEntries(clientPcProfile.Rank);
+                _logger.LogInformation("TRAITS: archer profile rank={rank} (dbLevel={db}) -> traits unlock at 5/10/15/20.",
+                    clientPcProfile.Rank, dbProfile.Level);
+            }
 
             Player.Profiles.Add(clientPcProfile);
 

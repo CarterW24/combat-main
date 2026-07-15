@@ -48,6 +48,10 @@ public static class CommandPacketSetProfileHandler
         // Each job has its own level, so switching jobs rescales HP/mana/stats to the new job's rank.
         connection.Player.RecalculateStats(refill: true);
 
+        // Refresh the (now-active) job's trait list to its current rank so the Traits panel is right after a
+        // swap too, not just at login.
+        connection.Player.RefreshTraits();
+
         var clientUpdatePacketActivateProfile = new ClientUpdatePacketActivateProfile();
 
         using var packetWriter = new PacketWriter();
