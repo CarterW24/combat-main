@@ -770,9 +770,14 @@ public sealed class Player : ClientPcData, IEntity
         int maxHealth = JobLeveling.MaxHealth(level);
         int maxMana = JobLeveling.MaxMana(level);
 
+        // ARCHER TRAIT — Reflexes (L15): +run speed. (Its dodge half is rolled on the mob's attack.)
+        float moveSpeed = 8f;
+        if (Combat.ArcherWeaponAbilities.HasTrait(this, Combat.ArcherWeaponAbilities.ReflexesLevel))
+            moveSpeed *= Combat.ArcherWeaponAbilities.ReflexesSpeedMultiplier;
+
         UpdateCharacterStats(
             new CharacterStat(CharacterStatId.MaxHealth, maxHealth),
-            new CharacterStat(CharacterStatId.MaxMovementSpeed, 8f),
+            new CharacterStat(CharacterStatId.MaxMovementSpeed, moveSpeed),
             new CharacterStat(CharacterStatId.WeaponRange, 5f),
             new CharacterStat(CharacterStatId.HitPointRegen, JobLeveling.HitPointRegen(level)),
             new CharacterStat(CharacterStatId.MaxMana, maxMana),

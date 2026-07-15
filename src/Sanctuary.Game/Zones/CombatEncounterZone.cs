@@ -293,6 +293,15 @@ public abstract class CombatEncounterZone : BaseZone
     /// animate (the Abominable Snowman).</summary>
     protected void PerformMobAttack(Npc attacker, Player player)
     {
+        // ARCHER TRAIT — Reflexes (L15): chance to DODGE the incoming attack entirely — no damage, no floating
+        // number (which reads as a miss). No dodge animation: the client's dodge clip id isn't confirmed and a
+        // wrong clip would look worse than none.
+        if (Combat.ArcherWeaponAbilities.HasTrait(player, Combat.ArcherWeaponAbilities.ReflexesLevel)
+            && Random.Shared.Next(100) < Combat.ArcherWeaponAbilities.ReflexesDodgePercent)
+        {
+            return;
+        }
+
         var crit = Random.Shared.Next(100) < MobAttackCritPercent;
         var dmg = crit ? MobAttackCritDamage : MobAttackDamage;
         player.TakeDamage(dmg);

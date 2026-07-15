@@ -60,6 +60,39 @@ public static class ArcherWeaponAbilities
     /// kit's 7u cap would make an archer walk into bite range to hit anything.</summary>
     public const float BowReach = 30f;
 
+    // ── TRAITS ───────────────────────────────────────────────────────────────────────────────────────
+    // The Archer's four passive traits (freerealms wiki / ZAM), unlocked purely by job level. No cost, no
+    // choice — every Archer gets all four by level 20. They're passive, so they have no cast FX / anim / sound
+    // (the client ships only their icons); the effects apply to BOTH the basic shot and the specials. The wiki
+    // gives no numbers, so the magnitudes below are our tuning (mirrors how the weapon damage tables were set).
+    //   L5  Precision    — more damage + higher crit CHANCE
+    //   L10 Marksmanship — crits hit harder (crit MULTIPLIER)
+    //   L15 Reflexes     — faster run speed + dodge chance
+    //   L20 Lucky Shot   — a hit sometimes restores a little energy
+    public const int PrecisionLevel = 5;
+    public const int MarksmanshipLevel = 10;
+    public const int ReflexesLevel = 15;
+    public const int LuckyShotLevel = 20;
+
+    // Precision: +8% flat damage and +12 percentage-points of crit chance once unlocked.
+    public const float PrecisionDamageBonus = 0.08f;
+    public const int PrecisionCritChanceBonus = 12;
+    // Base crit chance for an archer with no traits (so Precision is an increase, not the whole thing).
+    public const int BaseCritChancePercent = 5;
+    // Marksmanship: a crit does +75% on top of the normal 2× (i.e. 2.75×) once unlocked.
+    public const float MarksmanshipCritBonus = 0.75f;
+    public const float BaseCritMultiplier = 2.0f;
+    // Reflexes: +15% run speed (8.0 -> 9.2) and a 15% chance to dodge an incoming enemy attack.
+    public const float ReflexesSpeedMultiplier = 1.15f;
+    public const int ReflexesDodgePercent = 15;
+    // Lucky Shot: 20% chance per landed hit to restore 8 energy.
+    public const int LuckyShotChancePercent = 20;
+    public const int LuckyShotEnergyRestore = 8;
+
+    /// <summary>True when the player is an Archer whose active job rank has unlocked the given trait level.</summary>
+    public static bool HasTrait(Player player, int traitLevel) =>
+        player.ActiveProfileId == ArcherProfileId && player.ActiveProfile.Rank >= traitLevel;
+
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)
     private const int SpecialAnim = 1106;     // com_range_special_01 (refine per-special via !anim)
     private const int BasicHitFx = 7;         // PFX_Hit_Flash — the proven generic impact flash

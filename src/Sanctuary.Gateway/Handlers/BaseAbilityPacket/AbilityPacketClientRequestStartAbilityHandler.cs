@@ -115,6 +115,54 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         });
     }
 
+    // ── ARCHER TRAITS (passive, applied to both the basic shot and the specials) ──────────────────────
+    // Precision (L5): +flat damage and +crit chance. Marksmanship (L10): crits hit harder. Lucky Shot (L20):
+    // a landed hit sometimes restores energy. (Reflexes L15 = run speed in RecalculateStats + dodge on the
+    // mob's attack.) See Sanctuary.Game.Combat.ArcherWeaponAbilities for the levels + magnitudes.
+
+    /// <summary>Apply the Archer damage traits to one hit: Precision's flat bonus + crit-chance, and (on a
+    /// crit) Marksmanship's extra crit damage. Returns the final damage for this hit.</summary>
+    private static int ApplyArcherTraitDamage(Player player, int baseDamage)
+    {
+        var dmg = (float)baseDamage;
+
+        if (ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.PrecisionLevel))
+            dmg *= 1f + ArcherWeaponAbilities.PrecisionDamageBonus;
+
+        // Crit chance: base + Precision's bonus (only archers with Precision roll crits here).
+        var critChance = 0;
+        if (ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.PrecisionLevel))
+            critChance = ArcherWeaponAbilities.BaseCritChancePercent + ArcherWeaponAbilities.PrecisionCritChanceBonus;
+
+        if (critChance > 0 && Random.Shared.Next(100) < critChance)
+        {
+            var critMult = ArcherWeaponAbilities.BaseCritMultiplier;
+            if (ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.MarksmanshipLevel))
+                critMult += ArcherWeaponAbilities.MarksmanshipCritBonus;
+            dmg *= critMult;
+        }
+
+        return Math.Max(1, (int)dmg);
+    }
+
+    /// <summary>Lucky Shot (L20): a chance on each landed hit to refund a little energy (and kick the regen
+    /// loop so the bar visibly ticks up).</summary>
+    private static void TryLuckyShotEnergy(Player player)
+    {
+        if (!ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.LuckyShotLevel))
+            return;
+        if (Random.Shared.Next(100) >= ArcherWeaponAbilities.LuckyShotChancePercent)
+            return;
+
+        var energy = GetEnergy(player);
+        if (energy >= MaxEnergy)
+            return;
+
+        var next = Math.Min(MaxEnergy, energy + ArcherWeaponAbilities.LuckyShotEnergyRestore);
+        _energy[player.Guid] = next;
+        SendEnergy(player, next);
+    }
+
     // COMBAT WIP: the ability is resolved from the pressed slot + the EQUIPPED WEAPON (see Sanctuary.Game.
     // Combat.NinjaWeaponAbilities): slot 0 = common melee, slot 1 = the weapon's "of X" special. Damage /
     // swing animation 1099 / hit composite effect all come from that table.
@@ -949,7 +997,12 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     if (!target.IsAlive)
                         continue; // e.g. died to an earlier hit this same tick
 
-                    var killed = target.ApplyDamage(damage);
+                    // ARCHER TRAITS (apply to BOTH the basic shot and the specials): Precision adds flat damage
+                    // + crit chance, Marksmanship makes crits hit harder. Rolled per hit so AoE specials can
+                    // crit some targets and not others.
+                    var hitDamage = ApplyArcherTraitDamage(player, damage);
+
+                    var killed = target.ApplyDamage(hitDamage);
 
                     // IMPACT FX on the victim (the ability's EffectId — the explosive-arrow burst, the
                     // lightning strike, the basic-hit flash...). AttackProcessed used to carry this in
@@ -992,12 +1045,15 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                         Unknown = true,               // player->NPC sample had the leading bool = 01
                         Unknown2 = target.MaxHealth,  // max HP (bar denominator)
                         Unknown3 = target.Health,     // current HP AFTER the hit (bar position)
-                        Unknown4 = -damage,           // delta = -damage -> the floating number
+                        Unknown4 = -hitDamage,        // delta = -damage -> the floating number
                     }, sendToSelf: true);
+
+                    // ARCHER TRAIT — Lucky Shot (L20): a landed hit sometimes restores a little energy.
+                    TryLuckyShotEnergy(player);
 
                     _logger.LogInformation(
                         "Ability hit {name} ({guid}) for {dmg} -> {hp}/{max} HP (killed={killed})",
-                        target.Name, target.Guid, damage, target.Health, target.MaxHealth, killed);
+                        target.Name, target.Guid, hitDamage, target.Health, target.MaxHealth, killed);
 
                     // Route the kill to the zone (IZone.OnNpcKilled): the starting zone resets its training
                     // dummy; the Frostfang arena advances the encounter (pack -> Alpha -> victory + return).
