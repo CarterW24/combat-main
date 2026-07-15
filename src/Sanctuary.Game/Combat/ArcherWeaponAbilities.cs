@@ -224,14 +224,13 @@ public static class ArcherWeaponAbilities
     /// COLUMNS (the op36/13 reply; NOT the Traits section, which is the ability-experience list). An unmapped bow
     /// (bare "Shoot", not in AbilityText) falls back to the tier-1 Barrage/Volley name so the column isn't
     /// "undefined". Returns null for a def id that isn't one of ours.</summary>
-    public static (int NameId, int IconId, int CastTimeMs)? ResolveDefinition(Player player, int abilityDefId)
+    public static (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId)
     {
         var slot = SlotForDefId(abilityDefId);
         if (slot < 0)
             return null;
 
-        var (nameId, iconId) = SlotNameIcon(player.GetEquippedWeaponDefinitionId(), slot);
-        return (nameId, iconId, 0);
+        return SlotNameIcon(player.GetEquippedWeaponDefinitionId(), slot);
     }
 
     /// <summary>The slot ability-def ids the client requests for the AbilitiesScreen columns (BasicSlotDefId 4895
@@ -251,7 +250,7 @@ public static class ArcherWeaponAbilities
     /// <summary>Name+icon for an ability slot on a given equipped bow — the tier-1 Barrage/Volley pair backs any
     /// unmapped/absent bow so the AbilitiesScreen column never reads "undefined". Used for BOTH the op36/13 reply
     /// and the profile's ability-slot list (they must agree).</summary>
-    public static (int NameId, int IconId) SlotNameIcon(int weaponDefId, int slot)
+    public static (int NameId, int DescId, int IconId) SlotNameIcon(int weaponDefId, int slot)
     {
         var weapon = weaponDefId != 0 && ByWeaponDefId.TryGetValue(weaponDefId, out var w) ? w : FallbackWeapon;
         var ability = slot == 1 ? weapon.Special : weapon.Basic;
@@ -264,7 +263,7 @@ public static class ArcherWeaponAbilities
             iconId = fb.IconImageId;
         }
 
-        return (text.NameId, iconId);
+        return (text.NameId, text.DescId, iconId);
     }
 
     private const int BasicShotAnim = 1102;   // com_range_attack_02 (draw + fire)

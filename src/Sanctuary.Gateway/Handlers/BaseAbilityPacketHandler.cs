@@ -14,12 +14,6 @@ public static class BaseAbilityPacketHandler
 {
     private static ILogger _logger = null!;
 
-    // Boombox ability IDs — all get a 60-second cooldown definition.
-    private static readonly System.Collections.Generic.HashSet<int> BoomboxAbilityIds = new()
-    {
-        255, 257, 361, 1013, 1018, 1027, 1037, 1052, 1057, 1062, 1862, 3761, 3971, 4370, 5087, 5161
-    };
-
     public static void ConfigureServices(IServiceProvider serviceProvider)
     {
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
@@ -54,19 +48,21 @@ public static class BaseAbilityPacketHandler
         if (!AbilityPacketRequestAbilityDefinition.TryDeserialize(data, out var packet))
             return false;
 
-        int cooldownMs = BoomboxAbilityIds.Contains(packet.AbilityId) ? 60_000 : 0;
-
-        // Fill the name/icon from the active job's weapon kit so the AbilitiesScreen's Attack / Special Attack
-        // columns render the ability instead of "undefined". null = not one of our slot def ids (leave 0s).
+        // Answer with the FULL AbilityDefinition record so the client inserts it into its ability-def map, which
+        // is what the AbilitiesScreen's Attack / Special Attack columns read (name/desc/icon). Resolve name+desc+
+        // icon from the active job's weapon kit; null = not one of our slot def ids (send a bare record so the
+        // client still has an entry rather than re-requesting forever).
         var def = Sanctuary.Game.Combat.JobWeaponAbilities.ResolveAbilityDefinition(connection.Player, packet.AbilityId);
+
+        _logger.LogInformation("ABILITYDEF request id={id} -> Name={n} Desc={d} Icon={i} (resolved={ok})",
+            packet.AbilityId, def?.NameId ?? 0, def?.DescId ?? 0, def?.IconId ?? 0, def is not null);
 
         connection.SendTunneled(new AbilityPacketAbilityDefinition
         {
             AbilityId = packet.AbilityId,
             NameId = def?.NameId ?? 0,
+            DescriptionId = def?.DescId ?? 0,
             IconId = def?.IconId ?? 0,
-            CooldownMs = cooldownMs,
-            CastTimeMs = def?.CastTimeMs ?? 0
         });
 
         return true;

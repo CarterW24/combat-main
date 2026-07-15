@@ -76,7 +76,7 @@ public static class NinjaWeaponAbilities
     /// <summary>Resolve a client AbilityDefinition request (op36/12) for a ninja slot def id to the equipped
     /// weapon's icon (the op36/13 reply that fills the AbilitiesScreen Attack / Special columns). Ninja ability
     /// NAME ids aren't mined yet, so name stays 0 for now — the icon still shows. Null for a non-ours def id.</summary>
-    public static (int NameId, int IconId, int CastTimeMs)? ResolveDefinition(Player player, int abilityDefId)
+    public static (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId)
     {
         var slot = abilityDefId switch
         {
@@ -87,7 +87,7 @@ public static class NinjaWeaponAbilities
         if (slot < 0)
             return null;
 
-        return (0, ResolveAbility(player, slot).IconImageId, 0);
+        return (0, 0, ResolveAbility(player, slot).IconImageId);
     }
 
     // The 10 ninja SPECIALS, each a full kit (melee technique on slot 0 + the named "of X" special on slot 1).

@@ -39,7 +39,7 @@ public static class JobWeaponAbilities
     /// <summary>Resolve a client AbilityDefinition request (op36/12) against the active job's kit, giving the
     /// name/icon the client shows in the AbilitiesScreen's Attack / Special Attack columns (its op36/13 reply).
     /// Null when the job has no kit or the def id isn't one of that kit's slots.</summary>
-    public static (int NameId, int IconId, int CastTimeMs)? ResolveAbilityDefinition(Player player, int abilityDefId) =>
+    public static (int NameId, int DescId, int IconId)? ResolveAbilityDefinition(Player player, int abilityDefId) =>
         player.ActiveProfileId switch
         {
             ArcherWeaponAbilities.ArcherProfileId => ArcherWeaponAbilities.ResolveDefinition(player, abilityDefId),
