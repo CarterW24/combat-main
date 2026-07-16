@@ -41,41 +41,26 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
     private const int FoodEffectCooldownMs = 120_000;
 
-    // Per the real 2014 capture (Packet-Protocol_Dump), the player fired the basic attack as fast as
-    // 0.17s apart (44 of 97 presses under 0.5s) — it is essentially spammable, NO real cooldown. The
-    // StartCasting ActionTime is what the client uses to lock the action-bar slot, so the basic melee
-    // gets a tiny window and the specials keep a short wind-up.
+    // Basic attack is essentially spammable (2014 capture: presses as fast as 0.17s apart, no real cooldown).
+    // StartCasting ActionTime locks the action-bar slot: tiny window for the basic, short wind-up for specials.
     private const float MeleeActionTime = 0.15f;   // slot 0 basic attack — spammable, matches live cadence
     private const float SpecialActionTime = 0.4f;  // slot 1 named special — a real wind-up
     private const float MeleeDamageDelay = 0.15f;  // number pops as the fast swing lands
     private const float SpecialDamageDelay = 0.4f; // number pops at the end of the special's animation
 
-    // ATTACK CADENCE (2026-07-03): the basic attack must resolve ONE swing per ANIMATION, not one per
-    // key-press — the client can send StartAbility faster than the swing clip plays, so un-paced it pops a
-    // damage number on every click. We removed the client melee-timer cooldown (that was the AttackProcessed
-    // bug), so the pacing is now SERVER-side: gate basic-attack resolution to the swing cadence per player.
-    // Presses inside the window are ignored (no cast, no number) so the animation plays fully and one number
-    // lands per swing. VALUE = GROUND TRUTH: measured from the 2014-04-01 capture, the real server's
-    // consecutive single-target player->enemy HitPointModification packets land ~0.66s apart (median 0.662s;
-    // sub-0.1s bursts are AoE specials hitting the pack at once, excluded). Specials stay ungated here (their
-    // rate is the energy/cost system, handled separately).
+    // Basic attack resolves ONE swing per animation, not per key-press (the client can fire faster than the
+    // clip plays). Pacing is server-side: gate basic resolution to the swing cadence; presses inside the window
+    // are ignored so the animation plays fully and one number lands per swing. ~0.66s between hits (2014-04-01
+    // capture median 0.662s; sub-0.1s bursts are AoE specials). Specials are rate-gated by energy instead.
     private const int BasicSwingMs = 660;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, long> _nextBasicSwingTicks = new();
 
-    // ENERGY / MANA (2026-07-03, SOLVED from the 2014-04-01 capture — player op38/sub13 timeline):
-    //   * max = 100.
-    //   * the special (slot 1) costs the WHOLE bar: energy went 100 -> 0 (delta -100) exactly when the
-    //     special's AoE landed (23:21:31). So SpecialEnergyCost = 100.
-    //   * regen = +4 per second, TIME-based (energy climbed 0 -> 100 in a steady +4/1s trickle over 25s,
-    //     during AND after combat — NO kill-based chunks). Full recharge = 25s.
-    // We report the player's energy on the same op38/sub13 (ClientUpdatePacketMana) the real server used.
-    // The basic attack (slot 0) costs no energy; only slot-1 specials are gated.
+    // Energy (from the 2014-04-01 capture): max 100, regen +4/s time-based (full refill 25s, in & out of combat,
+    // no kill chunks). Special (slot 1) costs the whole bar (100); basic (slot 0) costs nothing. Reported on the
+    // same op38/sub13 ClientUpdatePacketMana the real server used.
     private const int MaxEnergy = 100;
     private const int SpecialEnergyCost = NinjaWeaponAbilities.SpecialEnergyCost; // 100 — shared with the toolbar's slot ManaCost (client grey-out)
-    // AUTHENTIC live value = 4 (25s full refill, measured from the 04-01 capture — see the comment
-    // block above). During testing this was temporarily cranked to 50 (~2s refill) so repeated
-    // encounter runs weren't a slog; restored to 4 for the committed branch. Bump it back up locally
-    // if you want faster energy while iterating.
+    // Live value = 4 (25s refill, 04-01 capture). Bump locally for faster energy while iterating.
     private const int EnergyRegenPerSec = 4;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, int> _energy = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, bool> _regenRunning = new();
@@ -115,10 +100,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         });
     }
 
-    // ── ARCHER TRAITS (passive, applied to both the basic shot and the specials) ──────────────────────
-    // Precision (L5): +flat damage and +crit chance. Marksmanship (L10): crits hit harder. Lucky Shot (L20):
-    // a landed hit sometimes restores energy. (Reflexes L15 = run speed in RecalculateStats + dodge on the
-    // mob's attack.) See Sanctuary.Game.Combat.ArcherWeaponAbilities for the levels + magnitudes.
+    // Archer traits (passive, on basic + specials): Precision L5 (+dmg/+crit chance), Marksmanship L10 (crits
+    // harder), Lucky Shot L20 (hit sometimes restores energy); Reflexes L15 = run speed + dodge (elsewhere).
+    // Levels/magnitudes in ArcherWeaponAbilities.
 
     // Apply the Archer damage traits to one hit: Precision's flat bonus + crit-chance, and (on a
     // crit) Marksmanship's extra crit damage. Returns the final damage for this hit.
@@ -163,18 +147,15 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         SendEnergy(player, next);
     }
 
-    // COMBAT WIP: the ability is resolved from the pressed slot + the EQUIPPED WEAPON (see Sanctuary.Game.
-    // Combat.NinjaWeaponAbilities): slot 0 = common melee, slot 1 = the weapon's "of X" special. Damage /
-    // swing animation 1099 / hit composite effect all come from that table.
+    // The ability comes from the pressed slot + equipped weapon (the job kit): slot 0 = melee, slot 1 = the
+    // weapon's special. Damage / animation / hit-FX all from that table.
 
     // Unique effect-tag ids for the lingering cast-FX plays (start high to stay clear of
     // the zones' heal-shower tag range).
     private static int _castFxTagCounter = 5000;
 
-    // COMBAT WIP: live animation probe. When set via "!anim <id>", EVERY ability key-press plays this
-    // animation instead of the ability's own — so you can spam your ability keys (no chat flood) to find the
-    // right per-ability move and see it replay in sequence. null = abilities use their own anim. "!anim 0"
-    // (or "!anim" with no id) clears it.
+    // Live animation probe: !anim <id> makes every ability press play <id> instead of its own anim (spam keys
+    // to find the right per-ability move). null = use each ability's anim; !anim 0 or !anim clears it.
     public static int? DebugAnimationOverride;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
@@ -748,19 +729,14 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         var player = connection.Player;
         var zone = player.Zone;
 
-        // NOTE: we do NOT enter world-combat just for pressing fire. Combat means actually FIGHTING an enemy,
-        // so entry is gated on a real target being hit — see the EnterWorldCombat below (once a target is
-        // resolved) and the re-stamp when the hit lands in ResolveDamageAfterCast. Swinging/shooting into empty
-        // air plays the animation but no longer flags you in-combat. The killing blow keeps you in combat for
-        // the decay window, so the bow still auto-fires at the next enemy after a kill (it only drops out once
-        // there's genuinely nothing left to fight).
+        // We DON'T enter world-combat just for pressing fire — entry is gated on actually hitting an enemy (see
+        // EnterWorldCombat once a target resolves, + the re-stamp in ResolveDamageAfterCast). Swinging at air
+        // animates but doesn't flag you. The killing blow keeps you in combat for the decay window so the bow
+        // auto-fires at the next enemy after a kill.
 
-        // Resolve the ability's target. When the player has an enemy SELECTED the client sends its
-        // guid — always honor that. With nothing selected, swing at what the player is actually
-        // FACING: the nearest live hostile within melee reach inside a forward cone. Nothing there =
-        // the swing whiffs (StartCasting still plays, no damage) — real-game feel. (The old fallback
-        // was zone.Npcs.FirstOrDefault(...): literally the first hostile in the zone LIST, anywhere —
-        // the "I swing and a random wolf across the arena takes the hit" bug.)
+        // Resolve the target: honor the client's selected-enemy guid if it sent one; otherwise hit the nearest
+        // live hostile within reach (a swing at nothing whiffs — StartCasting plays, no damage). (Old code
+        // grabbed the first hostile anywhere in the zone — the "random wolf across the arena gets hit" bug.)
         Npc? targetNpc = null;
 
         if (packet.Guid != 0 && zone.TryGetNpc(packet.Guid, out var selected) && selected.IsDamageable && selected.IsAlive)
@@ -769,20 +745,12 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         }
         else
         {
-            // AUTO-TARGET for an unselected swing = the NEAREST live hostile within melee range. This
-            // reconstructs what the real SOE server did: the client attacked with NO enemy selected
-            // (04-01 capture: Target=0, Guid=self) and the SERVER chose the target — that logic is lost,
-            // and "nearest in range" is the natural, predictable reconstruction. The range cap is what
-            // stops the old "swing → a random wolf across the arena gets hit" bug; picking the closest
-            // (not the first-in-list) makes it hit the wolf that's actually on you. No facing cone: the
-            // client only sends the player's facing while MOVING, so a cone whiffs when you stand still
-            // to fight the swarm (that was the "spotty" hit detection).
-            // Horizontal (X/Z) radius, height ignored. MELEE = 7 units ≈ a few body-lengths (player
-            // capsule ~1.9 tall; wolves bite from ~2.6). GROUND-CHECK (04-01 capture, 37 player->enemy
-            // hits): real hit distances ran 0.6–9.2, median 2.3, mean 2.7 — the bulk ≤ ~4 (basic
-            // swings), the 5–9 tail almost certainly the AoE special. 7 sits inside SOE's envelope:
-            // forgiving of the 300ms tick lag without grabbing far wolves. Tune toward ~5 if it feels
-            // grabby. ARCHERS shoot at range — their reach is the bow envelope (JobWeaponAbilities).
+            // Auto-target for an unselected swing = nearest live hostile within range (the SOE server chose the
+            // target when the client sent Target=0; "nearest in range" reconstructs it). The range cap stops the
+            // "random far wolf gets hit" bug; closest (not first-in-list) hits the one on you. No facing cone —
+            // the client only sends facing while moving, so a cone whiffs when you stand still. Horizontal (X/Z)
+            // radius. Melee = 7u (04-01 capture: 37 hits ran 0.6–9.2, median 2.3; 7 is forgiving of tick lag
+            // without grabbing far wolves — lower toward 5 if grabby). Archers use the bow range instead.
             var attackReach = JobWeaponAbilities.AutoTargetReach(player);
             var reach2 = attackReach * attackReach;
             var best2 = reach2;
@@ -825,9 +793,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             _nextBasicSwingTicks[player.Guid] = now + BasicSwingMs;
         }
 
-        // ENERGY GATE (non-basic slots): each ability drains its own EnergyCost (weapon specials =
-        // the live-decoded full 100 bar; the archer level abilities = 50 each). Can't afford it =>
-        // drop the press (no cast) — matches the real server, which server-gates the special.
+        // Energy gate (non-basic slots): each ability drains its EnergyCost (weapon specials = full 100, archer
+        // level abilities = 50). Can't afford it => drop the press. Matches the server-gated special.
         if (!isBasicMelee)
         {
             var cost = ability.EnergyCost;
@@ -845,10 +812,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             StartEnergyRegen(player);        // begin the +4/sec refill
         }
 
-        // LINGERING cast FX (CastEffectStopMs > 0 — projectile trails and other loops that never
-        // self-terminate): play via an effect TAG on the caster and remove it after the window, so
-        // the trail flashes with the shot instead of snowing on the player forever. One-shot cast
-        // FX keep riding StartCasting's CompositeEffectId as before.
+        // Lingering cast FX (CastEffectStopMs > 0: projectile trails / loops that never self-terminate): play as
+        // an effect tag on the caster and remove after the window, so the trail flashes with the shot instead of
+        // lingering. One-shot cast FX keep riding StartCasting's CompositeEffectId.
         var startCastingFx = ability.CastEffectId;
         if (startCastingFx > 0 && ability.CastEffectStopMs > 0)
         {
@@ -894,14 +860,12 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             HasActionProgress = false,        // no cast/progress bar for a basic melee swing
         };
 
-        // Broadcast the cast to everyone who can see the caster (not just their own screen) so party
-        // members watch each other swing/shoot. Was connection.SendTunneled (caster-only) — that's why a
-        // teammate saw enemies die but never saw the moves/FX/animations/sounds that killed them.
+        // Broadcast the cast to everyone who can see the caster (not just their own screen) so party members
+        // see each other's moves/FX. Was caster-only, which is why teammates saw enemies die but not the moves.
         player.SendTunneledToVisible(startCasting, sendToSelf: true);
 
-        // COMBAT WIP: weapon-empowering specials (Mysticism / Mystical Blade) bind their FX to the SWORD
-        // (item slot 7) instead of the body — the effect rides on the weapon. (SlotCompositeEffectOverride
-        // op35/sub31: Guid + slot + composite effect.)
+        // Weapon-empowering specials (Mysticism / Mystical Blade) bind their FX to the sword (item slot 7)
+        // instead of the body. SlotCompositeEffectOverride op35/sub31: Guid + slot + composite effect.
         if (ability.SwordEffectId > 0)
         {
             player.SendTunneledToVisible(new PlayerUpdatePacketSlotCompositeEffectOverride
@@ -960,10 +924,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     }
 
 
-    // COMBAT WIP: after the cast bar completes, apply damage to the target(s), play a hit effect, push
-    // each updated health bar, and kill/respawn at 0 HP. Runs off-thread so the cast time elapses first.
-    // AOE specials pass the whole in-radius pack — one HitPointModification per victim in a burst, which
-    // is exactly how the real server's AoE reads in the 04-01 capture.
+    // After the cast bar completes: apply damage, play the hit FX, push each health bar, kill/respawn at 0 HP.
+    // Runs off-thread so the cast time elapses first. AoE specials pass the whole in-radius pack (one
+    // HitPointModification per victim in a burst, like the 04-01 capture).
     private static void ResolveDamageAfterCast(Player player, System.Collections.Generic.IReadOnlyList<Npc> targets,
         int damage, int effectId, float damageDelay, int casterEndEffectId = 0, int enemyExtraEffectId = 0)
     {
@@ -973,11 +936,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             {
                 await Task.Delay((int)(damageDelay * 1000));
 
-                // Real-game behavior: landing a hit puts you in world-combat (sub132 SetInWorldCombat →
-                // m_bIsFighting + NPC hp-bar mode, sub133 SetIsFighting → m_bInCombatArea). This is what
-                // opens the client's floating-damage-number gate (BaseClient::sub_8BB0B0: CanUseAbilities
-                // || IsFighting || ...). It also job-locks while fighting — released by the decay, exactly
-                // like live FR's combat indicator. (Player owns the state machine so getting HIT enters it too.)
+                // Landing a hit puts you in world-combat (sub132 SetInWorldCombat + sub133 SetIsFighting),
+                // which opens the client's floating-damage-number gate and job-locks while fighting (released by
+                // the decay). Player owns the state machine, so getting HIT enters it too.
                 player.EnterWorldCombat();
 
                 // Caster-side end FX plays ONCE regardless of how many victims (e.g. Dragonstrike's land FX).
@@ -997,17 +958,14 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     if (!target.IsAlive)
                         continue; // e.g. died to an earlier hit this same tick
 
-                    // ARCHER TRAITS (apply to BOTH the basic shot and the specials): Precision adds flat damage
-                    // + crit chance, Marksmanship makes crits hit harder. Rolled per hit so AoE specials can
-                    // crit some targets and not others.
+                    // Archer traits (basic + specials): Precision adds flat damage + crit chance, Marksmanship
+                    // makes crits hit harder. Rolled per hit so AoE specials can crit some targets and not others.
                     var hitDamage = ApplyArcherTraitDamage(player, damage);
 
                     var killed = target.ApplyDamage(hitDamage);
 
-                    // IMPACT FX on the victim (the ability's EffectId — the explosive-arrow burst, the
-                    // lightning strike, the basic-hit flash...). AttackProcessed used to carry this in
-                    // its CompositeEffectId; the 2026-07-03 switch to HitPointModification (no effect
-                    // field) silently dropped EVERY impact effect — play it explicitly instead.
+                    // Impact FX on the victim (the ability's EffectId). HitPointModification has no effect field,
+                    // so play it explicitly (the switch away from AttackProcessed had dropped every impact FX).
                     if (effectId > 0)
                     {
                         player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
@@ -1030,14 +988,11 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                         }, sendToSelf: true);
                     }
 
-                    // COOLDOWN FIX (2026-07-03, ground-truthed against the 04-01 capture): the real server
-                    // dealt the PLAYER's own hits via HitPointModification (op35/35), NOT AttackProcessed.
-                    // AttackProcessed's handler (CombatProcessor::sub_A2BA40) resets the action-bar melee
-                    // timer whenever the attacker == local player -> SetTimer(slot0, MELEEATTACKINTERVALMS
-                    // default 1000ms), which is the [1] cooldown the user saw. HitPointModification produces
-                    // the floating number + health bar + recoil and NEVER touches the action-bar timer.
-                    //   Real wire order (04-01): Guid=SOURCE(player), Guid2=VICTIM(enemy), leading bool=01,
-                    //   i2=maxHP, i3=curHP-after, i4=-damage (the delta = the floating number).
+                    // Deal the player's own hits via HitPointModification (op35/35), NOT AttackProcessed:
+                    // AttackProcessed resets the action-bar melee timer when attacker == local player (the [1]
+                    // cooldown bug); HitPointModification gives the number + bar + recoil without touching it.
+                    // Wire (04-01): Guid=source(player), Guid2=victim, leading bool=01, i2=maxHP, i3=curHP-after,
+                    // i4=-damage.
                     player.SendTunneledToVisible(new PlayerUpdatePacketHitPointModification
                     {
                         Guid = player.Guid,           // source / attacker
@@ -1055,10 +1010,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                         "Ability hit {name} ({guid}) for {dmg} -> {hp}/{max} HP (killed={killed})",
                         target.Name, target.Guid, hitDamage, target.Health, target.MaxHealth, killed);
 
-                    // Route the kill to the zone (IZone.OnNpcKilled): the starting zone resets its training
-                    // dummy; the Frostfang arena advances the encounter (pack -> Alpha -> victory + return).
-                    // Non-fatal hits go to OnNpcDamaged so the zone can react to HP thresholds (the Alpha
-                    // flees at low health instead of dying).
+                    // Route the kill to the zone (OnNpcKilled): starting zone resets the training dummy, Frostfang
+                    // advances the encounter. Non-fatal hits go to OnNpcDamaged so the zone can react to HP
+                    // thresholds (the Alpha flees at low health instead of dying).
                     if (killed)
                         player.Zone.OnNpcKilled(player, target);
                     else
