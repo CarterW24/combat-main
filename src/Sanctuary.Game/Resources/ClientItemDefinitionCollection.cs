@@ -47,12 +47,13 @@ public class ClientItemDefinitionCollection : ObservableConcurrentDictionary<int
             foreach (var entry in entries)
                 this[entry.Id] = entry;
 
-            // The AbilitiesScreen's Attack / Special Attack columns come from the equipped weapon's own ability
-            // list. Our archer bows ship with none, so give each mapped bow its two ability entries (slot 0 = basic,
-            // slot 1 = special) pointing at the def ids we seed defs for; without this the screen reads "undefined".
-            foreach (var defId in Combat.ArcherWeaponAbilities.AllWeaponDefIds)
-                if (TryGetValue(defId, out var bow))
-                    bow.Abilities = Combat.ArcherWeaponAbilities.BuildItemAbilityEntries(defId);
+            // The AbilitiesScreen's Attack/Special columns come from the equipped weapon's own ability list. Our
+            // weapons ship with none, so seed each combat kit's weapons with their two ability entries (slot 0 =
+            // Attack, slot 1 = Special); without this the screen reads "undefined".
+            foreach (var kit in Combat.JobKits.All)
+                foreach (var defId in kit.WeaponDefIds)
+                    if (TryGetValue(defId, out var weapon))
+                        weapon.Abilities = kit.BuildItemAbilityEntries(defId);
         }
         catch (Exception ex)
         {

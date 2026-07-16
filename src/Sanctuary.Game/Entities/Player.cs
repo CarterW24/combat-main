@@ -316,9 +316,7 @@ public sealed class Player : ClientPcData, IEntity
         // (0-100, drains on specials, +4/sec). RegenTick must NOT also drive it with the level-scaled
         // CurrentMana, or the two systems fight over the same bar — that flicker was the "stamina bar
         // glitching" AND it re-enabled the special slot client-side mid-cooldown (the "ability #2 spam").
-        bool usesCombatEnergy =
-            ActiveProfileId == Combat.NinjaWeaponAbilities.NinjaProfileId ||
-            ActiveProfileId == Combat.ArcherWeaponAbilities.ArcherProfileId;
+        bool usesCombatEnergy = Combat.JobKits.Active(this)?.UsesCombatEnergy ?? false;
 
         bool manaChanged = false;
         if (!usesCombatEnergy && CurrentMana < maxMana)
@@ -728,14 +726,13 @@ public sealed class Player : ClientPcData, IEntity
         _levelUpBurstAtTicks = Environment.TickCount64 + LevelUpBurstDelayMs;
     }
 
-    /// <summary>Rebuild the active profile's ability list — the equipped bow's active abilities plus the traits,
-    /// to the current rank — so the AbilitiesScreen reflects newly-unlocked traits (and the equipped bow's
-    /// ability rows) after a level-up / job-swap, not just on relog. Only Archer is data'd; other jobs leave
-    /// their (empty) list untouched. Call before any profile re-send.</summary>
+    // Rebuild the active profile's Traits list to the current rank so newly-unlocked traits show after a
+    // level-up / job-swap, not just on relog. No-op for jobs without trait data. Call before any profile re-send.
     public void RefreshTraits()
     {
-        if (ActiveProfileId == Combat.ArcherWeaponAbilities.ArcherProfileId)
-            ActiveProfile.AbilityExperiences = Combat.ArcherWeaponAbilities.BuildTraitEntries(ActiveProfile.Rank);
+        var traits = Combat.JobKits.Active(this)?.BuildTraitEntries(ActiveProfile.Rank);
+        if (traits is not null)
+            ActiveProfile.AbilityExperiences = traits;
     }
 
     /// <summary>Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).</summary>

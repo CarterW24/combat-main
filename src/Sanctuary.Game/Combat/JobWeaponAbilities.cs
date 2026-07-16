@@ -6,88 +6,53 @@ using Sanctuary.Packet;
 
 namespace Sanctuary.Game.Combat;
 
-/// <summary>
-/// Job dispatch for the weapon-driven ability kits. Free Realms gives every combat job its
-/// abilities through the EQUIPPED WEAPON ("of X" grants X); each job has its own kit class
-/// (NinjaWeaponAbilities blades, ArcherWeaponAbilities bows) and this routes by the player's
-/// active profile so zone-load / job-swap / weapon-equip / ability-press all stay job-agnostic.
-/// </summary>
+// Job-agnostic front door for the combat kits. Everything routes through the active player's IJobKit (see
+// JobKits), so zone-load / job-swap / weapon-equip / ability-press don't care which job it is.
 public static class JobWeaponAbilities
 {
-    /// <summary>True if the player's active job has a weapon-ability kit (drives whether the
-    /// ability toolbar is sent/refreshed).</summary>
-    public static bool HasKit(Player player) => player.ActiveProfileId
-        is NinjaWeaponAbilities.NinjaProfileId
-        or ArcherWeaponAbilities.ArcherProfileId;
+    // Does the active job have a weapon-ability kit?
+    public static bool HasKit(Player player) => JobKits.Has(player.ActiveProfileId);
 
-    /// <summary>The active job's weapon-driven toolbar, or null when the job has no kit.</summary>
+    // The active job's weapon toolbar (op36/5), or null.
     public static AbilityPacketSetDefinition? BuildToolbar(Player player, IResourceManager resources) =>
-        player.ActiveProfileId switch
-        {
-            NinjaWeaponAbilities.NinjaProfileId => NinjaWeaponAbilities.BuildToolbar(player, resources),
-            ArcherWeaponAbilities.ArcherProfileId => ArcherWeaponAbilities.BuildToolbar(player, resources),
-            _ => null,
-        };
+        JobKits.Active(player)?.BuildToolbar(player, resources);
 
-    /// <summary>Resolve the pressed slot against the active job's kit (slot 0 = basic, 1 = special).
-    /// Jobs without a kit fall back to the ninja bare-hand strike, preserving old behavior.</summary>
+    // Resolve a pressed slot; jobs without a kit fall back to the ninja bare-hand strike.
     public static WeaponAbility ResolveAbility(Player player, int slot) =>
-        player.ActiveProfileId == ArcherWeaponAbilities.ArcherProfileId
-            ? ArcherWeaponAbilities.ResolveAbility(player, slot)
-            : NinjaWeaponAbilities.ResolveAbility(player, slot);
+        JobKits.Active(player)?.ResolveAbility(player, slot) ?? NinjaWeaponAbilities.ResolveAbility(player, slot);
 
-    /// <summary>Resolve a client AbilityDefinition request (op36/12) against the active job's kit, giving the
-    /// name/icon the client shows in the AbilitiesScreen's Attack / Special Attack columns (its op36/13 reply).
-    /// Null when the job has no kit or the def id isn't one of that kit's slots.</summary>
+    // A client AbilityDefinition request (op36/12) -> name/desc/icon for the AbilitiesScreen columns.
     public static (int NameId, int DescId, int IconId)? ResolveAbilityDefinition(Player player, int abilityDefId) =>
-        player.ActiveProfileId switch
-        {
-            ArcherWeaponAbilities.ArcherProfileId => ArcherWeaponAbilities.ResolveDefinition(player, abilityDefId),
-            NinjaWeaponAbilities.NinjaProfileId => NinjaWeaponAbilities.ResolveDefinition(player, abilityDefId),
-            _ => null,
-        };
+        JobKits.Active(player)?.ResolveDefinition(player, abilityDefId);
 
-    /// <summary>Auto-target reach for an unselected attack: bow range for archers, the
-    /// capture-derived 7u melee envelope for everyone else (see the StartAbility handler's
-    /// ground-truth notes on that value).</summary>
-    public static float AutoTargetReach(Player player) =>
-        player.ActiveProfileId == ArcherWeaponAbilities.ArcherProfileId
-            ? ArcherWeaponAbilities.BowReach
-            : 7f;
+    // Bow range for archers, melee envelope otherwise.
+    public static float AutoTargetReach(Player player) => JobKits.Active(player)?.AutoTargetReach ?? 7f;
 
-    /// <summary>
-    /// Send the active job's toolbar AND warm the client's effect cache for it. Use this at every
-    /// toolbar delivery point (zone-load, job swap, weapon equip). Returns false when the job has
-    /// no kit (nothing sent).
-    /// </summary>
+    // Send the toolbar and warm its FX cache. False when the job has no kit.
     public static bool SendToolbarWithFxPreload(Player player, IResourceManager resources)
     {
         var toolbar = BuildToolbar(player, resources);
         if (toolbar is null)
             return false;
 
-        // Seed the ability-def map BEFORE the toolbar: the client requests a def (op36/12) for each toolbar slot's
-        // AbilityDefinitionId the moment it processes the toolbar, so the defs must already be present or the
-        // AbilitiesScreen columns won't have them when it opens.
+        // Seed the def map BEFORE the toolbar — the client requests a def per slot the instant it reads the
+        // toolbar and won't re-check, so the defs must already be present for the columns to resolve.
         PreloadAbilityDefinitions(player);
         player.SendTunneled(toolbar);
         PreloadAbilityEffects(player);
         return true;
     }
 
-    // The two ability-bar slot def ids the client asks about for the AbilitiesScreen columns (shared by both
-    // combat kits: 4895 = slot 0 / Attack, 4899 = slot 1 / Special Attack).
-    private static readonly int[] SlotDefIds = { 4895, 4899 };
-
-    /// <summary>Push the equipped weapon's ability definitions to the client BEFORE it opens the AbilitiesScreen.
-    /// The screen requests a def on open (op36/12) and renders "undefined" immediately, then ignores the late
-    /// reply — so seeding the client's ability-def map up front (with the toolbar) is what makes the Attack /
-    /// Special Attack columns resolve. Sent alongside the toolbar at every delivery point.</summary>
+    // Push the equipped weapon's ability definitions up front, before the AbilitiesScreen opens.
     public static void PreloadAbilityDefinitions(Player player)
     {
-        foreach (var defId in SlotDefIds)
+        var kit = JobKits.Active(player);
+        if (kit is null)
+            return;
+
+        foreach (var defId in kit.SlotAbilityDefIds)
         {
-            var def = ResolveAbilityDefinition(player, defId);
+            var def = kit.ResolveDefinition(player, defId);
             if (def is null)
                 continue;
 
@@ -101,25 +66,17 @@ public static class JobWeaponAbilities
         }
     }
 
-    /// <summary>
-    /// FX CACHE WARM-UP: most composite-effect definitions are loadType=0 (load on demand), so the
-    /// FIRST play of an effect only starts the asset stream and renders nothing — the visual only
-    /// shows from the second cast on. Retail preloaded ability FX via the real ability definitions
-    /// the bar referenced; our bar uses generic castable def ids, so nothing preloads. Fix: when the
-    /// toolbar lands, play each of the equipped weapon's effects once ~400u BELOW the player — out
-    /// of sight, but the client still instantiates the effect and pulls its assets into cache, so
-    /// the first real cast renders immediately.
-    /// </summary>
+    // Warm the FX cache: most composite effects load on demand, so the first play renders nothing. Play each of
+    // the equipped weapon's effects once, far below the player, so the first real cast shows immediately.
     public static void PreloadAbilityEffects(Player player)
     {
         var ids = new HashSet<int>();
-        for (var slot = 0; slot <= 1; slot++) // the bar's 2 ability slots (retail ground truth)
+        for (var slot = 0; slot <= 1; slot++)
         {
             var ability = ResolveAbility(player, slot);
             ids.Add(ability.EffectId);
-            // LINGERING cast FX (projectile-trail loops, CastEffectStopMs > 0) must NOT be warmed:
-            // an unattached loop has no stop, so it would sit under the map snowing forever
-            // (user-sighted with the Bow of Blizzards trail). They cache on their first tag-play.
+            // Lingering trail loops (CastEffectStopMs > 0) have no stop when unattached, so warming them would
+            // leave one sitting under the map forever — they cache on their first tag-play instead.
             if (ability.CastEffectStopMs == 0)
                 ids.Add(ability.CastEffectId);
             ids.Add(ability.CasterEndEffectId);

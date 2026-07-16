@@ -334,26 +334,11 @@ public class GatewayConnection : UdpConnection
                 }
             }
 
-            // TRAITS: the AbilitiesScreen's Traits SECTION is the profile's ability-experience list.
-            if (profileData.Id == Sanctuary.Game.Combat.ArcherWeaponAbilities.ArcherProfileId)
-            {
-                clientPcProfile.AbilityExperiences = Sanctuary.Game.Combat.ArcherWeaponAbilities.BuildTraitEntries(clientPcProfile.Rank);
-
-                // ATTACK / SPECIAL ATTACK COLUMNS: the screen resolves each column from the profile ability SLOT's
-                // AbilityDefinitionId (looked up in the client's ability-def map). The generic fill above leaves
-                // placeholder ids 1..4 (no def), so the columns read "undefined". Point slots 0/1 at the SAME ids we
-                // seed defs for (4895/4899 via PreloadAbilityDefinitions) with the equipped bow's real name/icon, and
-                // clear the rest so the client doesn't ask about the leftover placeholder slots.
-                var (basicName, basicDesc, basicIcon) = Sanctuary.Game.Combat.ArcherWeaponAbilities.SlotNameIcon(equippedWeaponDefId, 0);
-                var (specialName, specialDesc, specialIcon) = Sanctuary.Game.Combat.ArcherWeaponAbilities.SlotNameIcon(equippedWeaponDefId, 1);
-                for (var i = 0; i < clientPcProfile.Abilities.Count; i++)
-                    clientPcProfile.Abilities[i] = new Ability { Type = 0 };
-                clientPcProfile.Abilities[0] = new Ability { Type = 3, ManaCost = 0, IconId = basicIcon, NameId = basicName, AbilityDefinitionId = Sanctuary.Game.Combat.ArcherWeaponAbilities.BasicAbilityDefId };
-                clientPcProfile.Abilities[1] = new Ability { Type = 3, ManaCost = 0, IconId = specialIcon, NameId = specialName, AbilityDefinitionId = Sanctuary.Game.Combat.ArcherWeaponAbilities.SpecialAbilityDefId };
-
-                _logger.LogInformation("TRAITS: archer profile rank={rank} (dbLevel={db}) weapon={wpn} slots basic=({bn}/{bi}) special=({sn}/{si}).",
-                    clientPcProfile.Rank, dbProfile.Level, equippedWeaponDefId, basicName, basicIcon, specialName, specialIcon);
-            }
+            // Fill the AbilitiesScreen (Traits section + Attack/Special columns) from the job's kit. No-op for a
+            // job that hasn't data'd its screen yet.
+            var jobKit = Sanctuary.Game.Combat.JobKits.For(profileData.Id);
+            if (jobKit is not null)
+                Sanctuary.Game.Combat.JobKits.ConfigureAbilitiesScreen(jobKit, clientPcProfile, equippedWeaponDefId);
 
             Player.Profiles.Add(clientPcProfile);
 
