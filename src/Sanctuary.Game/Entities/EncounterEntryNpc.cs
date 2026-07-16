@@ -6,25 +6,19 @@ using Sanctuary.Packet;
 
 namespace Sanctuary.Game.Entities;
 
-/// <summary>A peaceful, wandering overworld creature that is the ENTRY to a combat encounter — the retail
-/// "Battle Starter". Clicking it opens the encounter's start panel (via its <see cref="Npc.InteractAction"/>);
-/// unlike a <see cref="CombatNpc"/> it never aggros, never takes damage, and can't be attacked — it just ambles
-/// around its spawn post so an encounter feels like a live creature you walk up to rather than a fixed marker.
-///
-/// Movement mirrors CombatNpc's grounded broadcast: MovementType=2 (PHYSICS), stream ExpectedSpeed so the
-/// client interpolates a smooth run between the throttled position updates. Kept a slow amble inside a small
-/// radius so it never wanders off its post (which would also complicate tile visibility).</summary>
+// The retail "Battle Starter": a peaceful wandering creature that's the entry to a combat encounter. Clicking it
+// opens the encounter's start panel; unlike a CombatNpc it never aggros or takes damage — it just ambles around
+// its post so the encounter feels like a live creature you walk up to. Grounded broadcast like CombatNpc
+// (MovementType=2 + ExpectedSpeed), kept a slow amble in a small radius so it stays on its post.
 public sealed class EncounterEntryNpc : Npc
 {
     public EncounterEntryNpc(IZone zone) : base(zone)
     {
     }
 
-    /// <summary>Show the combat-encounter "Battle Starter" badge (img-24, red crossed-swords + red minimap dot)
-    /// over the head — the retail cue that this creature starts a battle.</summary>
+    // The "Battle Starter" badge (img-24: red crossed-swords + red minimap dot) over the head.
     public override int CombatEncounterBadgeImageId => 24;
 
-    /// <summary>How far from its post it roams, and how fast (a gentle amble, well under combat speed).</summary>
     private const float WanderRadius = 7f;
     private const float WanderSpeed = 2.5f;
 
@@ -34,8 +28,7 @@ public sealed class EncounterEntryNpc : Npc
     private float _lastSentSpeed = -1f;
     private DateTime _pauseUntil;
 
-    /// <summary>Anchor the roam at the given post and stagger the first move so a field of them doesn't step
-    /// in lockstep.</summary>
+    // Anchor the roam at a post; stagger the first move so a field of them doesn't step in lockstep.
     public void StartWander(Vector4 origin)
     {
         _origin = origin;

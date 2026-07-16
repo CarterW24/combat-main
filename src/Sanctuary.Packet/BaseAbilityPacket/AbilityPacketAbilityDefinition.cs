@@ -2,18 +2,13 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// BaseAbilityPacket (op 36) sub-opcode 13 = "AbilityDefinition" — the client's answer to its own op36/12
-// RequestAbilityDefinition. The client inserts the decoded record into its HashListMap<int, AbilityDefinition>
-// keyed by AbilityId; the AbilitiesScreen then resolves an ability's Name/Description/Icon from that map
-// (bridge GetAbilityDescription -> map lookup). If the id isn't in the map the screen renders "undefined".
-//
-// ★ WIRE FORMAT REVERSED 2026-07-15 from the client field reader (FUN_00a32930, reached via the op36 dispatcher
-// FUN_00a35cc0 -> deserialize FUN_00a34380). It is a LARGE fixed record (NOT the old 6-int stub, which the
-// client mis-parsed so nothing was ever inserted -> the "undefined" columns). Field meanings recovered from the
-// struct's readers: +0x10 Name text id, +0x14 Description text id, +0x18 Icon, +0x1c CastSeconds(float),
-// +0x38 ManaCost, +0x58 ManaCostPerSecond, +0x60 AuraDuration, +0x68 MaxAoeTargets. The rest we don't need are
-// sent as 0; the record ends with an empty variable list (count 0) and a trailing bool. Struct offsets are in
-// the comments so the layout can be re-checked against the decompiler.
+// op36/13 AbilityDefinition — the reply to the client's op36/12 request. The client inserts it into its
+// HashListMap<int, AbilityDefinition> by AbilityId; the AbilitiesScreen reads Name/Desc/Icon from there (miss
+// = "undefined"). Wire format reversed from the client field reader FUN_00a32930 (op36 dispatcher FUN_00a35cc0
+// -> deserialize FUN_00a34380): a large fixed record, NOT a small stub (a stub mis-parses and nothing inserts).
+// Key fields by struct offset: +0x10 Name, +0x14 Desc, +0x18 Icon, +0x1c CastSeconds, +0x38 ManaCost, +0x58
+// ManaCostPerSecond, +0x60 AuraDuration, +0x68 MaxAoeTargets; everything else 0, then an empty list + trailing
+// bool. Offsets are noted inline so the layout can be re-checked against the decompiler.
 public class AbilityPacketAbilityDefinition : BaseAbilityPacket, ISerializablePacket
 {
     public new const short OpCode = 13;

@@ -54,11 +54,11 @@ public sealed record ArcherWeapon(WeaponAbility Basic, WeaponAbility Special, We
 
 public static class ArcherWeaponAbilities
 {
-    /// <summary>Profiles.json "Archer" (job category 2, combat).</summary>
+    // Profiles.json "Archer" (job category 2, combat).
     public const int ArcherProfileId = 35;
 
-    /// <summary>Auto-target reach for an unselected bow shot. Arrows work at range — the melee
-    /// kit's 7u cap would make an archer walk into bite range to hit anything.</summary>
+    // Auto-target reach for an unselected bow shot. Arrows work at range — the melee
+    // kit's 7u cap would make an archer walk into bite range to hit anything.
     public const float BowReach = 30f;
 
     // ── TRAITS ───────────────────────────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ public static class ArcherWeaponAbilities
     public const int LuckyShotChancePercent = 20;
     public const int LuckyShotEnergyRestore = 8;
 
-    /// <summary>True when the player is an Archer whose active job rank has unlocked the given trait level.</summary>
+    // True when the player is an Archer whose active job rank has unlocked the given trait level.
     public static bool HasTrait(Player player, int traitLevel) =>
         player.ActiveProfileId == ArcherProfileId && player.ActiveProfile.Rank >= traitLevel;
 
@@ -106,13 +106,12 @@ public static class ArcherWeaponAbilities
         (420937, 420961, 39861, LuckyShotLevel),
     ];
 
-    /// <summary>The four Archer traits as passive AbilityExperience entries (IsActivateable=false, gated by
-    /// RequiredLevel) for the profile's ability list — this is what fills the AbilitiesScreen Traits panel.
-    /// The list ends with a Present=0 terminator (the profile reader stops there).
-    ///
-    /// ★ Present MUST be DISTINCT per entry (we use the NameId): an earlier version set Present=1 on all four,
-    /// which crashed the client on connect — live-bisected 2026-07-14 (distinct ids parse cleanly at any count;
-    /// the "fixed buffer overflow" theory was wrong). Present is the record Id / list control (0 = terminator).</summary>
+    // The four Archer traits as passive AbilityExperience entries (IsActivateable=false, gated by
+    // RequiredLevel) for the profile's ability list — this is what fills the AbilitiesScreen Traits panel.
+    // The list ends with a Present=0 terminator (the profile reader stops there).
+    // ★ Present MUST be DISTINCT per entry (we use the NameId): an earlier version set Present=1 on all four,
+    // which crashed the client on connect — live-bisected 2026-07-14 (distinct ids parse cleanly at any count;
+    // the "fixed buffer overflow" theory was wrong). Present is the record Id / list control (0 = terminator).
     public static List<AbilityExperience> BuildTraitEntries(int rank)
     {
         var list = new List<AbilityExperience>(TraitData.Length + 1);
@@ -191,10 +190,10 @@ public static class ArcherWeaponAbilities
         };
     }
 
-    /// <summary>The full profile ability list for an Archer: the equipped bow's two active abilities (basic +
-    /// special) followed by the four traits, ending with the Present=0 terminator. Feeds the AbilitiesScreen —
-    /// which only refreshes on a profile (re)send, so equipping a different bow updates the rows on next relog
-    /// / job-swap, not instantly (same limitation the Traits panel has).</summary>
+    // The full profile ability list for an Archer: the equipped bow's two active abilities (basic +
+    // special) followed by the four traits, ending with the Present=0 terminator. Feeds the AbilitiesScreen —
+    // which only refreshes on a profile (re)send, so equipping a different bow updates the rows on next relog
+    // / job-swap, not instantly (same limitation the Traits panel has).
     public static List<AbilityExperience> BuildProfileAbilityList(int rank, int weaponDefId)
     {
         var list = new List<AbilityExperience>(TraitData.Length + 3);
@@ -214,16 +213,16 @@ public static class ArcherWeaponAbilities
         return list;
     }
 
-    /// <summary>Panel display pair for an archer whose equipped bow isn't in the tiered kit — tier-1
-    /// Barrage/Volley (the starter abilities). Only drives the AbilitiesScreen columns; unmapped bows still
-    /// FIRE the bare shot in combat (a separate concern — map the bow into ByWeaponDefId to unify them).</summary>
+    // Panel display pair for an archer whose equipped bow isn't in the tiered kit — tier-1
+    // Barrage/Volley (the starter abilities). Only drives the AbilitiesScreen columns; unmapped bows still
+    // FIRE the bare shot in combat (a separate concern — map the bow into ByWeaponDefId to unify them).
     private static readonly ArcherWeapon FallbackWeapon = Volleys(BowIcon, 350, 506);
 
-    /// <summary>Resolve a client AbilityDefinition request (op36/12) for one of the archer's slot ability-def ids
-    /// to the equipped bow's real name/icon — this is what fills the AbilitiesScreen's Attack / Special Attack
-    /// COLUMNS (the op36/13 reply; NOT the Traits section, which is the ability-experience list). An unmapped bow
-    /// (bare "Shoot", not in AbilityText) falls back to the tier-1 Barrage/Volley name so the column isn't
-    /// "undefined". Returns null for a def id that isn't one of ours.</summary>
+    // Resolve a client AbilityDefinition request (op36/12) for one of the archer's slot ability-def ids
+    // to the equipped bow's real name/icon — this is what fills the AbilitiesScreen's Attack / Special Attack
+    // COLUMNS (the op36/13 reply; NOT the Traits section, which is the ability-experience list). An unmapped bow
+    // (bare "Shoot", not in AbilityText) falls back to the tier-1 Barrage/Volley name so the column isn't
+    // "undefined". Returns null for a def id that isn't one of ours.
     public static (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId)
     {
         var slot = SlotForDefId(abilityDefId);
@@ -233,8 +232,8 @@ public static class ArcherWeaponAbilities
         return SlotNameIcon(player.GetEquippedWeaponDefinitionId(), slot);
     }
 
-    /// <summary>The slot ability-def ids the client requests for the AbilitiesScreen columns (BasicSlotDefId 4895
-    /// = Attack, SpecialSlotDefId 4899 = Special Attack). -1 if not one of ours.</summary>
+    // The slot ability-def ids the client requests for the AbilitiesScreen columns (BasicSlotDefId 4895
+    // = Attack, SpecialSlotDefId 4899 = Special Attack). -1 if not one of ours.
     public static int SlotForDefId(int abilityDefId) => abilityDefId switch
     {
         BasicSlotDefId => 0,
@@ -247,10 +246,10 @@ public static class ArcherWeaponAbilities
     public const int BasicAbilityDefId = BasicSlotDefId;
     public const int SpecialAbilityDefId = SpecialSlotDefId;
 
-    /// <summary>The equipped bow's ability entries for its ClientItemDefinition.Abilities list — THIS is what the
-    /// AbilitiesScreen reads to fill the Attack (slot 0) / Special Attack (slot 1) columns: each entry's Id is the
-    /// ability the screen looks up in the client's def map (we seed 4895/4899), and IconId is the column icon. An
-    /// empty list (our bows' default) made the screen ask for def id 0 and render "undefined".</summary>
+    // The equipped bow's ability entries for its ClientItemDefinition.Abilities list — THIS is what the
+    // AbilitiesScreen reads to fill the Attack (slot 0) / Special Attack (slot 1) columns: each entry's Id is the
+    // ability the screen looks up in the client's def map (we seed 4895/4899), and IconId is the column icon. An
+    // empty list (our bows' default) made the screen ask for def id 0 and render "undefined".
     public static List<ItemDefinition.ItemAbilityEntry> BuildItemAbilityEntries(int weaponDefId)
     {
         var (_, _, basicIcon) = SlotNameIcon(weaponDefId, 0);
@@ -262,9 +261,9 @@ public static class ArcherWeaponAbilities
         };
     }
 
-    /// <summary>Name+icon for an ability slot on a given equipped bow — the tier-1 Barrage/Volley pair backs any
-    /// unmapped/absent bow so the AbilitiesScreen column never reads "undefined". Used for BOTH the op36/13 reply
-    /// and the profile's ability-slot list (they must agree).</summary>
+    // Name+icon for an ability slot on a given equipped bow — the tier-1 Barrage/Volley pair backs any
+    // unmapped/absent bow so the AbilitiesScreen column never reads "undefined". Used for BOTH the op36/13 reply
+    // and the profile's ability-slot list (they must agree).
     public static (int NameId, int DescId, int IconId) SlotNameIcon(int weaponDefId, int slot)
     {
         var weapon = weaponDefId != 0 && ByWeaponDefId.TryGetValue(weaponDefId, out var w) ? w : FallbackWeapon;
@@ -325,12 +324,12 @@ public static class ArcherWeaponAbilities
     private const int RainLandFx = 1111;      // PFX_arrows_rain_land_dust (on each victim)
     private const int LevelAbilityEnergyCost = 50; // half the bar each (specials keep the full 100)
 
-    /// <summary>Sniper Shot: heavy single-target shot, ~1.15× the bow tier's special damage.</summary>
+    // Sniper Shot: heavy single-target shot, ~1.15× the bow tier's special damage.
     private static WeaponAbility SniperShot(int specialDmg) =>
         new("Sniper Shot", SniperIcon, (int)(specialDmg * 1.15f), SpecialAnim, SniperImpactFx,
             EnergyCost: LevelAbilityEnergyCost);
 
-    /// <summary>Rain of Arrows: caster-centered arrow rain, ~0.75× the tier's special damage as AoE.</summary>
+    // Rain of Arrows: caster-centered arrow rain, ~0.75× the tier's special damage as AoE.
     private static WeaponAbility RainOfArrows(int specialDmg) =>
         new("Rain of Arrows", RainIcon, (int)(specialDmg * 0.75f), SpecialAnim, RainLandFx, RainLaunchFx,
             AoeRadius: 10f, EnergyCost: LevelAbilityEnergyCost);
@@ -343,7 +342,7 @@ public static class ArcherWeaponAbilities
     //
     // The 10 (basic, special) pairs — built per tier below. FX columns:
     //   CastEffectId = the arrow trail / launch on the caster; EffectId = the land/impact on the target.
-    /// <summary>Assemble the 4-slot weapon: the bow's own pair + the tier-scaled level abilities.</summary>
+    // Assemble the 4-slot weapon: the bow's own pair + the tier-scaled level abilities.
     private static ArcherWeapon Make(WeaponAbility basic, WeaponAbility special, int specialDmg) =>
         new(basic, special, SniperShot(specialDmg), RainOfArrows(specialDmg));
 

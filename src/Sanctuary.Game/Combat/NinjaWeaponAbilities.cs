@@ -73,9 +73,9 @@ public static class NinjaWeaponAbilities
 
     public static readonly WeaponAbility BareMelee = new("Strike", MeleeIcon, 150, MeleeAnimation, MeleeHitFx);
 
-    /// <summary>Resolve a client AbilityDefinition request (op36/12) for a ninja slot def id to the equipped
-    /// weapon's icon (the op36/13 reply that fills the AbilitiesScreen Attack / Special columns). Ninja ability
-    /// NAME ids aren't mined yet, so name stays 0 for now — the icon still shows. Null for a non-ours def id.</summary>
+    // Resolve a client AbilityDefinition request (op36/12) for a ninja slot def id to the equipped
+    // weapon's icon (the op36/13 reply that fills the AbilitiesScreen Attack / Special columns). Ninja ability
+    // NAME ids aren't mined yet, so name stays 0 for now — the icon still shows. Null for a non-ours def id.
     public static (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId)
     {
         var slot = abilityDefId switch
@@ -238,7 +238,7 @@ public static class NinjaWeaponAbilities
         return def;
     }
 
-    /// <summary>Energy cost of every slot-1 weapon special (the full bar — see the ability handler's gate).</summary>
+    // Energy cost of every slot-1 weapon special (the full bar — see the ability handler's gate).
     public const int SpecialEnergyCost = 100;
 
     private static AbilityPacketSetDefinition.Slot MakeSlot(int abilityDefId, int iconId, int nameId, int manaCost) => new()

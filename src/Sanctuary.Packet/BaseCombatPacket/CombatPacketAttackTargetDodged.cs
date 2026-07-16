@@ -2,26 +2,17 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// BaseCombatPacket (op 32) sub-opcode 6 = "AttackTargetDodged" — tells the client a target evaded a swing.
-//
-// WIRE FORMAT PROVEN 2026-07-15 from the client reader (sub_A2A820) + handler (sub_A2B580):
-//
-//   wire: [op16][sub16] ulong Attacker ulong Target   (20 bytes total)
-//
-//   Unlike AttackProcessed (op32/7), the attacker guid is written ONCE here (not duplicated).
-//   The handler looks up both entities; on the TARGET it enqueues the floating "Dodge" hit-type
-//   text (client CID for "Dodge"), and on the ATTACKER it plays the swing/contact so the enemy
-//   still looks like it took a shot. No damage/health fields — a dodge deals nothing.
+// op32/6 AttackTargetDodged — the client shows the "Dodge" text over the target and plays the attacker's swing.
+// Wire: [op16][sub16] attacker target (20 bytes; attacker written once, unlike AttackProcessed). No damage.
+// Note: our client build never renders this (its text is gated on a missing hit-type entry), so the dodge
+// mechanic uses op32/5 Missed instead — kept here for reference. Reader sub_A2A820, handler sub_A2B580.
 public class CombatPacketAttackTargetDodged : ISerializablePacket
 {
     public const short OpCode = 32;
     public const short SubOpCode = 6;
 
-    /// <summary>Who swung and got evaded.</summary>
-    public ulong AttackerGuid;
-
-    /// <summary>Who dodged — the client renders the "Dodge" text over this entity.</summary>
-    public ulong TargetGuid;
+    public ulong AttackerGuid;   // who swung and got evaded
+    public ulong TargetGuid;     // who dodged
 
     public byte[] Serialize()
     {

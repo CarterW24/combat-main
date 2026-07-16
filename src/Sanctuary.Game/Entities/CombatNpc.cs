@@ -8,10 +8,8 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Entities;
 
-/// <summary>
-/// A hostile NPC that can engage players in combat.
-/// Handles aggro, auto-attack, HP tracking, and death.
-/// </summary>
+// A hostile NPC that can engage players in combat.
+// Handles aggro, auto-attack, HP tracking, and death.
 public class CombatNpc : Npc
 {
     // Combat stats
@@ -22,24 +20,24 @@ public class CombatNpc : Npc
     public int Level { get; set; }
     public int XpReward { get; set; }
 
-    /// <summary>Attack interval in seconds.</summary>
+    // Attack interval in seconds.
     public float AttackIntervalSeconds { get; set; } = 2.0f;
 
-    /// <summary>Aggro range — distance at which NPC starts pursuing a player.</summary>
+    // Aggro range — distance at which NPC starts pursuing a player.
     public float AggroRange { get; set; } = 15.0f;
 
-    /// <summary>Leash range — distance from spawn before NPC resets.</summary>
+    // Leash range — distance from spawn before NPC resets.
     public float LeashRange { get; set; } = 40.0f;
 
-    /// <summary>Melee attack range.</summary>
+    // Melee attack range.
     public float AttackRange { get; set; } = 5.0f;
 
-    /// <summary>Movement speed when pursuing a target.</summary>
+    // Movement speed when pursuing a target.
     public float CombatSpeed { get; set; } = 6.0f;
 
-    /// <summary>Movement speed when returning to spawn. Kept equal to <see cref="CombatSpeed"/> so the pace
-    /// (and the ExpectedSpeed we stream to clients) never jumps between chasing and evading — a mid-return
-    /// speed change made the client re-interpolate and stutter.</summary>
+    // Movement speed when returning to spawn. Kept equal to CombatSpeed so the pace
+    // (and the ExpectedSpeed we stream to clients) never jumps between chasing and evading — a mid-return
+    // speed change made the client re-interpolate and stutter.
     public float ReturnSpeed { get; set; } = 6.0f;
 
     // State tracking
@@ -51,25 +49,23 @@ public class CombatNpc : Npc
     public Player? AggroTarget { get; set; }
     public CombatState State { get; set; } = CombatState.Idle;
 
-    /// <summary>Respawn time in seconds after death.</summary>
+    // Respawn time in seconds after death.
     public float RespawnSeconds { get; set; } = 30.0f;
 
-    /// <summary>
-    /// The last position we sent to clients, to avoid sending redundant updates.
-    /// </summary>
+    // The last position we sent to clients, to avoid sending redundant updates.
     public Vector4 LastSentPosition { get; set; }
 
-    /// <summary>The last ExpectedSpeed we told clients — so we only re-broadcast when the pace changes
-    /// (chase vs return). A PHYSICS/CONTROLLER actor with no ExpectedSpeed snaps to each position update
-    /// (the "flying/sliding" look) instead of running smoothly along the ground.</summary>
+    // The last ExpectedSpeed we told clients — so we only re-broadcast when the pace changes
+    // (chase vs return). A PHYSICS/CONTROLLER actor with no ExpectedSpeed snaps to each position update
+    // (the "flying/sliding" look) instead of running smoothly along the ground.
     public float LastSentExpectedSpeed { get; set; } = -1f;
 
-    /// <summary>Models whose swing the client's default attack-contact event does NOT drive — their
-    /// animation network lacks the standard melee state, so they deal damage while standing frozen. For
-    /// these we explicitly stream a SetAnimation swing (op35/8) on each hit. Maps ModelId -> AnimationGroup
-    /// id: com_swing (1099, itself falling back to com_h2h_attack 1000) is the generic creature melee swing.
-    /// The Abominable Snowman boss (1944, snowmanboss.adr — a winter-event model) is the known offender.
-    /// Shared so both the overworld <see cref="PerformAttack"/> and the dungeon claw loop use one source.</summary>
+    // Models whose swing the client's default attack-contact event does NOT drive — their
+    // animation network lacks the standard melee state, so they deal damage while standing frozen. For
+    // these we explicitly stream a SetAnimation swing (op35/8) on each hit. Maps ModelId -> AnimationGroup
+    // id: com_swing (1099, itself falling back to com_h2h_attack 1000) is the generic creature melee swing.
+    // The Abominable Snowman boss (1944, snowmanboss.adr — a winter-event model) is the known offender.
+    // Shared so both the overworld PerformAttack and the dungeon claw loop use one source.
     public static readonly IReadOnlyDictionary<int, int> ExplicitAttackAnimByModel = new Dictionary<int, int>
     {
         [1944] = 1099, // Abominable Snowman -> com_swing
@@ -80,9 +76,7 @@ public class CombatNpc : Npc
         Disposition = 0; // Hostile
     }
 
-    /// <summary>
-    /// Initialize combat stats based on level.
-    /// </summary>
+    // Initialize combat stats based on level.
     public void InitializeFromLevel(int level)
     {
         Level = level;
@@ -317,9 +311,9 @@ public class CombatNpc : Npc
         }
     }
 
-    /// <summary>Force this enemy to engage a player without dealing damage — used when the player's own
-    /// ability handler applied the hit (via Npc.Health) so we skip our internal HP path but still react.
-    /// Also covers a player attacking from outside aggro range.</summary>
+    // Force this enemy to engage a player without dealing damage — used when the player's own
+    // ability handler applied the hit (via Npc.Health) so we skip our internal HP path but still react.
+    // Also covers a player attacking from outside aggro range.
     public void AggroOnto(Player source)
     {
         if (IsDead || source.IsDead)
@@ -333,9 +327,7 @@ public class CombatNpc : Npc
         }
     }
 
-    /// <summary>
-    /// Deal damage to this NPC from a player source.
-    /// </summary>
+    // Deal damage to this NPC from a player source.
     public void TakeDamage(int amount, Player source)
     {
         if (IsDead)
@@ -477,8 +469,8 @@ public class CombatNpc : Npc
         }
     }
 
-    /// <summary>Stream ExpectedSpeed to clients only when it actually changes (chase/return/stop), so a
-    /// PHYSICS actor interpolates a smooth grounded run without re-sending the same pace every tick.</summary>
+    // Stream ExpectedSpeed to clients only when it actually changes (chase/return/stop), so a
+    // PHYSICS actor interpolates a smooth grounded run without re-sending the same pace every tick.
     private void SendExpectedSpeed(float speed)
     {
         if (LastSentExpectedSpeed == speed)
@@ -488,9 +480,9 @@ public class CombatNpc : Npc
             player.SendTunneled(new PlayerUpdatePacketExpectedSpeed { Guid = Guid, ExpectedSpeed = speed });
     }
 
-    /// <summary>Plant the NPC: tell clients to stop predicting movement (ExpectedSpeed 0) and send one
-    /// idle-state position at the current spot. Used when reaching attack range or arriving home, so the
-    /// model stops instead of coasting past on its last streamed speed.</summary>
+    // Plant the NPC: tell clients to stop predicting movement (ExpectedSpeed 0) and send one
+    // idle-state position at the current spot. Used when reaching attack range or arriving home, so the
+    // model stops instead of coasting past on its last streamed speed.
     private void BroadcastStop()
     {
         SendExpectedSpeed(0f);
