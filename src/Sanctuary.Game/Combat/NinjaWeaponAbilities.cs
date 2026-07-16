@@ -264,6 +264,13 @@ public static class NinjaWeaponAbilities
         [75117] = MysticismKit,
         [75118] = SoulPowerKit,
         [75119] = DeceptionKit,
+
+        // Retail ninja swords (coin store / give) — themed to a fitting kit so they get real abilities.
+        [13663] = DragonstrikeKit, [55337] = DragonstrikeKit, [70444] = DragonstrikeKit, [76470] = DragonstrikeKit, // Dragon Blade
+        [9031] = ThousandStormsKit, [13669] = ThousandStormsKit, [55360] = ThousandStormsKit,                       // Storm Breaker
+        [78715] = MysticismKit,     // Lunar Blade
+        [79022] = SoulPowerKit,     // Precursor Energy Blade
+        [48322] = DragonBreathKit,  // Molten Dragon Blade
     };
 
     public static readonly int[] AllWeaponDefIds = ByWeaponDefId.Keys.ToArray();
