@@ -8,9 +8,7 @@ public class ConcurrentSet<T> : IEnumerable<T> where T : notnull
 {
     private readonly ConcurrentDictionary<T, byte> _dictionary;
 
-    /// <summary>
-    /// Initializes an instance of the ConcurrentSet class.
-    /// </summary>
+    // Initializes an instance of the ConcurrentSet class.
     public ConcurrentSet()
     {
         _dictionary = new ConcurrentDictionary<T, byte>();

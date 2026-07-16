@@ -17,13 +17,13 @@ public class EncounterShowRespawnWindowPacket : BaseEncounterPacket, ISerializab
 {
     public new const short OpCode = 125;
 
-    /// <summary>First body int. (Sent as 10000 when the window first worked; not visibly the coin field.)</summary>
+    // First body int. (Sent as 10000 when the window first worked; not visibly the coin field.)
     public int RespawnTimeMs = 10000;
 
-    /// <summary>Second body int — the "Revive here" COIN COST. In-game with 0 here the window read
-    /// "Revive here: 0 coins", so this int drives that number. The client formats it as value/1000 (RE'd
-    /// DisplayRespawn FUN_00904300: "param_2 / 1000"), so 100000 -> "100 coins". CALIBRATE if the shown
-    /// number is off.</summary>
+    // Second body int — the "Revive here" COIN COST. In-game with 0 here the window read
+    // "Revive here: 0 coins", so this int drives that number. The client formats it as value/1000 (RE'd
+    // DisplayRespawn FUN_00904300: "param_2 / 1000"), so 100000 -> "100 coins". CALIBRATE if the shown
+    // number is off.
     public int ReviveHereCostRaw;
 
     public EncounterShowRespawnWindowPacket(int encounterId = 0, int instanceId = 0,

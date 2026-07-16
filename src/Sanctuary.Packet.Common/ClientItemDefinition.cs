@@ -12,9 +12,7 @@ public class ClientItemDefinition : BaseItemDefinition
     // Player Customization Equipment Slot (sub_BD5980)
     public int Param1 { get; set; }
 
-    /// <summary>
-    /// Used in PlayerCustomization (sub_BD5980)
-    /// </summary>
+    // Used in PlayerCustomization (sub_BD5980)
     public int Param2 { get; set; }
 
     public int Unknown5 { get; set; }

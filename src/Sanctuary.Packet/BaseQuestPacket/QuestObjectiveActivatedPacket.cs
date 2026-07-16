@@ -2,17 +2,15 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Wire format traced AND wire-verified from the client's real deserializer (case 8:
-/// FUN_00c7cd40 -> FUN_00c7b570 -> FUN_00c7aeb0, which calls FUN_00c7acd0 for the leading
-/// short+int). The deserializer is handed the FULL packet buffer (header included) and reads:
-/// short (OpCode, obj+4) + int (SubOpCode, obj+8) [= the 6-byte header], then the real payload
-/// int (obj+0xc) + int (obj+0x10) + int (obj+0x14) + bool/1-byte (obj+0x18), and requires no
-/// bytes to remain. Entire packet is exactly 19 bytes = 6-byte header + 13-byte payload
-/// (3 int + 1 bool). obj+0xc is the QuestId (same find-quest lookup pattern); the remaining
-/// fields feed QuestHandler:UpdateObjective (thunk_FUN_00a8f130). Earlier guessed layouts sent
-/// too many bytes and were silently rejected, stalling the accept flow (camera stuck).
-/// </summary>
+// Wire format traced AND wire-verified from the client's real deserializer (case 8:
+// FUN_00c7cd40 -> FUN_00c7b570 -> FUN_00c7aeb0, which calls FUN_00c7acd0 for the leading
+// short+int). The deserializer is handed the FULL packet buffer (header included) and reads:
+// short (OpCode, obj+4) + int (SubOpCode, obj+8) [= the 6-byte header], then the real payload
+// int (obj+0xc) + int (obj+0x10) + int (obj+0x14) + bool/1-byte (obj+0x18), and requires no
+// bytes to remain. Entire packet is exactly 19 bytes = 6-byte header + 13-byte payload
+// (3 int + 1 bool). obj+0xc is the QuestId (same find-quest lookup pattern); the remaining
+// fields feed QuestHandler:UpdateObjective (thunk_FUN_00a8f130). Earlier guessed layouts sent
+// too many bytes and were silently rejected, stalling the accept flow (camera stuck).
 public class QuestObjectiveActivatedPacket : BaseQuestPacket, ISerializablePacket
 {
     public const int SubOpCode = 8;

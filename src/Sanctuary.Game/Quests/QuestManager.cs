@@ -17,11 +17,9 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Quests;
 
-/// <summary>
-/// Data-driven implementation of <see cref="IQuestManager"/>. Every packet sequence here is the one
-/// the previously-hardcoded "Introduce Yourself" flow used (verified in-game); only the source of the
-/// values changed - they now come from the <see cref="QuestDefinition"/> instead of constants.
-/// </summary>
+// Data-driven implementation of IQuestManager. Every packet sequence here is the one
+// the previously-hardcoded "Introduce Yourself" flow used (verified in-game); only the source of the
+// values changed - they now come from the QuestDefinition instead of constants.
 public sealed class QuestManager : IQuestManager
 {
     private readonly IResourceManager _resourceManager;
@@ -84,14 +82,12 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
-    /// <summary>Composite effect played on a collectible when picked up (PFX_sparkles-swirl_gold_treasure-reward).</summary>
+    // Composite effect played on a collectible when picked up (PFX_sparkles-swirl_gold_treasure-reward).
     private const int CollectPickupEffect = 5386;
 
-    /// <summary>
-    /// A collectible pickup was clicked. Credits the quest's active Collect goal (one per distinct pickup),
-    /// hides the pickup for this player, animates the tracker counter, and completes the goal - advancing to
-    /// the return step - once <see cref="QuestGoal.RequiredCount"/> is reached.
-    /// </summary>
+    // A collectible pickup was clicked. Credits the quest's active Collect goal (one per distinct pickup),
+    // hides the pickup for this player, animates the tracker counter, and completes the goal - advancing to
+    // the return step - once RequiredCount is reached.
     public void OnCollectInteract(Player player, Npc npc)
     {
         if (!_resourceManager.Quests.Collectibles.TryGetValue(npc.Guid, out var loc))
@@ -161,12 +157,10 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
-    /// <summary>
-    /// An NPC died at the player's hands. Credits the active Kill goal (Type=3) of any in-progress quest
-    /// whose <see cref="QuestGoal.KillNpcNameId"/> matches the victim's NameId, animating the tracker's
-    /// "current/required" counter and completing the goal at <see cref="QuestGoal.RequiredCount"/>.
-    /// Mirrors <see cref="OnCollectInteract"/> (same per-quest count storage + persistence).
-    /// </summary>
+    // An NPC died at the player's hands. Credits the active Kill goal (Type=3) of any in-progress quest
+    // whose KillNpcNameId matches the victim's NameId, animating the tracker's
+    // "current/required" counter and completing the goal at RequiredCount.
+    // Mirrors OnCollectInteract (same per-quest count storage + persistence).
     public void OnNpcKilled(Player player, Npc npc)
     {
         if (npc.NameId == 0)
@@ -218,11 +212,9 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
-    /// <summary>
-    /// The player won a battle-instance encounter. Completes the active EncounterComplete goal (Type=4)
-    /// of any in-progress quest whose <see cref="QuestGoal.EncounterId"/> matches - i.e. the dungeon was
-    /// this quest's objective. Advances to the next goal (usually "return to the giver").
-    /// </summary>
+    // The player won a battle-instance encounter. Completes the active EncounterComplete goal (Type=4)
+    // of any in-progress quest whose EncounterId matches - i.e. the dungeon was
+    // this quest's objective. Advances to the next goal (usually "return to the giver").
     public void OnEncounterComplete(Player player, int encounterId)
     {
         foreach (var (questId, completed) in player.Quests)
@@ -247,7 +239,7 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
-    /// <summary>Persists the active Collect goal's in-progress count (DbCharacterQuest.GoalCount).</summary>
+    // Persists the active Collect goal's in-progress count (DbCharacterQuest.GoalCount).
     private void PersistCollectCount(Player player, int questId, int count)
     {
         using var db = _dbContextFactory.CreateDbContext();
@@ -259,13 +251,11 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
-    /// <summary>
-    /// Re-sends this quest's collectible pickups to the player so any hidden in a prior attempt reappear and
-    /// are clickable again: AddNpc (re-adds the model; a no-op for one still showing) PLUS an NpcRelevance
-    /// entry - that relevance packet, not just AddNpc's IsInteractable flag, is what registers a pickup as
-    /// interactable client-side (this is how zone-entry wires them up). NB: no RemovePlayer first - a
-    /// remove+re-add of the same guid races and can leave the pickup gone.
-    /// </summary>
+    // Re-sends this quest's collectible pickups to the player so any hidden in a prior attempt reappear and
+    // are clickable again: AddNpc (re-adds the model; a no-op for one still showing) PLUS an NpcRelevance
+    // entry - that relevance packet, not just AddNpc's IsInteractable flag, is what registers a pickup as
+    // interactable client-side (this is how zone-entry wires them up). NB: no RemovePlayer first - a
+    // remove+re-add of the same guid races and can leave the pickup gone.
     private void RespawnQuestCollectibles(Player player, int questId)
     {
         var relevance = new PlayerUpdatePacketNpcRelevance();
@@ -497,7 +487,7 @@ public sealed class QuestManager : IQuestManager
         player.SendTunneled(notifications);
     }
 
-    /// <summary>Sends the quest offer popup (QuestInfoPacket) for the giver NPC.</summary>
+    // Sends the quest offer popup (QuestInfoPacket) for the giver NPC.
     private void Offer(Player player, QuestDefinition quest)
     {
         player.SendTunneled(new QuestInfoPacket
@@ -521,11 +511,9 @@ public sealed class QuestManager : IQuestManager
         });
     }
 
-    /// <summary>
-    /// Resolves a quest's <see cref="QuestDefinition.RewardItems"/> def ids into reward-preview entries
-    /// (icon + name + count) by looking up each item's ClientItemDefinition. Shown as icons in the offer
-    /// and turn-in "Show Details" panels.
-    /// </summary>
+    // Resolves a quest's RewardItems def ids into reward-preview entries
+    // (icon + name + count) by looking up each item's ClientItemDefinition. Shown as icons in the offer
+    // and turn-in "Show Details" panels.
     private List<RewardBundleItem> BuildRewardItems(QuestDefinition quest)
     {
         var items = new List<RewardBundleItem>();
@@ -544,11 +532,9 @@ public sealed class QuestManager : IQuestManager
         return items;
     }
 
-    /// <summary>
-    /// Ticks off the goal at <paramref name="goalIndex"/>: sends the objective checkmark, advances the
-    /// player's progress, then either activates+retargets the next goal or, when this was the last goal,
-    /// hands the quest in (reward + end screen). Goals complete in order.
-    /// </summary>
+    // Ticks off the goal at goalIndex: sends the objective checkmark, advances the
+    // player's progress, then either activates+retargets the next goal or, when this was the last goal,
+    // hands the quest in (reward + end screen). Goals complete in order.
     private void CompleteGoal(Player player, QuestDefinition quest, int goalIndex)
     {
         var goals = quest.EffectiveGoals;
@@ -628,17 +614,17 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
-    /// <summary>Global.Text id for the generic "You got it!" response button.</summary>
+    // Global.Text id for the generic "You got it!" response button.
     private const int YouGotItTextId = 103085;
 
-    /// <summary>Image id of ui_dialog_greencheck (Images.txt) - the response button's green check icon.</summary>
+    // Image id of ui_dialog_greencheck (Images.txt) - the response button's green check icon.
     private const int GreenCheckImageId = 300;
 
-    /// <summary>ImageSet id 17 = "dialog green button" (ImageSets.txt) - the green response-button skin.</summary>
+    // ImageSet id 17 = "dialog green button" (ImageSets.txt) - the green response-button skin.
     private const int GreenButtonImageSet = 17;
 
-    /// <summary>Shows the "Quest Complete" end screen; finalize happens on the Complete click. The completing
-    /// goal's checkmark is already sent by <see cref="CompleteGoal"/> before this is called.</summary>
+    // Shows the "Quest Complete" end screen; finalize happens on the Complete click. The completing
+    // goal's checkmark is already sent by CompleteGoal before this is called.
     private void TurnIn(Player player, QuestDefinition quest)
     {
         // No QuestAdd re-send here: the end screen's bubble reads live QuestData column 10, which was set
@@ -667,14 +653,12 @@ public sealed class QuestManager : IQuestManager
         player.PendingQuestEndAction = () => CompleteQuest(player, quest.QuestId);
     }
 
-    /// <summary>
-    /// The journal/tracker entry. HelperTextId (client QuestData column 10) is read ONLY by the
-    /// end screen's speech bubble - a patched ScriptsBase.bin points ShowEndScreen's SetNPCDialog at
-    /// column 10 instead of DescriptionId, decoupling it from the journal. It's read LIVE each time
-    /// an end screen shows, so re-sending this packet (the client updates an existing journal entry
-    /// in place) swaps the bubble text: intermediate goal dialogs pass that goal's DialogueId,
-    /// accept/turn-in pass <see cref="QuestDefinition.TurnInDialogueId"/>.
-    /// </summary>
+    // The journal/tracker entry. HelperTextId (client QuestData column 10) is read ONLY by the
+    // end screen's speech bubble - a patched ScriptsBase.bin points ShowEndScreen's SetNPCDialog at
+    // column 10 instead of DescriptionId, decoupling it from the journal. It's read LIVE each time
+    // an end screen shows, so re-sending this packet (the client updates an existing journal entry
+    // in place) swaps the bubble text: intermediate goal dialogs pass that goal's DialogueId,
+    // accept/turn-in pass TurnInDialogueId.
     private static void SendQuestAdd(Player player, QuestDefinition quest, int helperTextId, float completedPercentage = 0f)
     {
         player.SendTunneled(new QuestAddPacket
@@ -697,7 +681,7 @@ public sealed class QuestManager : IQuestManager
         });
     }
 
-    /// <summary>QuestAdd + objective packets that put the quest into the client's journal + tracker.</summary>
+    // QuestAdd + objective packets that put the quest into the client's journal + tracker.
     private void SendActiveState(Player player, QuestDefinition quest)
     {
         int alreadyDone = player.QuestGoalProgress.TryGetValue(quest.QuestId, out var p) ? p : 0;
@@ -774,10 +758,8 @@ public sealed class QuestManager : IQuestManager
         SendObjectiveTarget(player, ResolveGoalTargetGuid(player, quest, done));
     }
 
-    /// <summary>
-    /// The NPC guid the goal at <paramref name="goalIndex"/> points at: the goal's own TargetGuid, or the
-    /// quest's turn-in TargetGuid when the goal doesn't override it (or when all goals are already done).
-    /// </summary>
+    // The NPC guid the goal at goalIndex points at: the goal's own TargetGuid, or the
+    // quest's turn-in TargetGuid when the goal doesn't override it (or when all goals are already done).
     private static ulong GoalTargetGuid(QuestDefinition quest, int goalIndex)
     {
         var goals = quest.EffectiveGoals;
@@ -786,12 +768,10 @@ public sealed class QuestManager : IQuestManager
         return quest.TargetGuid;
     }
 
-    /// <summary>
-    /// Player-aware objective target: the NPC the tracker arrow / "Take Me There" breadcrumb should point
-    /// at for the active goal. For an EncounterComplete goal this is the encounter's world giver (the
-    /// Frostfang Growler wolf near spawn — the thing you click to enter the arena), whose guid is dynamic;
-    /// for every other goal it's the static <see cref="GoalTargetGuid"/>.
-    /// </summary>
+    // Player-aware objective target: the NPC the tracker arrow / "Take Me There" breadcrumb should point
+    // at for the active goal. For an EncounterComplete goal this is the encounter's world giver (the
+    // Frostfang Growler wolf near spawn — the thing you click to enter the arena), whose guid is dynamic;
+    // for every other goal it's the static GoalTargetGuid.
     private static ulong ResolveGoalTargetGuid(Player player, QuestDefinition quest, int goalIndex)
     {
         var goals = quest.EffectiveGoals;
@@ -812,11 +792,9 @@ public sealed class QuestManager : IQuestManager
         return GoalTargetGuid(quest, goalIndex);
     }
 
-    /// <summary>
-    /// Sends the ObjectiveTargetUpdatePacket that drives the tracker arrow, mini-map indicator and the
-    /// "Take Me There" green breadcrumb trail. Target is the given NPC guid (the active goal's NPC); if it
-    /// isn't spawned in the player's current zone we send nothing (no destination to point at).
-    /// </summary>
+    // Sends the ObjectiveTargetUpdatePacket that drives the tracker arrow, mini-map indicator and the
+    // "Take Me There" green breadcrumb trail. Target is the given NPC guid (the active goal's NPC); if it
+    // isn't spawned in the player's current zone we send nothing (no destination to point at).
     private void SendObjectiveTarget(Player player, ulong targetGuid)
     {
         if (targetGuid == 0 || !player.Zone.TryGetNpc(targetGuid, out var target))
@@ -844,14 +822,12 @@ public sealed class QuestManager : IQuestManager
         });
     }
 
-    /// <summary>
-    /// Re-points the objective tracker/mini-map indicator at a still-active quest whose target NPC is
-    /// present, or clears it entirely (Active=false) when no trackable quest remains. Call after a quest
-    /// leaves the active set (abandon/complete) so a dangling indicator doesn't stay on screen, and on
-    /// overworld re-entry (a goal completed inside a battle instance points its next goal at an NPC that
-    /// isn't in that zone, so the in-arena update was skipped — e.g. "Return to Chloe" after the
-    /// Tormented Spirits dungeon kept the arrow on the entry spirit).
-    /// </summary>
+    // Re-points the objective tracker/mini-map indicator at a still-active quest whose target NPC is
+    // present, or clears it entirely (Active=false) when no trackable quest remains. Call after a quest
+    // leaves the active set (abandon/complete) so a dangling indicator doesn't stay on screen, and on
+    // overworld re-entry (a goal completed inside a battle instance points its next goal at an NPC that
+    // isn't in that zone, so the in-arena update was skipped — e.g. "Return to Chloe" after the
+    // Tormented Spirits dungeon kept the arrow on the entry spirit).
     public void RefreshObjectiveTarget(Player player)
     {
         ulong targetGuid = GetTrackedTargetGuid(player);
@@ -875,12 +851,10 @@ public sealed class QuestManager : IQuestManager
         return false;
     }
 
-    /// <summary>
-    /// The NPC guid the tracker arrow and the "Take Me There" breadcrumb should point at: the ACTIVE goal
-    /// of the player's <see cref="Player.ActiveQuestId"/> (the quest they selected in the quest helper /
-    /// most recently accepted) when it's still active and its target NPC is spawned; otherwise the first
-    /// active quest whose target NPC is present. Returns 0 when nothing is trackable.
-    /// </summary>
+    // The NPC guid the tracker arrow and the "Take Me There" breadcrumb should point at: the ACTIVE goal
+    // of the player's ActiveQuestId (the quest they selected in the quest helper /
+    // most recently accepted) when it's still active and its target NPC is spawned; otherwise the first
+    // active quest whose target NPC is present. Returns 0 when nothing is trackable.
     private ulong GetTrackedTargetGuid(Player player)
     {
         // Prefer the quest the player actually has selected - the whole point of "make active" is that the
@@ -904,11 +878,9 @@ public sealed class QuestManager : IQuestManager
         return 0;
     }
 
-    /// <summary>
-    /// The active-goal target NPC guid for <paramref name="questId"/> (the ACTIVE goal's NPC, not the
-    /// final turn-in NPC - they differ mid-quest on multi-goal quests), or false if the quest is unknown
-    /// or that NPC isn't spawned in the player's current zone.
-    /// </summary>
+    // The active-goal target NPC guid for questId (the ACTIVE goal's NPC, not the
+    // final turn-in NPC - they differ mid-quest on multi-goal quests), or false if the quest is unknown
+    // or that NPC isn't spawned in the player's current zone.
     private bool TryGetGoalTargetGuid(Player player, int questId, out ulong targetGuid)
     {
         targetGuid = 0;
@@ -965,11 +937,9 @@ public sealed class QuestManager : IQuestManager
         }
     }
 
-    /// <summary>
-    /// Grants one of <paramref name="definitionId"/> to the player: stacks it in the DB (by definition +
-    /// tint), mirrors it into the in-memory inventory, and tells the client (ItemAdd for a new item, or
-    /// ItemUpdate for an incremented stack). Mirrors the coin-store grant path.
-    /// </summary>
+    // Grants one of definitionId to the player: stacks it in the DB (by definition +
+    // tint), mirrors it into the in-memory inventory, and tells the client (ItemAdd for a new item, or
+    // ItemUpdate for an incremented stack). Mirrors the coin-store grant path.
     private void GrantItem(Player player, int definitionId)
     {
         if (!_resourceManager.ClientItemDefinitions.TryGetValue(definitionId, out var itemDef))

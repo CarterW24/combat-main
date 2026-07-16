@@ -88,28 +88,28 @@ public abstract class BaseZone : IZone, IDisposable
     {
     }
 
-    /// <summary>COMBAT: an NPC in this zone was killed — zones override to decide the consequence.</summary>
+    // COMBAT: an NPC in this zone was killed — zones override to decide the consequence.
     public virtual void OnNpcKilled(Player killer, Npc npc)
     {
     }
 
-    /// <summary>COMBAT: an NPC took a non-fatal hit — zones override to react to HP thresholds.</summary>
+    // COMBAT: an NPC took a non-fatal hit — zones override to react to HP thresholds.
     public virtual void OnNpcDamaged(Player attacker, Npc npc)
     {
     }
 
-    /// <summary>The "Revive here" coin cost sent on the overworld respawn window, RAW (client shows it as
-    /// value/1000, so 100000 -> "100 coins").</summary>
+    // The "Revive here" coin cost sent on the overworld respawn window, RAW (client shows it as
+    // value/1000, so 100000 -> "100 coins").
     protected const int ReviveHereCostRaw = 100000;
 
-    /// <summary>Fallback auto-revive delay. OVERWORLD = long: the player is expected to press a button on
-    /// the pay/safe respawn window; this only backstops someone who never does. Combat instances override
-    /// it short (they auto-revive via the knockout-counter flow, no window).</summary>
+    // Fallback auto-revive delay. OVERWORLD = long: the player is expected to press a button on
+    // the pay/safe respawn window; this only backstops someone who never does. Combat instances override
+    // it short (they auto-revive via the knockout-counter flow, no window).
     protected virtual int ReviveCooldownMs => 20000;
 
-    /// <summary>DEATH: the player's HP just hit 0. OVERWORLD behavior = pop the client's pay/safe respawn
-    /// window ("Revive here: 100 coins" / "Revive at safe location: Free"); the Revive buttons (sub122)
-    /// drive revival. Combat instances override for the knockout-counter / fail flow (no window).</summary>
+    // DEATH: the player's HP just hit 0. OVERWORLD behavior = pop the client's pay/safe respawn
+    // window ("Revive here: 100 coins" / "Revive at safe location: Free"); the Revive buttons (sub122)
+    // drive revival. Combat instances override for the knockout-counter / fail flow (no window).
     public virtual void OnPlayerKnockedOut(Player player)
     {
         // The client's respawn window (DisplayRespawn) only renders the pay/safe buttons while it's in a
@@ -126,17 +126,17 @@ public abstract class BaseZone : IZone, IDisposable
     // knockout would fire during a LATER knockout and revive the player instantly, skipping the countdown.
     private readonly ConcurrentDictionary<ulong, int> _reviveGeneration = new();
 
-    /// <summary>How long the "TRY AGAIN!" fail card sits before the encounter tears down and teleports the
-    /// player home — otherwise the state-remove + teleport wipe the card instantly. It's a timer because the
-    /// client never reports the card being closed (ClosedMinigameEndScreen never arrives for these).</summary>
+    // How long the "TRY AGAIN!" fail card sits before the encounter tears down and teleports the
+    // player home — otherwise the state-remove + teleport wipe the card instantly. It's a timer because the
+    // client never reports the card being closed (ClosedMinigameEndScreen never arrives for these).
     protected const int FailCardHoldMs = 4000;
 
-    /// <summary>Show the persistent "TRY AGAIN!" fail end-screen. Three things are needed and were missing:
-    /// (1) clear the knockdown UI — Player.Knockout leaves the client in IsKnockedOut|IsRooted, which wipes
-    /// the card instantly; (2) set Won=0 via GameOver so the end screen reads as the failure variant;
-    /// (3) send the SCORE end-screen (op39/47) — that's the actual persistent card the WIN shows while the
-    /// player stands, whereas GameOver alone is just a state flag. Server-side IsDead is intentionally left
-    /// set so the mobs don't re-engage; the real revive happens on the trip home.</summary>
+    // Show the persistent "TRY AGAIN!" fail end-screen. Three things are needed and were missing:
+    // (1) clear the knockdown UI — Player.Knockout leaves the client in IsKnockedOut|IsRooted, which wipes
+    // the card instantly; (2) set Won=0 via GameOver so the end screen reads as the failure variant;
+    // (3) send the SCORE end-screen (op39/47) — that's the actual persistent card the WIN shows while the
+    // player stands, whereas GameOver alone is just a state flag. Server-side IsDead is intentionally left
+    // set so the mobs don't re-engage; the real revive happens on the trip home.
     protected static void SendFailEndScreen(Player player)
     {
         // Stand the player up on the client (out of the knockdown/rooted state) so the card isn't fought off.
@@ -152,10 +152,10 @@ public abstract class BaseZone : IZone, IDisposable
         player.SendTunneled(score); // the persistent end-screen card
     }
 
-    /// <summary>Revive the player automatically once the knockout cooldown elapses (as long as they're
-    /// still down, still in this zone, and no NEWER knockout has occurred). This drives the client back to
-    /// life in sync with its own revive-cooldown countdown — the FALLBACK for someone who never presses the
-    /// Revive button.</summary>
+    // Revive the player automatically once the knockout cooldown elapses (as long as they're
+    // still down, still in this zone, and no NEWER knockout has occurred). This drives the client back to
+    // life in sync with its own revive-cooldown countdown — the FALLBACK for someone who never presses the
+    // Revive button.
     protected void ScheduleAutoRevive(Player player)
     {
         int generation = _reviveGeneration.AddOrUpdate(player.Guid, 1, (_, g) => g + 1);
@@ -177,8 +177,8 @@ public abstract class BaseZone : IZone, IDisposable
         });
     }
 
-    /// <summary>DEATH: revive the player. Base (overworld) behavior = revive where they fell with full HP.
-    /// Dungeons override to revive at the dungeon spawn.</summary>
+    // DEATH: revive the player. Base (overworld) behavior = revive where they fell with full HP.
+    // Dungeons override to revive at the dungeon spawn.
     public virtual void OnPlayerRespawn(Player player)
     {
         player.Respawn();

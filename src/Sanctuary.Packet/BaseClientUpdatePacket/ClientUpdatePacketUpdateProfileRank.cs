@@ -2,24 +2,22 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Notifies the client of a profile rank/level change (OpCode 38, SubOpCode 18).
-/// Triggers the level-up display in the client.
-/// </summary>
+// Notifies the client of a profile rank/level change (OpCode 38, SubOpCode 18).
+// Triggers the level-up display in the client.
 public class ClientUpdatePacketUpdateProfileRank : BaseClientUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 18;
 
-    /// <summary>Profile/Job ID that leveled up.</summary>
+    // Profile/Job ID that leveled up.
     public int ProfileId;
 
-    /// <summary>New rank/level of the profile.</summary>
+    // New rank/level of the profile.
     public int NewRank;
 
-    /// <summary>Profile icon to display in UI.</summary>
+    // Profile icon to display in UI.
     public int ProfileIconId;
 
-    /// <summary>Profile name string ID to display in level-up notification.</summary>
+    // Profile name string ID to display in level-up notification.
     public int ProfileNameId;
 
     public ClientUpdatePacketUpdateProfileRank() : base(OpCode)

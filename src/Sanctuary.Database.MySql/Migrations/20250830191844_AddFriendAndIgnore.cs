@@ -5,10 +5,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Sanctuary.Database.MySql.Migrations
 {
-    /// <inheritdoc />
     public partial class AddFriendAndIgnore : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<string>(
@@ -82,7 +80,6 @@ namespace Sanctuary.Database.MySql.Migrations
                 column: "CharacterGuid");
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

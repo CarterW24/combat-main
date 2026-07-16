@@ -13,8 +13,8 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Zones;
 
-/// <summary>Shared per-mob combat state for the encounter AI (chase / attack / plant / idle / return-home).
-/// Subclasses extend it with their own extras (Frostfang's roamer + charge-delay + howl).</summary>
+// Shared per-mob combat state for the encounter AI (chase / attack / plant / idle / return-home).
+// Subclasses extend it with their own extras (Frostfang's roamer + charge-delay + howl).
 public class EncounterMobState
 {
     public bool Charging;
@@ -25,14 +25,13 @@ public class EncounterMobState
     public bool Planted;    // true once stopped in attack range — stop re-broadcasting position (attack jitter)
 }
 
-/// <summary>Shared base for the combat-encounter zones — the generic data-driven <see cref="EncounterArenaZone"/>
-/// plus the bespoke <see cref="FrostfangArenaZone"/> and <see cref="TormentedSpiritsArenaZone"/>. It owns the
-/// parts every combat encounter shares so a fix lands once instead of three times: the knockout-limit / fail /
-/// revive lifecycle. Subclasses supply the encounter id and the zone-specific <see cref="ReturnHome"/> (teardown
-/// + teleport), and keep their bespoke bits (Frostfang waves/Alpha, Spirits tombstones) as their own code.
-///
-/// (First extraction step — the enemy AI, exit door, and win/reward flow still live in the subclasses and are
-/// candidates to migrate here next.)</summary>
+// Shared base for the combat-encounter zones — the generic data-driven EncounterArenaZone
+// plus the bespoke FrostfangArenaZone and TormentedSpiritsArenaZone. It owns the
+// parts every combat encounter shares so a fix lands once instead of three times: the knockout-limit / fail /
+// revive lifecycle. Subclasses supply the encounter id and the zone-specific ReturnHome (teardown
+// + teleport), and keep their bespoke bits (Frostfang waves/Alpha, Spirits tombstones) as their own code.
+// (First extraction step — the enemy AI, exit door, and win/reward flow still live in the subclasses and are
+// candidates to migrate here next.)
 public abstract class CombatEncounterZone : BaseZone
 {
     protected CombatEncounterZone(BaseZoneDefinition zoneDefinition, IServiceProvider serviceProvider)
@@ -40,30 +39,30 @@ public abstract class CombatEncounterZone : BaseZone
     {
     }
 
-    /// <summary>Knockouts before the encounter fails (retail = 5).</summary>
+    // Knockouts before the encounter fails (retail = 5).
     protected const int KnockoutLimit = 5;
 
     private readonly object _knockoutLock = new();
     private readonly Dictionary<ulong, int> _knockouts = [];
 
-    /// <summary>Encounter/activity id + instance for the client encounter packets (respawn window etc.).</summary>
+    // Encounter/activity id + instance for the client encounter packets (respawn window etc.).
     protected abstract int FailEncounterId { get; }
     protected virtual int FailInstanceId => 1;
 
-    /// <summary>Short label for the knockout log line (e.g. the dungeon name).</summary>
+    // Short label for the knockout log line (e.g. the dungeon name).
     protected virtual string EncounterLogName => GetType().Name;
 
     // Combat instances give a long auto-revive FALLBACK — the client's own knockout window runs the real ~10s
     // countdown to the Revive button; this only backstops someone who never presses it.
     protected override int ReviveCooldownMs => 30000;
 
-    /// <summary>Tear the encounter down for this player and teleport them back to the overworld (zone-specific).</summary>
+    // Tear the encounter down for this player and teleport them back to the overworld (zone-specific).
     protected abstract void ReturnHome(Player player);
 
-    /// <summary>Tear the encounter's client UI down for this player (ReturnHome calls this before the teleport,
-    /// and the "leave" chat/exit paths call it directly): mark won/lost, remove the minigame state, reset the
-    /// encounter data + fighting flags, clear the goals window. On a WIN, GameOver(Won=true) goes FIRST so the
-    /// end card the teardown triggers reads as a win; a mid-run bail keeps won=false ("TRY AGAIN!").</summary>
+    // Tear the encounter's client UI down for this player (ReturnHome calls this before the teleport,
+    // and the "leave" chat/exit paths call it directly): mark won/lost, remove the minigame state, reset the
+    // encounter data + fighting flags, clear the goals window. On a WIN, GameOver(Won=true) goes FIRST so the
+    // end card the teardown triggers reads as a win; a mid-run bail keeps won=false ("TRY AGAIN!").
     public void EndEncounterForPlayer(Player player) => EndEncounterForPlayer(player, won: false);
 
     public void EndEncounterForPlayer(Player player, bool won)
@@ -86,22 +85,22 @@ public abstract class CombatEncounterZone : BaseZone
     // GameOver, and the score card comes from the zone's win flow / SendFailEndScreen), and the teleport goes
     // out with it — which is the behavior that actually works in-game.
 
-    /// <summary>Forget a player's knockout tally (call on encounter start/complete so a fresh run starts at 0).</summary>
+    // Forget a player's knockout tally (call on encounter start/complete so a fresh run starts at 0).
     protected void ResetKnockouts(ulong guid)
     {
         lock (_knockoutLock)
             _knockouts.Remove(guid);
     }
 
-    /// <summary>How many times this player has been knocked out this run (for the win-screen score).</summary>
+    // How many times this player has been knocked out this run (for the win-screen score).
     protected int KnockoutsUsed(ulong guid)
     {
         lock (_knockoutLock)
             return _knockouts.TryGetValue(guid, out var k) ? k : 0;
     }
 
-    /// <summary>Enter the encounter at full REAL max HP + mana (Stats[MaxHealth]) so the bar matches the
-    /// real-damage claw/bite — a fixed 2500 made it jump on the first hit. Call from OnClientIsReady.</summary>
+    // Enter the encounter at full REAL max HP + mana (Stats[MaxHealth]) so the bar matches the
+    // real-damage claw/bite — a fixed 2500 made it jump on the first hit. Call from OnClientIsReady.
     protected static void EnterAtFullVitals(Player player)
     {
         var startHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
@@ -115,14 +114,14 @@ public abstract class CombatEncounterZone : BaseZone
     private readonly object _exitDoorLock = new();
     private Npc? _exitDoor;
 
-    /// <summary>The live victory door, or null. Subclasses read it for the visibility sweep + cleanup.</summary>
+    // The live victory door, or null. Subclasses read it for the visibility sweep + cleanup.
     protected Npc? ExitDoor
     {
         get { lock (_exitDoorLock) return _exitDoor; }
     }
 
-    /// <summary>Register the spawned victory door (or null to clear it on a re-run) so IsExitDoor/UseExitDoor
-    /// recognise clicks on it.</summary>
+    // Register the spawned victory door (or null to clear it on a re-run) so IsExitDoor/UseExitDoor
+    // recognise clicks on it.
     protected void SetExitDoor(Npc? door)
     {
         lock (_exitDoorLock)
@@ -144,8 +143,8 @@ public abstract class CombatEncounterZone : BaseZone
         ReturnHome(player);
     }
 
-    /// <summary>The minigame UI's LEAVE button (op39/sub6) and RequestExit (op41/sub109): bail out of the
-    /// instance back to the overworld. Same teardown + teleport as the exit door.</summary>
+    // The minigame UI's LEAVE button (op39/sub6) and RequestExit (op41/sub109): bail out of the
+    // instance back to the overworld. Same teardown + teleport as the exit door.
     public void LeaveEncounter(Player player)
     {
         if (player.Zone != this)
@@ -172,7 +171,7 @@ public abstract class CombatEncounterZone : BaseZone
     protected const int MobAttackFxId = 5409;         // live melee-hit composite
     protected const int MobAttackCritFxId = 5622;
 
-    /// <summary>Chase/return speed. The pre-spawned zones drift at 5; Frostfang wolves charge at 6.</summary>
+    // Chase/return speed. The pre-spawned zones drift at 5; Frostfang wolves charge at 6.
     protected virtual float MobChaseSpeed => 5f;
 
     // Attack spacing is per-TARGET, not pack-wide: the pack won't all bite the same player at once, but two
@@ -181,7 +180,7 @@ public abstract class CombatEncounterZone : BaseZone
     // Touched only from the single per-zone AI loop, so a plain dictionary is safe.
     private readonly Dictionary<ulong, long> _lastAttackTicksByTarget = [];
 
-    /// <summary>Send a packet to every player currently in this encounter instance (per-zone one-liner).</summary>
+    // Send a packet to every player currently in this encounter instance (per-zone one-liner).
     protected abstract void Broadcast(ISerializablePacket packet);
 
     protected static float MoveToward(float current, float goal, float maxDelta)
@@ -192,10 +191,10 @@ public abstract class CombatEncounterZone : BaseZone
         return current + MathF.Sign(delta) * maxDelta;
     }
 
-    /// <summary>The nearest player to <paramref name="pos"/> that ISN'T knocked out, or null if every player
-    /// is down. Mobs pick their target with this each tick so the pack spreads across a group and re-targets
-    /// when a player falls — instead of the whole pack fixating on one player (and going home the moment that
-    /// one dies, ignoring everyone else still fighting).</summary>
+    // The nearest player to pos that ISN'T knocked out, or null if every player
+    // is down. Mobs pick their target with this each tick so the pack spreads across a group and re-targets
+    // when a player falls — instead of the whole pack fixating on one player (and going home the moment that
+    // one dies, ignoring everyone else still fighting).
     protected static Player? NearestLivePlayer(Vector3 pos, IReadOnlyList<Player> players)
     {
         Player? best = null;
@@ -216,9 +215,9 @@ public abstract class CombatEncounterZone : BaseZone
         return best;
     }
 
-    /// <summary>Player is knocked down: disengage — amble back to the spawn post and idle there. Call this
-    /// (instead of TickMobCombat) for every mob while the player is down; resets Charging/Planted so the mob
-    /// re-engages cleanly on revive.</summary>
+    // Player is knocked down: disengage — amble back to the spawn post and idle there. Call this
+    // (instead of TickMobCombat) for every mob while the player is down; resets Charging/Planted so the mob
+    // re-engages cleanly on revive.
     protected void TickMobReturnHome(Npc mob, EncounterMobState state, float dt)
     {
         state.Charging = false;
@@ -244,9 +243,9 @@ public abstract class CombatEncounterZone : BaseZone
         }
     }
 
-    /// <summary>Engaged-mob combat tick (player alive): converge on an owned slot around the player, plant
-    /// once in attack range (re-broadcasting every tick bobbed the model + fought the swing = jitter), and
-    /// attack on the per-mob cooldown gated by the pack-wide spacing.</summary>
+    // Engaged-mob combat tick (player alive): converge on an owned slot around the player, plant
+    // once in attack range (re-broadcasting every tick bobbed the model + fought the swing = jitter), and
+    // attack on the per-mob cooldown gated by the pack-wide spacing.
     protected void TickMobCombat(Npc mob, EncounterMobState state, Player player, Vector3 playerPos, long now, float dt)
     {
         var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
@@ -288,9 +287,9 @@ public abstract class CombatEncounterZone : BaseZone
         }
     }
 
-    /// <summary>One mob attack: real damage (knocks the player out at 0 -> the fail flow), the floating
-    /// number/bar + hit FX, and an explicit swing clip for boss models whose default contact event doesn't
-    /// animate (the Abominable Snowman).</summary>
+    // One mob attack: real damage (knocks the player out at 0 -> the fail flow), the floating
+    // number/bar + hit FX, and an explicit swing clip for boss models whose default contact event doesn't
+    // animate (the Abominable Snowman).
     protected void PerformMobAttack(Npc attacker, Player player)
     {
         var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;

@@ -5,20 +5,18 @@ using Sanctuary.Game.Entities;
 
 namespace Sanctuary.Game.Party;
 
-/// <summary>
-/// A transient in-memory party (the client's "group"). Unlike a guild it is NOT persisted — it
-/// exists only while it has members and is discarded when it empties. One member is the leader
-/// (the only one who can invite/kick); the leader passes to another member if the leader leaves.
-/// </summary>
+// A transient in-memory party (the client's "group"). Unlike a guild it is NOT persisted — it
+// exists only while it has members and is discarded when it empties. One member is the leader
+// (the only one who can invite/kick); the leader passes to another member if the leader leaves.
 public sealed class Party
 {
-    /// <summary>Retail groups cap at 4 (the combatGroupWindow shows up to 4 member panes).</summary>
+    // Retail groups cap at 4 (the combatGroupWindow shows up to 4 member panes).
     public const int MaxMembers = 4;
 
     private readonly object _lock = new();
     private readonly List<Player> _members = [];
 
-    /// <summary>Guids the leader has invited who haven't accepted/declined yet.</summary>
+    // Guids the leader has invited who haven't accepted/declined yet.
     private readonly HashSet<ulong> _pendingInvites = [];
 
     public ulong LeaderGuid { get; private set; }
@@ -79,8 +77,8 @@ public sealed class Party
         lock (_lock) _pendingInvites.Remove(guid);
     }
 
-    /// <summary>Remove a member; returns true if the party is now empty (caller disposes it). If the
-    /// leader left, leadership passes to the next remaining member.</summary>
+    // Remove a member; returns true if the party is now empty (caller disposes it). If the
+    // leader left, leadership passes to the next remaining member.
     public bool Remove(Player player)
     {
         lock (_lock)

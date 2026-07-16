@@ -12,12 +12,10 @@ using Sanctuary.Packet.Common.Attributes;
 
 namespace Sanctuary.Gateway.Handlers;
 
-/// <summary>
-/// Opcode 98 - the "Take Me There" path family. On a ClientPathRequestPacket (sub 1, sent when the button
-/// is clicked) we reply with a ClientPathReplyPacket (sub 2) whose waypoint list the client turns into the
-/// green breadcrumb trail + auto-walk. The path runs from the client's start position to the tracked
-/// quest's target NPC (falling back to the client-provided end point).
-/// </summary>
+// Opcode 98 - the "Take Me There" path family. On a ClientPathRequestPacket (sub 1, sent when the button
+// is clicked) we reply with a ClientPathReplyPacket (sub 2) whose waypoint list the client turns into the
+// green breadcrumb trail + auto-walk. The path runs from the client's start position to the tracked
+// quest's target NPC (falling back to the client-provided end point).
 [PacketHandler]
 public static class ClientPathBasePacketHandler
 {
@@ -87,11 +85,9 @@ public static class ClientPathBasePacketHandler
         return true;
     }
 
-    /// <summary>
-    /// Builds the path the client walks. We have no server-side navmesh, so we send only the endpoints and
-    /// let the client's character steering find its way around obstacles between them - packing in dense
-    /// intermediate waypoints instead pins the character to the straight line and walks it into walls.
-    /// </summary>
+    // Builds the path the client walks. We have no server-side navmesh, so we send only the endpoints and
+    // let the client's character steering find its way around obstacles between them - packing in dense
+    // intermediate waypoints instead pins the character to the straight line and walks it into walls.
     private static List<Vector4> BuildPath(Vector4 start, Vector4 destination)
     {
         return new List<Vector4> { start, destination };

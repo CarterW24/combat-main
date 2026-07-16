@@ -43,10 +43,8 @@ public static class CommandRouter
         }
     }
 
-    /// <summary>
-    /// Entry point for all slash commands.
-    /// Returns true if the message was handled as a command.
-    /// </summary>
+    // Entry point for all slash commands.
+    // Returns true if the message was handled as a command.
     public static bool TryHandle(GatewayConnection conn, string? message)
     {
         if (string.IsNullOrWhiteSpace(message))

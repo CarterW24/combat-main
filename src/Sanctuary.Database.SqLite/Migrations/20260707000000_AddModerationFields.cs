@@ -4,10 +4,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Sanctuary.Database.Sqlite.Migrations;
 
-/// <inheritdoc />
 public partial class AddModerationFields : Migration
 {
-    /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.AddColumn<bool>(
@@ -30,7 +28,6 @@ public partial class AddModerationFields : Migration
             nullable: true);
     }
 
-    /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.DropColumn(

@@ -11,11 +11,9 @@ using Sanctuary.Game.Resources.Definitions;
 
 namespace Sanctuary.Game.Resources;
 
-/// <summary>
-/// One collectible pickup to spawn for a Collect goal: a world object (interactable NPC) the player clicks
-/// to gather. Its guid is assigned at load time and maps back to (quest, goal) via
-/// <see cref="QuestDefinitionCollection.Collectibles"/>.
-/// </summary>
+// One collectible pickup to spawn for a Collect goal: a world object (interactable NPC) the player clicks
+// to gather. Its guid is assigned at load time and maps back to (quest, goal) via
+// Collectibles.
 public sealed class CollectibleSpawn
 {
     public ulong Guid { get; init; }
@@ -24,33 +22,31 @@ public sealed class CollectibleSpawn
     public Vector4 Position { get; init; }
 }
 
-/// <summary>
-/// Loads quest definitions from Resources/Quests.json and builds the lookups the quest manager needs:
-/// by quest id, by giver NPC guid, and by target NPC guid.
-/// </summary>
+// Loads quest definitions from Resources/Quests.json and builds the lookups the quest manager needs:
+// by quest id, by giver NPC guid, and by target NPC guid.
 public class QuestDefinitionCollection
 {
     private readonly ILogger _logger;
 
-    /// <summary>questId -&gt; definition.</summary>
+    // questId -> definition.
     public ConcurrentDictionary<int, QuestDefinition> Quests { get; } = new();
 
-    /// <summary>giver NPC guid -&gt; quest ids that NPC offers.</summary>
+    // giver NPC guid -> quest ids that NPC offers.
     public ConcurrentDictionary<ulong, List<int>> ByGiver { get; } = new();
 
-    /// <summary>target NPC guid -&gt; quest ids that use the NPC as a talk-to / turn-in target.</summary>
+    // target NPC guid -> quest ids that use the NPC as a talk-to / turn-in target.
     public ConcurrentDictionary<ulong, List<int>> ByTarget { get; } = new();
 
-    /// <summary>collectible pickup guid -&gt; (questId, goalIndex) it credits when interacted with.</summary>
+    // collectible pickup guid -> (questId, goalIndex) it credits when interacted with.
     public ConcurrentDictionary<ulong, (int QuestId, int GoalIndex)> Collectibles { get; } = new();
 
-    /// <summary>Every collectible pickup to spawn in the world (across all Collect goals of all quests).</summary>
+    // Every collectible pickup to spawn in the world (across all Collect goals of all quests).
     public List<CollectibleSpawn> CollectibleSpawns { get; } = new();
 
-    /// <summary>NameIds counted by any Kill goal — world NPCs with these NameIds spawn hostile/damageable.</summary>
+    // NameIds counted by any Kill goal — world NPCs with these NameIds spawn hostile/damageable.
     public HashSet<int> KillTargetNameIds { get; } = new();
 
-    /// <summary>Collectible guids live well above the NPC range (NpcGuidBase 100000000000 + id) to avoid collision.</summary>
+    // Collectible guids live well above the NPC range (NpcGuidBase 100000000000 + id) to avoid collision.
     private const ulong CollectibleGuidBase = 700000000000UL;
     private ulong _nextCollectibleGuid = CollectibleGuidBase;
 

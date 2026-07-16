@@ -2,23 +2,17 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Signals that an entity has been destroyed/killed (OpCode 35, SubOpCode 56).
-/// </summary>
+// Signals that an entity has been destroyed/killed (OpCode 35, SubOpCode 56).
 public class PlayerUpdatePacketDestroyed : BasePlayerUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 56;
 
     public ulong Guid;
 
-    /// <summary>
-    /// The entity that dealt the killing blow.
-    /// </summary>
+    // The entity that dealt the killing blow.
     public ulong KillerGuid;
 
-    /// <summary>
-    /// Unknown purpose — set to 0.
-    /// </summary>
+    // Unknown purpose — set to 0.
     public int Unknown;
 
     public PlayerUpdatePacketDestroyed() : base(OpCode)

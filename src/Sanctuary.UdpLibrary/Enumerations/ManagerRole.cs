@@ -2,33 +2,21 @@
 
 public enum ManagerRole
 {
-    /// <summary>
-    /// Original default UdpLibrary settings.
-    /// </summary>
+    // Original default UdpLibrary settings.
     Default,
 
-    /// <summary>
-    /// Server process that is servicing multiple internal/local/high-bandwidth connections.
-    /// </summary>
+    // Server process that is servicing multiple internal/local/high-bandwidth connections.
     InternalServer,
 
-    /// <summary>
-    /// Client process that is connecting to internal servers (ie. local high-bandwidth connections).
-    /// </summary>
+    // Client process that is connecting to internal servers (ie. local high-bandwidth connections).
     InternalClient,
 
-    /// <summary>
-    /// Server process that is servicing multiple external/relative-low-bandwidth connections.
-    /// </summary>
+    // Server process that is servicing multiple external/relative-low-bandwidth connections.
     ExternalServer,
 
-    /// <summary>
-    /// Client process that is connection to an external server (ie. a typical end-user client setup, relatively low bandwidth).
-    /// </summary>
+    // Client process that is connection to an external server (ie. a typical end-user client setup, relatively low bandwidth).
     ExternalClient,
 
-    /// <summary>
-    /// Highly specialized role for talking on a long-fat-network (super-high bandwidth, high-latency, slight packetloss, semi-dedicated pipe).
-    /// </summary>
+    // Highly specialized role for talking on a long-fat-network (super-high bandwidth, high-latency, slight packetloss, semi-dedicated pipe).
     Lfn
 }

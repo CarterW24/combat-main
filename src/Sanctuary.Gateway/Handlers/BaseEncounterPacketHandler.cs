@@ -30,7 +30,7 @@ public static class BaseEncounterPacketHandler
     private const short EncounterParticipantResume = 122;          // C2S = the "Revive" button on the respawn window.
     private const short EncounterCancelPending = 124;              // C2S = closing the dungeon start/offer panel.
 
-    /// <summary>"Revive here" coin cost (matches the window's displayed 100).</summary>
+    // "Revive here" coin cost (matches the window's displayed 100).
     private const int ReviveHereCost = 100;
 
     private static ILogger _logger = null!;
@@ -128,8 +128,8 @@ public static class BaseEncounterPacketHandler
         return true;
     }
 
-    /// <summary>Nearest town/warpstone POI (NotificationType 7) spawn to the given spot; falls back to the
-    /// spot itself if none are loaded.</summary>
+    // Nearest town/warpstone POI (NotificationType 7) spawn to the given spot; falls back to the
+    // spot itself if none are loaded.
     private static Vector4 NearestTownSpawn(Vector4 from)
     {
         var best = from;
@@ -151,8 +151,8 @@ public static class BaseEncounterPacketHandler
         return best;
     }
 
-    /// <summary>Seamless in-world teleport (server position + client UpdateLocation), same recipe as atlas
-    /// fast-travel.</summary>
+    // Seamless in-world teleport (server position + client UpdateLocation), same recipe as atlas
+    // fast-travel.
     private static void TeleportTo(Game.Entities.Player player, Vector4 target)
     {
         player.UpdatePosition(target, player.Rotation);
@@ -164,7 +164,7 @@ public static class BaseEncounterPacketHandler
         });
     }
 
-    /// <summary>Deduct coins (DB + player + client counter). Returns false if the character row is missing.</summary>
+    // Deduct coins (DB + player + client counter). Returns false if the character row is missing.
     private static bool TrySpendCoins(GatewayConnection connection, int coins)
     {
         using var dbContext = _dbContextFactory.CreateDbContext();

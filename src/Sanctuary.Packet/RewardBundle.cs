@@ -21,10 +21,10 @@ public sealed class RewardEntry
     public int ItemDefId;       // wire Param1 = the ClientItemDefinitions item id ("Item Id" DS column)
     public int Param2;
 
-    /// <summary>Optional per-entry INVENTORY item guid tail (the player's item row id, not the def id).
-    /// IDA-verified 2026-07-04: the bundle's LEAD BYTE (not entry U9) gates these — the bundle reader
-    /// (sub_8E7930) pushes it into every entry, and RewardBundleEntryItem then reads a 4-byte ItemGuid
-    /// after the base. The live post-wheel grant display (RewardBundlePacket idx 38142) used this.</summary>
+    // Optional per-entry INVENTORY item guid tail (the player's item row id, not the def id).
+    // IDA-verified 2026-07-04: the bundle's LEAD BYTE (not entry U9) gates these — the bundle reader
+    // (sub_8E7930) pushes it into every entry, and RewardBundleEntryItem then reads a 4-byte ItemGuid
+    // after the base. The live post-wheel grant display (RewardBundlePacket idx 38142) used this.
     public int? TailItemGuid;
 }
 

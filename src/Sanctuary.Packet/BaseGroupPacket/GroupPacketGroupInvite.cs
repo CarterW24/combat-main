@@ -17,16 +17,16 @@ public class GroupPacketGroupInvite : BaseGroupPacket, IDeserializable<GroupPack
 {
     public new const short OpCode = 1;
 
-    /// <summary>C2S only: the all-zero guid/status block the CLIENT sends before the target name
-    /// (the C2S layout differs from the S2C popup layout — see Serialize).</summary>
+    // C2S only: the all-zero guid/status block the CLIENT sends before the target name
+    // (the C2S layout differs from the S2C popup layout — see Serialize).
     private const int ZeroBlockSize = 48;
 
     public string? TargetName;
 
-    /// <summary>S2C: the inviter's NAME (a NameData — the "Group with &lt;name&gt;" popup label).</summary>
+    // S2C: the inviter's NAME (a NameData — the "Group with <name>" popup label).
     public NameData? InviterName;
 
-    /// <summary>S2C: the inviter's guid.</summary>
+    // S2C: the inviter's guid.
     public ulong InviterGuid;
 
     public GroupPacketGroupInvite() : base(OpCode)

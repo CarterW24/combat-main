@@ -13,9 +13,7 @@ public class FriendMessagePacket : BaseFriendPacket, ISerializablePacket
 
     public NameData Name = new();
 
-    /// <summary>
-    /// Used by <see cref="FriendMessageType.FriendNameChanged"/>
-    /// </summary>
+    // Used by FriendNameChanged
     public NameData NewName = new();
 
     public FriendMessagePacket() : base(OpCode)

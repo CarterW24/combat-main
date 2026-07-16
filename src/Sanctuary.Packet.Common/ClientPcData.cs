@@ -8,9 +8,7 @@ namespace Sanctuary.Packet.Common;
 
 public class ClientPcData
 {
-    /// <summary>
-    /// Used for TCG.
-    /// </summary>
+    // Used for TCG.
     public ulong LaunchTicket;
     public ulong Guid { get; init; }
 

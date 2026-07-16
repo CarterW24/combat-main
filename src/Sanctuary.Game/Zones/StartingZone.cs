@@ -51,12 +51,12 @@ public sealed class StartingZone : BaseZone
     // keyed by guid = NpcGuidBase + id - keep resolving after swapping the source from NpcSpawns.txt.
     private const ulong NpcGuidBase = 100000000000UL;
 
-    /// <summary>Guid of the single Tormented Spirit that acts as the dungeon entrance (click -> offer).
-    /// Every other graveyard spirit spawns as a hostile world enemy instead. 0 until the first is spawned.</summary>
+    // Guid of the single Tormented Spirit that acts as the dungeon entrance (click -> offer).
+    // Every other graveyard spirit spawns as a hostile world enemy instead. 0 until the first is spawned.
     private ulong _spiritEntranceGuid;
 
-    /// <summary>The one Tormented Spirit entrance's guid (0 = none). The interact handler opens the encounter
-    /// offer ONLY for this spirit; the rest are fightable world enemies.</summary>
+    // The one Tormented Spirit entrance's guid (0 = none). The interact handler opens the encounter
+    // offer ONLY for this spirit; the rest are fightable world enemies.
     public ulong SpiritEntranceGuid => _spiritEntranceGuid;
 
     private void SpawnNpcs()
@@ -459,11 +459,11 @@ public sealed class StartingZone : BaseZone
         player.SendTunneled(badge);
     }
 
-    /// <summary>INSTANCE WIP: the Frostfang Growler adventure-giver wolf.</summary>
+    // INSTANCE WIP: the Frostfang Growler adventure-giver wolf.
     public Npc? GrowlerWolf => _growlerWolf;
 
-    /// <summary>INSTANCE (Tormented Spirits!): a wandering Tormented Spirit — the encounter 146
-    /// entry NPC the tracker arrow / breadcrumb points at for EncounterComplete(146) goals.</summary>
+    // INSTANCE (Tormented Spirits!): a wandering Tormented Spirit — the encounter 146
+    // entry NPC the tracker arrow / breadcrumb points at for EncounterComplete(146) goals.
     public Npc? TormentedSpiritEntry()
     {
         foreach (var (id, definition) in _resourceManager.Npcs)
@@ -478,7 +478,7 @@ public sealed class StartingZone : BaseZone
         return null;
     }
 
-    /// <summary>Re-push the Growler wolf to a player (e.g. after a "!grove" teleport re-zone).</summary>
+    // Re-push the Growler wolf to a player (e.g. after a "!grove" teleport re-zone).
     public void ShowGrowlerWolf(Player player)
     {
         if (_growlerWolf is not null)
@@ -490,7 +490,7 @@ public sealed class StartingZone : BaseZone
 
     // (SendNpcRelevance / SendNpcHealth moved to BaseZone — shared with the Frostfang arena zone.)
 
-    /// <summary>COMBAT WIP: the live combat target (training dummy).</summary>
+    // COMBAT WIP: the live combat target (training dummy).
     public Npc? TrainingDummy => _trainingDummy;
 
     // COMBAT WIP: eternal training dummy — instead of despawn/respawn (which stacked extra dummies
@@ -510,15 +510,15 @@ public sealed class StartingZone : BaseZone
 
     // ---- Quest kill targets (world hostiles from Npcs.json, made attackable by a Kill goal) ----
 
-    /// <summary>HP of a quest kill target (~2 ninja melee swings at current damage numbers).</summary>
+    // HP of a quest kill target (~2 ninja melee swings at current damage numbers).
     private const int QuestHostileHealth = 5000;
 
-    /// <summary>Live dying-wolf graceful-removal params (04-01 capture): death clip + poof fx 5017.</summary>
+    // Live dying-wolf graceful-removal params (04-01 capture): death clip + poof fx 5017.
     private const int QuestHostileDeathFxId = 5017;
     private const int QuestHostileDeathHoldMs = 2000;
 
-    /// <summary>How long a defeated quest hostile stays gone before respawning (shared world spawns —
-    /// a 6-kill goal only has 5 spirit spawns, so respawns are required to finish it).</summary>
+    // How long a defeated quest hostile stays gone before respawning (shared world spawns —
+    // a 6-kill goal only has 5 spirit spawns, so respawns are required to finish it).
     private const int QuestHostileRespawnMs = 20_000;
 
     private static void MakeQuestHostile(Npc npc)
@@ -531,7 +531,7 @@ public sealed class StartingZone : BaseZone
         npc.Health = QuestHostileHealth;
     }
 
-    /// <summary>Re-spawn a defeated quest hostile from its Npcs.json definition (same guid).</summary>
+    // Re-spawn a defeated quest hostile from its Npcs.json definition (same guid).
     private void RespawnQuestHostile(NpcDefinition definition)
     {
         var guid = NpcGuidBase + (ulong)definition.Id;
@@ -559,17 +559,17 @@ public sealed class StartingZone : BaseZone
 
     // ---- World combat enemies (curated hostile creatures, spawned as CombatNpc) ----
 
-    /// <summary>Baseline level for overworld enemies (drives HP/damage/XP via CombatNpc.InitializeFromLevel).
-    /// Modest so early players can fight them; tune per-region later.</summary>
+    // Baseline level for overworld enemies (drives HP/damage/XP via CombatNpc.InitializeFromLevel).
+    // Modest so early players can fight them; tune per-region later.
     private const int WorldEnemyLevel = 3;
 
-    /// <summary>How long a defeated world enemy stays gone before a fresh one respawns at its post. Kept
-    /// short so clearing a spot doesn't leave you standing around with nothing to shoot.</summary>
+    // How long a defeated world enemy stays gone before a fresh one respawns at its post. Kept
+    // short so clearing a spot doesn't leave you standing around with nothing to shoot.
     private const int WorldEnemyRespawnMs = 8_000;
 
-    /// <summary>True when an overworld NPC definition spawns as a killable hostile <see cref="Entities.CombatNpc"/>
-    /// (its model is a dungeon-enemy model and it isn't claimed as a vendor / quest giver / quest kill-target).
-    /// Used both to spawn the world enemies and to keep Battle-Starter anchors AWAY from them.</summary>
+    // True when an overworld NPC definition spawns as a killable hostile CombatNpc
+    // (its model is a dungeon-enemy model and it isn't claimed as a vendor / quest giver / quest kill-target).
+    // Used both to spawn the world enemies and to keep Battle-Starter anchors AWAY from them.
     private bool IsWorldEnemyDefinition(NpcDefinition definition)
     {
         var guid = NpcGuidBase + (ulong)definition.Id;
@@ -618,7 +618,7 @@ public sealed class StartingZone : BaseZone
         tile.Entities.TryAdd(enemy.Guid, enemy);
     }
 
-    /// <summary>Re-spawn a fresh world enemy at a defeated one's post (captured model/name/level/position).</summary>
+    // Re-spawn a fresh world enemy at a defeated one's post (captured model/name/level/position).
     private void RespawnWorldEnemy(int modelId, int nameId, string? name, string? textureAlias, float scale,
         int level, Vector4 spawnPosition, Quaternion spawnRotation)
     {
@@ -680,10 +680,10 @@ public sealed class StartingZone : BaseZone
     // NOT the small scattered encounter arenas. Look them up by POI id (DungeonCatalog.ByAtlasPoi) — the
     // catalog is keyed by the REAL client activity id now, so the old "900000 + poiId" key is gone.
 
-    /// <summary>Model 511 = human_invisible_m.adr (Models.txt): an invisible CHARACTER actor — renders
-    /// nothing, is still sent to the client (so it's clickable via its nameplate/actor box), and unlike the
-    /// "Invisible Block" widget it has no solid environment collision, so the player (who teleports onto
-    /// this exact spot) doesn't get stuck inside it.</summary>
+    // Model 511 = human_invisible_m.adr (Models.txt): an invisible CHARACTER actor — renders
+    // nothing, is still sent to the client (so it's clickable via its nameplate/actor box), and unlike the
+    // "Invisible Block" widget it has no solid environment collision, so the player (who teleports onto
+    // this exact spot) doesn't get stuck inside it.
     private const int AtlasEntranceModelId = 511;
 
     private void SpawnDungeonEntrances()
@@ -722,9 +722,9 @@ public sealed class StartingZone : BaseZone
         }
     }
 
-    /// <summary>Open the dungeon start panel (adventure offer + auto-ready GO!) for a data-driven dungeon —
-    /// the same offer/handshake the Growler/Spirit entries use, keyed to this dungeon's activity id so the
-    /// GO! button routes to its EncounterArenaZone.</summary>
+    // Open the dungeon start panel (adventure offer + auto-ready GO!) for a data-driven dungeon —
+    // the same offer/handshake the Growler/Spirit entries use, keyed to this dungeon's activity id so the
+    // GO! button routes to its EncounterArenaZone.
     public static void SendDungeonOffer(Player player, Sanctuary.Game.Dungeons.DungeonDefinition dungeon)
     {
         const int instanceId = 1;
@@ -779,8 +779,8 @@ public sealed class StartingZone : BaseZone
     // placed next to an existing overworld NPC of the same theme (matched by name) so it stands where its kin
     // roam. It ambles peacefully; clicking it opens the encounter start panel (SendDungeonOffer -> GO!).
 
-    /// <summary>Battle-map -> theme keyword, the fallback anchor search term when an encounter's own title
-    /// nouns don't match any overworld NPC name.</summary>
+    // Battle-map -> theme keyword, the fallback anchor search term when an encounter's own title
+    // nouns don't match any overworld NPC name.
     private static readonly Dictionary<string, string> EncounterThemeKeyword = new()
     {
         ["sg_random_encounter_skullcamp"] = "Robgoblin",
@@ -856,9 +856,9 @@ public sealed class StartingZone : BaseZone
         _logger.LogInformation("Spawned {count} wandering combat-encounter entries.", spawned);
     }
 
-    /// <summary>Find an overworld NPC whose name matches the encounter's theme — first by the significant words
-    /// in the encounter's own title (e.g. "Band of Robgoblins!" -> "Robgoblin"), then by the battle-map's
-    /// theme keyword — so each Battle Starter stands among its own kind. Null if nothing matches.</summary>
+    // Find an overworld NPC whose name matches the encounter's theme — first by the significant words
+    // in the encounter's own title (e.g. "Band of Robgoblins!" -> "Robgoblin"), then by the battle-map's
+    // theme keyword — so each Battle Starter stands among its own kind. Null if nothing matches.
     private static NpcDefinition? FindThematicAnchor(Sanctuary.Game.Dungeons.DungeonDefinition dungeon,
         List<NpcDefinition> anchors, HashSet<int> used)
     {
@@ -884,8 +884,8 @@ public sealed class StartingZone : BaseZone
         return null;
     }
 
-    /// <summary>Fallback: hand out an unused anchor, striding through the list so the fallbacks spread across
-    /// the world instead of clumping.</summary>
+    // Fallback: hand out an unused anchor, striding through the list so the fallbacks spread across
+    // the world instead of clumping.
     private static NpcDefinition? PickSpreadAnchor(List<NpcDefinition> anchors, HashSet<int> used, ref int cursor)
     {
         int stride = Math.Max(1, anchors.Count / 60);
@@ -904,13 +904,13 @@ public sealed class StartingZone : BaseZone
     // COMBAT: kill routing for this zone — the eternal training dummy resets, quest kill targets
     // credit the killer's active Kill goal and respawn after a delay.
     // (The Frostfang encounter wolves live in FrostfangArenaZone, which has its own override.)
-    /// <summary>Clear the dead NPC's overhead/minimap notification entry (op35/sub11 RemoveNotifications) on
-    /// every client that had it visible, plus the killer. THIS is what unsticks a bow after a kill: the client
-    /// keeps auto-firing (Target=0, server picks the nearest) as long as it holds a combat entry for the enemy
-    /// it engaged; when that enemy dies WITHOUT its notification being cleared, the client stays latched to the
-    /// corpse and silently stops sending fire requests until a full state reset (job swap). Every other combat
-    /// zone (Frostfang, Spirits, the walk-through dungeons) already sends this on mob death — the overworld was
-    /// the only one that didn't, which is exactly why the dungeon worked and the open world didn't.</summary>
+    // Clear the dead NPC's overhead/minimap notification entry (op35/sub11 RemoveNotifications) on
+    // every client that had it visible, plus the killer. THIS is what unsticks a bow after a kill: the client
+    // keeps auto-firing (Target=0, server picks the nearest) as long as it holds a combat entry for the enemy
+    // it engaged; when that enemy dies WITHOUT its notification being cleared, the client stays latched to the
+    // corpse and silently stops sending fire requests until a full state reset (job swap). Every other combat
+    // zone (Frostfang, Spirits, the walk-through dungeons) already sends this on mob death — the overworld was
+    // the only one that didn't, which is exactly why the dungeon worked and the open world didn't.
     private static void BroadcastKillSignal(Player killer, Npc npc)
     {
         var clear = new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } };
@@ -920,14 +920,14 @@ public sealed class StartingZone : BaseZone
             killer.SendTunneled(clear);
     }
 
-    /// <summary>How far a party member can be from the kill and still share its XP. Stops a party-mate on the
-    /// other side of the map from leeching, but is generous enough that anyone actually in the fight counts.</summary>
+    // How far a party member can be from the kill and still share its XP. Stops a party-mate on the
+    // other side of the map from leeching, but is generous enough that anyone actually in the fight counts.
     private const float XpShareRange = 100f;
 
-    /// <summary>Overworld kills pay the whole PARTY, not just whoever landed the last hit — so players fighting
-    /// together both level up. Every nearby member gets the FULL reward (not a split), which is how the dungeon
-    /// zones already pay out. Members must be in this zone and within <see cref="XpShareRange"/> of the kill.
-    /// Solo players (no party) are unaffected: the killer just gets their XP as before.</summary>
+    // Overworld kills pay the whole PARTY, not just whoever landed the last hit — so players fighting
+    // together both level up. Every nearby member gets the FULL reward (not a split), which is how the dungeon
+    // zones already pay out. Members must be in this zone and within XpShareRange of the kill.
+    // Solo players (no party) are unaffected: the killer just gets their XP as before.
     private void AwardSharedXp(Player killer, int xp, Vector4 killPos)
     {
         killer.AwardXp(xp);

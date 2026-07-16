@@ -57,8 +57,8 @@ public static class EncounterParticipantRequestEntranceHandler
         return true;
     }
 
-    /// <summary>GO! -&gt; a data-driven combat dungeon (DungeonCatalog). Same transfer recipe as the two
-    /// hand-built arenas; the generic EncounterArenaZone runs the fight from its DungeonDefinition.</summary>
+    // GO! -> a data-driven combat dungeon (DungeonCatalog). Same transfer recipe as the two
+    // hand-built arenas; the generic EncounterArenaZone runs the fight from its DungeonDefinition.
     public static void EnterEncounterArena(GatewayConnection connection, int activityId)
     {
         var arena = _zoneManager.GetOrCreateEncounterArena(activityId);
@@ -75,10 +75,10 @@ public static class EncounterParticipantRequestEntranceHandler
         EnterWithParty(connection.Player, Enter);
     }
 
-    /// <summary>The one true GO!-&gt;arena entry: proper server-side zone transfer + the minigame
-    /// GameStart ack (op39/sub17) that drives the client's minigame state machine. CO-OP: the leader's
-    /// whole party is pulled into the Frostfang instance (which has the multi-player encounter
-    /// lifecycle — see FrostfangArenaZone).</summary>
+    // The one true GO!->arena entry: proper server-side zone transfer + the minigame
+    // GameStart ack (op39/sub17) that drives the client's minigame state machine. CO-OP: the leader's
+    // whole party is pulled into the Frostfang instance (which has the multi-player encounter
+    // lifecycle — see FrostfangArenaZone).
     public static void EnterFrostfangArena(GatewayConnection connection)
     {
         var arena = _zoneManager.GetOrCreateFrostfangArena();
@@ -96,9 +96,9 @@ public static class EncounterParticipantRequestEntranceHandler
         EnterWithParty(connection.Player, Enter);
     }
 
-    /// <summary>GO! -&gt; the Tormented Spirits graveyard arena (same transfer recipe as Frostfang).
-    /// CO-OP: the leader's whole party is pulled in (the spirit arena now has the same multi-player
-    /// encounter lifecycle as Frostfang).</summary>
+    // GO! -> the Tormented Spirits graveyard arena (same transfer recipe as Frostfang).
+    // CO-OP: the leader's whole party is pulled in (the spirit arena now has the same multi-player
+    // encounter lifecycle as Frostfang).
     public static void EnterSpiritArena(GatewayConnection connection)
     {
         var arena = _zoneManager.GetOrCreateSpiritArena();
@@ -117,8 +117,8 @@ public static class EncounterParticipantRequestEntranceHandler
         EnterWithParty(connection.Player, Enter);
     }
 
-    /// <summary>Enter the leader, then pull every other party member through the same enter action
-    /// (co-op). For a soloist this is just the single enter.</summary>
+    // Enter the leader, then pull every other party member through the same enter action
+    // (co-op). For a soloist this is just the single enter.
     private static void EnterWithParty(Player leader, Action<Player> enter)
     {
         enter(leader);

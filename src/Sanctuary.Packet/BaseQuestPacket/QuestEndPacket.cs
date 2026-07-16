@@ -4,21 +4,19 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Server -> client quest turn-in / completion screen (case 13: FUN_00c7cd40 -> FUN_00c7bbd0 ->
-/// FUN_00c7b990). Drives the client's "Quest Complete" end screen (QuestHandler:ShowEndScreen) and
-/// the completion camera close-up on the turn-in NPC (processor FUN_00a95420 focuses the "HEAD"
-/// bone, same path the offer uses). After the 6-byte header the deserializer reads, in order:
-///   8 bytes  -> obj+0x10/+0x14  (NPC guid - the camera focus target)
-///   int      -> obj+0x18        (QuestId - the client echoes THIS back in QuestEndReplyPacket, so
-///                                it must match the accepted quest's id or the objective/journal
-///                                never clears)
-///   int      -> obj+0x1c        (title text id)
-///   int      -> obj+0x20        (description text id)
-///   RewardBundleBase (FUN_008e7930, 69 bytes)
-///   float    -> obj+0xe0        (completion %, NaN-checked)
-/// Total 99 bytes = 6 header + 93 payload.
-/// </summary>
+// Server -> client quest turn-in / completion screen (case 13: FUN_00c7cd40 -> FUN_00c7bbd0 ->
+// FUN_00c7b990). Drives the client's "Quest Complete" end screen (QuestHandler:ShowEndScreen) and
+// the completion camera close-up on the turn-in NPC (processor FUN_00a95420 focuses the "HEAD"
+// bone, same path the offer uses). After the 6-byte header the deserializer reads, in order:
+//   8 bytes  -> obj+0x10/+0x14  (NPC guid - the camera focus target)
+//   int      -> obj+0x18        (QuestId - the client echoes THIS back in QuestEndReplyPacket, so
+//                                it must match the accepted quest's id or the objective/journal
+//                                never clears)
+//   int      -> obj+0x1c        (title text id)
+//   int      -> obj+0x20        (description text id)
+//   RewardBundleBase (FUN_008e7930, 69 bytes)
+//   float    -> obj+0xe0        (completion %, NaN-checked)
+// Total 99 bytes = 6 header + 93 payload.
 public class QuestEndPacket : BaseQuestPacket, ISerializablePacket
 {
     public const int SubOpCode = 13;
@@ -31,7 +29,7 @@ public class QuestEndPacket : BaseQuestPacket, ISerializablePacket
 
     public int RewardCoins;      // RewardBundleBase +0x50
     public int RewardExperience; // RewardBundleBase +0x48 - job/profile experience (XP)
-    /// <summary>Item rewards shown as icons in the turn-in "Show Details" reward preview.</summary>
+    // Item rewards shown as icons in the turn-in "Show Details" reward preview.
     public List<RewardBundleItem> RewardItems = new();
 
     public QuestEndPacket() : base(SubOpCode)

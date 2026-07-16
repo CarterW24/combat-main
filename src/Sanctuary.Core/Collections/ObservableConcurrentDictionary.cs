@@ -15,24 +15,20 @@ public class ObservableConcurrentDictionary<TKey, TValue> : IDictionary<TKey, TV
     private readonly SynchronizationContext _context;
     private readonly ConcurrentDictionary<TKey, TValue> _dictionary;
 
-    /// <summary>
-    /// Initializes an instance of the ObservableConcurrentDictionary class.
-    /// </summary>
+    // Initializes an instance of the ObservableConcurrentDictionary class.
     public ObservableConcurrentDictionary()
     {
         _context = AsyncOperationManager.SynchronizationContext;
         _dictionary = new ConcurrentDictionary<TKey, TValue>();
     }
 
-    /// <summary>Event raised when a property on the collection changes.</summary>
+    // Event raised when a property on the collection changes.
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>Event raised when the collection changes.</summary>
+    // Event raised when the collection changes.
     public event NotifyCollectionChangedEventHandler? CollectionChanged;
 
-    /// <summary>
-    /// Notifies observers of CollectionChanged or PropertyChanged of an update to the dictionary.
-    /// </summary>
+    // Notifies observers of CollectionChanged or PropertyChanged of an update to the dictionary.
     private void NotifyObserversOfChange()
     {
         var propertyHandler = PropertyChanged;
@@ -49,15 +45,15 @@ public class ObservableConcurrentDictionary<TKey, TValue> : IDictionary<TKey, TV
         }, null);
     }
 
-    /// <summary>Attempts to add an item to the dictionary, notifying observers of any changes.</summary>
-    /// <param name="item">The item to be added.</param>
-    /// <returns>Whether the add was successful.</returns>
+    // Attempts to add an item to the dictionary, notifying observers of any changes.
+    // item: The item to be added.
+    // Whether the add was successful.
     private bool TryAddWithNotification(KeyValuePair<TKey, TValue> item) => TryAddWithNotification(item.Key, item.Value);
 
-    /// <summary>Attempts to add an item to the dictionary, notifying observers of any changes.</summary>
-    /// <param name="key">The key of the item to be added.</param>
-    /// <param name="value">The value of the item to be added.</param>
-    /// <returns>Whether the add was successful.</returns>
+    // Attempts to add an item to the dictionary, notifying observers of any changes.
+    // key: The key of the item to be added.
+    // value: The value of the item to be added.
+    // Whether the add was successful.
     private bool TryAddWithNotification(TKey key, TValue value)
     {
         var result = _dictionary.TryAdd(key, value);
@@ -68,10 +64,10 @@ public class ObservableConcurrentDictionary<TKey, TValue> : IDictionary<TKey, TV
         return result;
     }
 
-    /// <summary>Attempts to remove an item from the dictionary, notifying observers of any changes.</summary>
-    /// <param name="key">The key of the item to be removed.</param>
-    /// <param name="value">The value of the item removed.</param>
-    /// <returns>Whether the removal was successful.</returns>
+    // Attempts to remove an item from the dictionary, notifying observers of any changes.
+    // key: The key of the item to be removed.
+    // value: The value of the item removed.
+    // Whether the removal was successful.
     private bool TryRemoveWithNotification(TKey key, [MaybeNullWhen(false)] out TValue value)
     {
         var result = _dictionary.TryRemove(key, out value);
@@ -82,10 +78,10 @@ public class ObservableConcurrentDictionary<TKey, TValue> : IDictionary<TKey, TV
         return result;
     }
 
-    /// <summary>Attempts to add or update an item in the dictionary, notifying observers of any changes.</summary>
-    /// <param name="key">The key of the item to be updated.</param>
-    /// <param name="value">The new value to set for the item.</param>
-    /// <returns>Whether the update was successful.</returns>
+    // Attempts to add or update an item in the dictionary, notifying observers of any changes.
+    // key: The key of the item to be updated.
+    // value: The new value to set for the item.
+    // Whether the update was successful.
     private void UpdateWithNotification(TKey key, TValue value)
     {
         _dictionary[key] = value;

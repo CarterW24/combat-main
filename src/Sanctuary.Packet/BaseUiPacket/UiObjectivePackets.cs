@@ -58,7 +58,7 @@ public class UiObjectiveAddPacket : BaseUiPacket, ISerializablePacket
     }
 }
 
-/// <summary>Sub 3 — complete/remove a Goals-window row by objective id.</summary>
+// Sub 3 — complete/remove a Goals-window row by objective id.
 public class UiObjectiveCompletePacket : BaseUiPacket, ISerializablePacket
 {
     public new const byte OpCode = 3;
@@ -81,7 +81,7 @@ public class UiObjectiveCompletePacket : BaseUiPacket, ISerializablePacket
     }
 }
 
-/// <summary>Sub 5 — clear every Goals-window row (no payload).</summary>
+// Sub 5 — clear every Goals-window row (no payload).
 public class UiObjectiveClearPacket : BaseUiPacket, ISerializablePacket
 {
     public new const byte OpCode = 5;

@@ -2,12 +2,10 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Triggers the full-screen job level-up celebration UI (levelup_&lt;job&gt;.gfx) on the client
-/// (OpCode 36 / SubOpCode 15). Client-side this is FUN_009392c0 case 0xf, which deserializes the payload
-/// and fires the "JobLevelUp" UI event. Exact field order is best-effort (the client reads via the
-/// generic SoE deserializer); tune against in-game behavior.
-/// </summary>
+// Triggers the full-screen job level-up celebration UI (levelup_<job>.gfx) on the client
+// (OpCode 36 / SubOpCode 15). Client-side this is FUN_009392c0 case 0xf, which deserializes the payload
+// and fires the "JobLevelUp" UI event. Exact field order is best-effort (the client reads via the
+// generic SoE deserializer); tune against in-game behavior.
 public class AbilityPacketJobLevelUp : BaseAbilityPacket, ISerializablePacket
 {
     public new const short OpCode = 15;

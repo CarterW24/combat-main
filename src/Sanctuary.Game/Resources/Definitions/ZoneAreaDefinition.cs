@@ -4,10 +4,8 @@ public class ZoneAreaDefinition
 {
     public int Id { get; set; }
 
-    /// <summary>
-    /// Sphere - XZ 1 and Radius
-    /// Rectangle - XZ 1 and 2
-    /// </summary>
+    // Sphere - XZ 1 and Radius
+    // Rectangle - XZ 1 and 2
     public string Shape { get; set; } = null!;
 
     public float X1 { get; set; }

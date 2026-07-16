@@ -10,10 +10,8 @@ public class ItemCategoryDefinition : ISerializableType
     public int Unknown;
     public bool Unknown2;
 
-    /// <summary>
-    /// 0 - Hidden
-    /// X - Visible
-    /// </summary>
+    // 0 - Hidden
+    // X - Visible
     public int Display;
 
     public void Serialize(PacketWriter writer)

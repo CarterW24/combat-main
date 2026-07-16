@@ -15,7 +15,6 @@ namespace Sanctuary.Database.MySql.Migrations
     [Migration("20260706154141_WidenCharacterFullName")]
     partial class WidenCharacterFullName
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

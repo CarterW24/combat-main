@@ -11,9 +11,7 @@ internal class CallbackEvent : IDisposable
     public UdpConnection? Source;
     public LogicalPacket? Payload;
 
-    /// <summary>
-    /// Only used by <see cref="CallbackEventType.PacketCorrupt"/> event.
-    /// </summary>
+    // Only used by PacketCorrupt event.
     public UdpCorruptionReason Reason;
 
     public CallbackEvent()

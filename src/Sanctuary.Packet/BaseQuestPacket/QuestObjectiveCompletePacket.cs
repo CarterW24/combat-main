@@ -2,14 +2,12 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Wire format traced from the client's real deserializer (case 10: FUN_00c7cd40 ->
-/// FUN_00c7b650 -> FUN_00c7b070, which calls FUN_00c7acd0 for the leading short+int header).
-/// After the 6-byte header the payload is: int (obj+0xc, QuestId) + int (obj+0x10) +
-/// float (obj+0x14, NaN-checked) + int (obj+0x18) + bool (obj+0x1c). Entire packet is 23 bytes
-/// = 6-byte header + 17-byte payload. Marks a quest objective complete (the check-off in the
-/// tracker/journal). Sent when the completion condition is met (interacting with the target NPC).
-/// </summary>
+// Wire format traced from the client's real deserializer (case 10: FUN_00c7cd40 ->
+// FUN_00c7b650 -> FUN_00c7b070, which calls FUN_00c7acd0 for the leading short+int header).
+// After the 6-byte header the payload is: int (obj+0xc, QuestId) + int (obj+0x10) +
+// float (obj+0x14, NaN-checked) + int (obj+0x18) + bool (obj+0x1c). Entire packet is 23 bytes
+// = 6-byte header + 17-byte payload. Marks a quest objective complete (the check-off in the
+// tracker/journal). Sent when the completion condition is met (interacting with the target NPC).
 public class QuestObjectiveCompletePacket : BaseQuestPacket, ISerializablePacket
 {
     public const int SubOpCode = 10;

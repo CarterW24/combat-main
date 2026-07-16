@@ -6,12 +6,10 @@ using Microsoft.Extensions.Configuration;
 
 namespace Sanctuary.WebAPI.Endpoints;
 
-/// <summary>
-/// Serves the launcher's server manifest at GET /servermanifest.xml (the OSFRLauncher fetches
-/// &lt;serverUrl&gt;/servermanifest.xml). Values come from the optional "ServerManifest" config section
-/// (appsettings/gateway config) so the name/description/addresses can be edited without recompiling;
-/// sensible defaults are used when the section is absent.
-/// </summary>
+// Serves the launcher's server manifest at GET /servermanifest.xml (the OSFRLauncher fetches
+// <serverUrl>/servermanifest.xml). Values come from the optional "ServerManifest" config section
+// (appsettings/gateway config) so the name/description/addresses can be edited without recompiling;
+// sensible defaults are used when the section is absent.
 public static class ManifestEndpoints
 {
     public static void MapManifestEndpoints(this WebApplication app)
@@ -26,7 +24,7 @@ public static class ManifestEndpoints
             var webApiUrl = section["WebApiUrl"] ?? "http://35.232.22.63:5055";
             var loginServer = section["LoginServer"] ?? "35.232.22.63:20042";
 
-            // XElement handles XML escaping (e.g. & -> &amp;) automatically.
+            // XElement handles XML escaping (e.g. & -> &) automatically.
             var manifest = new XElement("ServerManifest",
                 new XAttribute("version", 2),
                 new XElement("Name", name),

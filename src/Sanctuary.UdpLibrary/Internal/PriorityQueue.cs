@@ -2,34 +2,28 @@
 
 namespace Sanctuary.UdpLibrary.Internal;
 
-/// <remarks>
-/// Classes that wish to be members of the priority queue below must derive themselves from this class
-/// in order to pull in the two member variables.  Unlike normal priority queue classes which don't
-/// have this restriction, it is required in order to support Remove and reprioritize functionality
-/// in a timely manner (otherwise, in order to remove an entry that is not at the top, you would have
-/// to linearly scan the entire queue).  This is accomplished by having the member itself contain
-/// a pointer to it's position in the queue (<see cref="PriorityQueuePosition"/>).
-/// Note: A restriction of this ability is that an object cannot participate in more than one priority
-/// queue at a time.
-/// </remarks>
+// Classes that wish to be members of the priority queue below must derive themselves from this class
+// in order to pull in the two member variables.  Unlike normal priority queue classes which don't
+// have this restriction, it is required in order to support Remove and reprioritize functionality
+// in a timely manner (otherwise, in order to remove an entry that is not at the top, you would have
+// to linearly scan the entire queue).  This is accomplished by having the member itself contain
+// a pointer to it's position in the queue (PriorityQueuePosition).
+// Note: A restriction of this ability is that an object cannot participate in more than one priority
+// queue at a time.
 public class PriorityQueueMember
 {
-    /// <summary>
-    /// -1 = not in queue
-    /// </summary>
+    // -1 = not in queue
     internal int PriorityQueuePosition = -1;
 }
 
-/// <summary>
-/// This class provides a priority queue that is capable of reprioritizing/removing entries.
-/// The compiler will ensure that objects stored in this class are derived from <see cref="PriorityQueueMember"/>.
-/// We don't really need this to be a template class, since we could just treat everything as a
-/// <see cref="PriorityQueueMember"/>, but then the application would lose some type checking.
-/// We don't use references
-/// in the api as most priority queue templates do as we can't support non pointer types anyways.
-/// </summary>
-/// <typeparam name="T">Entry type</typeparam>
-/// <typeparam name="P">Priority type</typeparam>
+// This class provides a priority queue that is capable of reprioritizing/removing entries.
+// The compiler will ensure that objects stored in this class are derived from PriorityQueueMember.
+// We don't really need this to be a template class, since we could just treat everything as a
+// PriorityQueueMember, but then the application would lose some type checking.
+// We don't use references
+// in the api as most priority queue templates do as we can't support non pointer types anyways.
+// T: Entry type
+// P: Priority type
 internal class PriorityQueue<T, P> where T : PriorityQueueMember where P : INumber<P>
 {
     private struct QueueEntry

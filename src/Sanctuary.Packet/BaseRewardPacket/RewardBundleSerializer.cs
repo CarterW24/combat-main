@@ -4,33 +4,28 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// One item shown in a reward bundle preview (the offer / turn-in "Show Details" panel and the
-/// coins/stars celebration). Maps to a RewardBundleEntryItem (entry type 1).
-/// </summary>
+// One item shown in a reward bundle preview (the offer / turn-in "Show Details" panel and the
+// coins/stars celebration). Maps to a RewardBundleEntryItem (entry type 1).
 public class RewardBundleItem
 {
-    /// <summary>Icon asset id (ClientItemDefinition.Icon.Id) - entry field @0x04, the shown icon.</summary>
+    // Icon asset id (ClientItemDefinition.Icon.Id) - entry field @0x04, the shown icon.
     public int IconId;
 
-    /// <summary>Name text id (ClientItemDefinition.NameId) - entry field @0x10, resolved to the label.</summary>
+    // Name text id (ClientItemDefinition.NameId) - entry field @0x10, resolved to the label.
     public int NameId;
 
-    /// <summary>Quantity - entry field @0x20. A count of 1 hides the "xN" label (retail behaviour).</summary>
+    // Quantity - entry field @0x20. A count of 1 hides the "xN" label (retail behaviour).
     public int Count = 1;
 }
 
-/// <summary>
-/// Writes a RewardBundleBase (client reader FUN_008e7930) - the shared reward blob embedded in the
-/// quest offer (QuestInfoPacket), turn-in (QuestEndPacket) and the 50/1 celebration (RewardBundlePacket).
-///
-/// Beyond the fixed coins(+0x50)/stars(+0x48) scalars it carries a length-prefixed list of typed
-/// entries. Item rewards are RewardBundleEntryItem (type 1); the reward preview's PopulateRewards Lua
-/// reads them from the "BaseClient.Quest.Reward.Entries" data source and calls AddRewardItem with
-/// name = field @0x10, icon = field @0x04, count = field @0x20 (all live-confirmed via probes).
-/// The bundle's leading @0x74 byte is left false, so the item entry's optional trailing @0x44 int is
-/// absent (icon lives in @0x04, so the "extended" form isn't needed).
-/// </summary>
+// Writes a RewardBundleBase (client reader FUN_008e7930) - the shared reward blob embedded in the
+// quest offer (QuestInfoPacket), turn-in (QuestEndPacket) and the 50/1 celebration (RewardBundlePacket).
+// Beyond the fixed coins(+0x50)/stars(+0x48) scalars it carries a length-prefixed list of typed
+// entries. Item rewards are RewardBundleEntryItem (type 1); the reward preview's PopulateRewards Lua
+// reads them from the "BaseClient.Quest.Reward.Entries" data source and calls AddRewardItem with
+// name = field @0x10, icon = field @0x04, count = field @0x20 (all live-confirmed via probes).
+// The bundle's leading @0x74 byte is left false, so the item entry's optional trailing @0x44 int is
+// absent (icon lives in @0x04, so the "extended" form isn't needed).
 public static class RewardBundleSerializer
 {
     public static void Write(PacketWriter writer, int coins, int experience, IReadOnlyList<RewardBundleItem>? items = null)

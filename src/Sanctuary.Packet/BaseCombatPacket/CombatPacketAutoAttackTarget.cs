@@ -4,14 +4,12 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Sent by client when the player clicks to auto-attack a target (OpCode 32, SubOpCode 1).
-/// </summary>
+// Sent by client when the player clicks to auto-attack a target (OpCode 32, SubOpCode 1).
 public class CombatPacketAutoAttackTarget : BaseCombatPacket, IDeserializable<CombatPacketAutoAttackTarget>
 {
     public new const short OpCode = 1;
 
-    /// <summary>GUID of the target entity to attack.</summary>
+    // GUID of the target entity to attack.
     public ulong TargetGuid;
 
     public CombatPacketAutoAttackTarget() : base(OpCode)

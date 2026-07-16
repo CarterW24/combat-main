@@ -2,17 +2,15 @@ using System;
 
 namespace Sanctuary.Game.Leveling;
 
-/// <summary>
-/// Job (profile) leveling curve and level-scaled stat formulas. All values are tunable here in one place.
-/// A job's "Rank" is its level (1..<see cref="MaxLevel"/>); XP accrues into the current level until it
-/// reaches <see cref="XpForLevel"/>, which grants a level.
-/// </summary>
+// Job (profile) leveling curve and level-scaled stat formulas. All values are tunable here in one place.
+// A job's "Rank" is its level (1..MaxLevel); XP accrues into the current level until it
+// reaches XpForLevel, which grants a level.
 public static class JobLeveling
 {
-    /// <summary>Highest level a job can reach.</summary>
+    // Highest level a job can reach.
     public const int MaxLevel = 20;
 
-    /// <summary>XP required to advance from <paramref name="level"/> to <paramref name="level"/>+1.</summary>
+    // XP required to advance from level to level+1.
     public static int XpForLevel(int level) => 1000 + (Math.Max(1, level) - 1) * 500;
 
     // --- Level-scaled stats (Rank = job level) ---
@@ -21,7 +19,7 @@ public static class JobLeveling
     public static int HitPointRegen(int level) => 25 + (Math.Max(1, level) - 1) * 3;
     public static int ManaRegen(int level) => 4 + (Math.Max(1, level) - 1);
 
-    /// <summary>Progress bar (0..100) into the current level for a given amount of XP-into-level.</summary>
+    // Progress bar (0..100) into the current level for a given amount of XP-into-level.
     public static int RankPercent(int level, int xpIntoLevel)
     {
         if (level >= MaxLevel)

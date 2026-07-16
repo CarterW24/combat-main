@@ -145,6 +145,6 @@ public sealed class PartyManager : IPartyManager
         _logger.LogInformation("Party disbanded (leader {leader}).", party.LeaderGuid);
     }
 
-    /// <summary>Drop every remaining member's mapping (a sub-two party is torn down completely).</summary>
+    // Drop every remaining member's mapping (a sub-two party is torn down completely).
     private void Disband(Party party) => DisbandParty(party);
 }

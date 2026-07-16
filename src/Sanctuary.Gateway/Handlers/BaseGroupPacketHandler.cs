@@ -36,7 +36,7 @@ public static class BaseGroupPacketHandler
     private const short GroupAccept = 4;
     private const short GroupKick = 6;
 
-    /// <summary>The client re-sends GroupInvite ~6x/sec while the invite UI is up — collapse a burst.</summary>
+    // The client re-sends GroupInvite ~6x/sec while the invite UI is up — collapse a burst.
     private static readonly TimeSpan InviteDebounce = TimeSpan.FromSeconds(3);
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
@@ -149,8 +149,8 @@ public static class BaseGroupPacketHandler
         return true;
     }
 
-    /// <summary>The target accepts a pending party invite (native ✓ button = op40/sub4, or the
-    /// "!paccept" fallback). Announces the join + pushes the live roster to every member.</summary>
+    // The target accepts a pending party invite (native ✓ button = op40/sub4, or the
+    // "!paccept" fallback). Announces the join + pushes the live roster to every member.
     public static void AcceptInvite(Player player)
     {
         var party = _partyManager.Accept(player);
@@ -166,8 +166,8 @@ public static class BaseGroupPacketHandler
         PushRoster(party);
     }
 
-    /// <summary>Leave the player's current party — the "x" on your OWN portrait. If you're the LEADER,
-    /// the whole party disbands; otherwise just you leave and the remaining roster refreshes.</summary>
+    // Leave the player's current party — the "x" on your OWN portrait. If you're the LEADER,
+    // the whole party disbands; otherwise just you leave and the remaining roster refreshes.
     public static void LeaveParty(Player player)
     {
         var party = _partyManager.GetParty(player);
@@ -215,8 +215,8 @@ public static class BaseGroupPacketHandler
         }
     }
 
-    /// <summary>The leader kicks a member — the "x" on ANOTHER member's portrait (op40/sub6). Removes
-    /// that member and refreshes everyone's roster.</summary>
+    // The leader kicks a member — the "x" on ANOTHER member's portrait (op40/sub6). Removes
+    // that member and refreshes everyone's roster.
     public static void KickMember(Player leader, ulong memberGuid)
     {
         var party = _partyManager.GetParty(leader);
@@ -226,7 +226,7 @@ public static class BaseGroupPacketHandler
         KickResolved(leader, party, party.Members.FirstOrDefault(m => m.Guid == memberGuid));
     }
 
-    /// <summary>Kick BY NAME — the captured op40/sub6 payload identifies the target by name (guid 0).</summary>
+    // Kick BY NAME — the captured op40/sub6 payload identifies the target by name (guid 0).
     public static void KickMemberByName(Player leader, string targetFullName)
     {
         if (string.IsNullOrWhiteSpace(targetFullName))
@@ -271,9 +271,9 @@ public static class BaseGroupPacketHandler
         }
     }
 
-    /// <summary>Close a player's group/roster window. Sends op40/sub3 GroupLeave — the client's group
-    /// processor (FUN_0093daf0 case 3) frees its group state and hides the window on this. An empty sub-8
-    /// GroupUpdate does NOT close the window, which is why a disbanded/left party's UI used to linger.</summary>
+    // Close a player's group/roster window. Sends op40/sub3 GroupLeave — the client's group
+    // processor (FUN_0093daf0 case 3) frees its group state and hides the window on this. An empty sub-8
+    // GroupUpdate does NOT close the window, which is why a disbanded/left party's UI used to linger.
     private static void ClearRoster(Player player) =>
         player.SendTunneled(new GroupPacketGroupLeave
         {
@@ -281,9 +281,9 @@ public static class BaseGroupPacketHandler
             Name = player.Name ?? new NameData(),
         });
 
-    /// <summary>★ Push the live GroupUpdate (sub-8 roster) to every party member — this is what fills
-    /// the group/combat-group window (Frida-verified 2026-07-11: {guid, NameData} per member; the
-    /// client resolves job/level from its own player cache). Call whenever membership changes.</summary>
+    // ★ Push the live GroupUpdate (sub-8 roster) to every party member — this is what fills
+    // the group/combat-group window (Frida-verified 2026-07-11: {guid, NameData} per member; the
+    // client resolves job/level from its own player cache). Call whenever membership changes.
     public static void PushRoster(Sanctuary.Game.Party.Party party)
     {
         var members = party.Members;
@@ -356,7 +356,7 @@ public static class BaseGroupPacketHandler
         }
     }
 
-    /// <summary>The active job's level (Rank), guarded — ActiveProfile throws if there's no active profile.</summary>
+    // The active job's level (Rank), guarded — ActiveProfile throws if there's no active profile.
     private static int GetLevel(Player player)
     {
         try { return player.ActiveProfile.Rank; }

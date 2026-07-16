@@ -25,8 +25,8 @@ public class MiniGameLootWheelSetItemToLandOnPacket : BaseMiniGamePacket, ISeria
 {
     public new const byte OpCode = 45; // sub-opcode (client ctor @0x9B9E20: BaseMiniGamePacket(45,-1,-1,-1))
 
-    /// <summary>The landed prize (single entry; only NameId matters for slice selection — the rest is
-    /// display data). Leave EMPTY and set Coins to land on the coins slice.</summary>
+    // The landed prize (single entry; only NameId matters for slice selection — the rest is
+    // display data). Leave EMPTY and set Coins to land on the coins slice.
     public List<RewardEntry> Entries = [];
 
     public int Coins;

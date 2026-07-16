@@ -4,10 +4,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Sanctuary.Database.MySql.Migrations
 {
-    /// <inheritdoc />
     public partial class AddModerationFieldsAndRemoveIsLocked : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
@@ -34,7 +32,6 @@ namespace Sanctuary.Database.MySql.Migrations
                 nullable: true);
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(

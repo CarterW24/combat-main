@@ -9,9 +9,7 @@ public class PacketLoadWelcomeScreen : ISerializablePacket
 {
     public const short OpCode = 93;
 
-    /// <summary>
-    /// This has to be sent to true or the client won't render the rest of the UI.
-    /// </summary>
+    // This has to be sent to true or the client won't render the rest of the UI.
     public bool ShowWelcomeScreen = true;
 
     public List<ContentInfo> Contents = new();

@@ -10,9 +10,7 @@ public class PlayerUpdatePacketItemDefinitionRequest : BasePlayerUpdatePacket, I
 
     public int Id;
 
-    /// <summary>
-    /// This is a server-side only field.
-    /// </summary>
+    // This is a server-side only field.
     public byte[] Payload = Array.Empty<byte>();
 
     public PlayerUpdatePacketItemDefinitionRequest() : base(OpCode)

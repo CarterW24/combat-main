@@ -14,7 +14,6 @@ namespace Sanctuary.Database.Sqlite.Migrations
     [Migration("20251204134445_SetIsMemberDefaultToTrue")]
     partial class SetIsMemberDefaultToTrue
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

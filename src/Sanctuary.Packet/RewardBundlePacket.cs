@@ -21,7 +21,7 @@ public class RewardBundlePacket : ISerializablePacket
     public int Coins;
     public int Xp;
 
-    /// <summary>Banner icon/name (-1 = defer to entry[0] — the client's U13/U14 fallback).</summary>
+    // Banner icon/name (-1 = defer to entry[0] — the client's U13/U14 fallback).
     public int IconId = -1;
     public int NameId = -1;
 

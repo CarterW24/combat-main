@@ -15,7 +15,6 @@ namespace Sanctuary.Database.MySql.Migrations
     [Migration("20250823191021_Initial")]
     partial class Initial
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

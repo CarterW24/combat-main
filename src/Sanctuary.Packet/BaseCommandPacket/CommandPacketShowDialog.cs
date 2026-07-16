@@ -4,33 +4,30 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Server -> client: the NPC conversation dialog - a speech bubble that renders the NPC's dialogue
-/// (as HTML, so localization &lt;font color&gt; tags DO show, unlike the plain quest fields) with a
-/// list of response buttons ("You got it!", etc.). This is the retail "talk to an NPC" UI, distinct
-/// from the quest offer/end screens; we use it for mid-quest goal steps (e.g. Shakey advancing "Call
-/// the Crew!").
-///
-/// Opcode 26 sub 3 (BaseCommandPacket header = short OpCode + short SubOpCode). Wire layout traced
-/// from the client deserializer FUN_00a9ef10 (reached via the 26/3 handler FUN_00aa12e0); the display
-/// is FUN_009f5ae0. Field offsets are into the client's dialog struct; read order on the wire is:
-///   int   DialogueTextId   (+0x10) - resolved via Global.Text and shown as the bubble body
-///   int   TitleTextId      (+0x14) - secondary text id (name/title); 0 = none
-///   ulong NpcGuid          (+0x18/+0x1c) - the speaking NPC (portrait / camera focus)
-///   bool  (+0x2c)
-///   float (+0x30, NaN-checked)
-///   response list          (+0x20, FUN_00a9d760): int Count, then Count nodes, each 5 ints
-///                          (node+0x08, +0x0c, +0x10 = button label text id, +0x14, +0x18)
-///   float[4] (+0x40) / float[4] (+0x50) / bool (+0x60) / float[4] (+0x70)
-///   float (+0x80, NaN) / bool (+0x84) / bool (+0x85) / bool (+0x86) / float (+0x88, NaN) / int (+0x8c)
-/// The deserializer requires the buffer to be exactly consumed. Floats sent as 0 (not NaN).
-/// </summary>
+// Server -> client: the NPC conversation dialog - a speech bubble that renders the NPC's dialogue
+// (as HTML, so localization <font color> tags DO show, unlike the plain quest fields) with a
+// list of response buttons ("You got it!", etc.). This is the retail "talk to an NPC" UI, distinct
+// from the quest offer/end screens; we use it for mid-quest goal steps (e.g. Shakey advancing "Call
+// the Crew!").
+// Opcode 26 sub 3 (BaseCommandPacket header = short OpCode + short SubOpCode). Wire layout traced
+// from the client deserializer FUN_00a9ef10 (reached via the 26/3 handler FUN_00aa12e0); the display
+// is FUN_009f5ae0. Field offsets are into the client's dialog struct; read order on the wire is:
+//   int   DialogueTextId   (+0x10) - resolved via Global.Text and shown as the bubble body
+//   int   TitleTextId      (+0x14) - secondary text id (name/title); 0 = none
+//   ulong NpcGuid          (+0x18/+0x1c) - the speaking NPC (portrait / camera focus)
+//   bool  (+0x2c)
+//   float (+0x30, NaN-checked)
+//   response list          (+0x20, FUN_00a9d760): int Count, then Count nodes, each 5 ints
+//                          (node+0x08, +0x0c, +0x10 = button label text id, +0x14, +0x18)
+//   float[4] (+0x40) / float[4] (+0x50) / bool (+0x60) / float[4] (+0x70)
+//   float (+0x80, NaN) / bool (+0x84) / bool (+0x85) / bool (+0x86) / float (+0x88, NaN) / int (+0x8c)
+// The deserializer requires the buffer to be exactly consumed. Floats sent as 0 (not NaN).
 public class CommandPacketShowDialog : BaseCommandPacket, ISerializablePacket
 {
     public new const short OpCode = 3;
 
-    /// <summary>One response button. <see cref="LabelTextId"/> (node+0x10) is the Global.Text id
-    /// rendered on the button; the other ints identify/parametrize the response for the reply.</summary>
+    // One response button. LabelTextId (node+0x10) is the Global.Text id
+    // rendered on the button; the other ints identify/parametrize the response for the reply.
     public sealed class Response
     {
         public int Id;            // node+0x08 - response identifier

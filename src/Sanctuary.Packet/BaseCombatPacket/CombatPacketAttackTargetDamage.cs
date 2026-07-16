@@ -2,20 +2,18 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Sent server→client to confirm damage dealt to a target (OpCode 32, SubOpCode 4).
-/// </summary>
+// Sent server→client to confirm damage dealt to a target (OpCode 32, SubOpCode 4).
 public class CombatPacketAttackTargetDamage : BaseCombatPacket, ISerializablePacket
 {
     public new const short OpCode = 4;
 
-    /// <summary>GUID of the attacker.</summary>
+    // GUID of the attacker.
     public ulong AttackerGuid;
 
-    /// <summary>GUID of the target being damaged.</summary>
+    // GUID of the target being damaged.
     public ulong TargetGuid;
 
-    /// <summary>Damage amount dealt.</summary>
+    // Damage amount dealt.
     public int Damage;
 
     public CombatPacketAttackTargetDamage() : base(OpCode)

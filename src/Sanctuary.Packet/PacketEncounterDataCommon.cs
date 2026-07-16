@@ -45,9 +45,9 @@ public class PacketEncounterDataCommon : ISerializablePacket
     public int KnockoutRewardValue;
     public int KnockoutPenalty;
 
-    /// <summary>The arena/combat-encounter ruleset — byte-for-byte the packet the real 2014 server
-    /// sent inside a live encounter (Packet-Protocol_Dump 04-01 seq 28121): all 11 bools true,
-    /// ObjectiveMultiplier 500, QCT 1, QCV 100000, QCL 500, NpcKO 300, KO reward 25000, penalty 5000.</summary>
+    // The arena/combat-encounter ruleset — byte-for-byte the packet the real 2014 server
+    // sent inside a live encounter (Packet-Protocol_Dump 04-01 seq 28121): all 11 bools true,
+    // ObjectiveMultiplier 500, QCT 1, QCV 100000, QCL 500, NpcKO 300, KO reward 25000, penalty 5000.
     public static PacketEncounterDataCommon CreateCombatRules() => new()
     {
         CombatStance = true,
@@ -71,7 +71,7 @@ public class PacketEncounterDataCommon : ISerializablePacket
         KnockoutPenalty = 5_000,
     };
 
-    /// <summary>The out-of-encounter defaults (matches the client ctor) — releases combat mode.</summary>
+    // The out-of-encounter defaults (matches the client ctor) — releases combat mode.
     public static PacketEncounterDataCommon CreateDefault() => new();
 
     public byte[] Serialize()

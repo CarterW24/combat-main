@@ -24,19 +24,19 @@ public class CombatPacketAttackProcessed : ISerializablePacket
     public const short OpCode = 32;
     public const short SubOpCode = 7;
 
-    /// <summary>Who swings (written twice on the wire; both copies land in one client field).</summary>
+    // Who swings (written twice on the wire; both copies land in one client field).
     public ulong AttackerGuid;
 
-    /// <summary>Who takes the number / bar / recoil / hit FX.</summary>
+    // Who takes the number / bar / recoil / hit FX.
     public ulong TargetGuid;
 
-    /// <summary>Damage dealt — the client renders the floating number as -Damage.</summary>
+    // Damage dealt — the client renders the floating number as -Damage.
     public int Damage;
 
-    /// <summary>Target's max HP (health-bar denominator).</summary>
+    // Target's max HP (health-bar denominator).
     public int MaxHealth;
 
-    /// <summary>Hit composite effect id played on the target.</summary>
+    // Hit composite effect id played on the target.
     public int CompositeEffectId;
 
     public bool Bool1;
@@ -44,7 +44,7 @@ public class CombatPacketAttackProcessed : ISerializablePacket
 
     public int Int4;
 
-    /// <summary>Target's CURRENT HP after this hit (bar position; live samples count down per hit).</summary>
+    // Target's CURRENT HP after this hit (bar position; live samples count down per hit).
     public int CurrentHealth;
 
     public byte[] Serialize()

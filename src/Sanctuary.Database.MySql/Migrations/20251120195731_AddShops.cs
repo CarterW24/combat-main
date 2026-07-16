@@ -4,10 +4,8 @@
 
 namespace Sanctuary.Database.MySql.Migrations
 {
-    /// <inheritdoc />
     public partial class AddShops : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(
@@ -327,7 +325,6 @@ namespace Sanctuary.Database.MySql.Migrations
                 onDelete: ReferentialAction.Cascade);
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(

@@ -2,18 +2,15 @@ using System.Collections.Generic;
 
 namespace Sanctuary.Game.Resources.Definitions;
 
-/// <summary>
-/// Data-driven definition of a quest, loaded from Resources/Quests.json. This models the
-/// "talk to an NPC" quest shape FR's early quests use (a giver hands out the quest, the player
-/// talks to a target NPC, and turns it in there): one giver, one target/turn-in, one objective,
-/// a coin/star reward, and optional chain links. Everything the old hardcoded IntroduceYourselfQuest
-/// constants held now lives here so new quests are a JSON entry instead of new code.
-///
-/// Text ids are SOE T4 localization ids (resolved client-side as "Global.Text.&lt;id&gt;").
-/// Richer objective types (kill/collect/reach) and multi-step objectives are a future extension -
-/// they need per-objective progress state (player state + DB), which the single-objective flow here
-/// doesn't require.
-/// </summary>
+// Data-driven definition of a quest, loaded from Resources/Quests.json. This models the
+// "talk to an NPC" quest shape FR's early quests use (a giver hands out the quest, the player
+// talks to a target NPC, and turns it in there): one giver, one target/turn-in, one objective,
+// a coin/star reward, and optional chain links. Everything the old hardcoded IntroduceYourselfQuest
+// constants held now lives here so new quests are a JSON entry instead of new code.
+// Text ids are SOE T4 localization ids (resolved client-side as "Global.Text.<id>").
+// Richer objective types (kill/collect/reach) and multi-step objectives are a future extension -
+// they need per-objective progress state (player state + DB), which the single-objective flow here
+// doesn't require.
 public class QuestDefinition
 {
     public int QuestId { get; set; }
@@ -27,12 +24,10 @@ public class QuestDefinition
     public int TargetDialogueId { get; set; }       // the target's dialogue shown at turn-in
     public int IconId { get; set; }                 // quest icon
 
-    /// <summary>
-    /// Ordered checklist of goals shown in the quest tracker (each a client objective row with a
-    /// tick-off status icon). Empty = the legacy single-goal shape: one goal synthesized from
-    /// <see cref="ObjectiveDescriptionId"/> that completes when the player talks to <see cref="TargetGuid"/>.
-    /// See <see cref="EffectiveGoals"/>.
-    /// </summary>
+    // Ordered checklist of goals shown in the quest tracker (each a client objective row with a
+    // tick-off status icon). Empty = the legacy single-goal shape: one goal synthesized from
+    // ObjectiveDescriptionId that completes when the player talks to TargetGuid.
+    // See EffectiveGoals.
     public List<QuestGoal> Goals { get; set; } = new();
 
     // NPCs.
@@ -42,12 +37,12 @@ public class QuestDefinition
     // Reward (RewardBundleBase coins at +0x50).
     public int RewardCoins { get; set; }
 
-    /// <summary>Job/profile experience (XP) granted on completion and shown in the reward preview
-    /// (RewardBundleBase +0x48). Awarded to the player's active profile via <c>Player.AwardXp</c>.</summary>
+    // Job/profile experience (XP) granted on completion and shown in the reward preview
+    // (RewardBundleBase +0x48). Awarded to the player's active profile via Player.AwardXp.
     public int RewardExperience { get; set; }
 
-    /// <summary>Item definition ids granted (added to the bags) on completion - e.g. a boombox and a
-    /// food whose ActivatableAbilityId is a Transformations entry. Empty = no item rewards.</summary>
+    // Item definition ids granted (added to the bags) on completion - e.g. a boombox and a
+    // food whose ActivatableAbilityId is a Transformations entry. Empty = no item rewards.
     public List<int> RewardItems { get; set; } = new();
 
     // Chain / gating.
@@ -58,12 +53,10 @@ public class QuestDefinition
     public int NotificationAvailable { get; set; } = 2; // "!" exclamation (quest available)
     public int NotificationActive { get; set; } = 6;    // "?" question mark (quest in progress / turn-in)
 
-    /// <summary>
-    /// The goals to drive the tracker and progression: the authored <see cref="Goals"/> if any,
-    /// otherwise a single synthesized "talk to the target NPC" goal built from the legacy
-    /// <see cref="ObjectiveDescriptionId"/>/<see cref="TargetGuid"/> fields so existing quests are
-    /// unchanged. Never empty for a well-formed quest.
-    /// </summary>
+    // The goals to drive the tracker and progression: the authored Goals if any,
+    // otherwise a single synthesized "talk to the target NPC" goal built from the legacy
+    // ObjectiveDescriptionId/TargetGuid fields so existing quests are
+    // unchanged. Never empty for a well-formed quest.
     public IReadOnlyList<QuestGoal> EffectiveGoals =>
         Goals.Count > 0
             ? Goals
@@ -81,11 +74,9 @@ public class QuestDefinition
                 }
             };
 
-    /// <summary>
-    /// The turn-in speech-bubble dialogue: the FINAL goal's NPC reply (multi-goal quests end at the
-    /// final goal's NPC, e.g. back at the giver), falling back to the legacy single-target
-    /// <see cref="TargetDialogueId"/> when the goal doesn't set one.
-    /// </summary>
+    // The turn-in speech-bubble dialogue: the FINAL goal's NPC reply (multi-goal quests end at the
+    // final goal's NPC, e.g. back at the giver), falling back to the legacy single-target
+    // TargetDialogueId when the goal doesn't set one.
     public int TurnInDialogueId
     {
         get
@@ -96,11 +87,9 @@ public class QuestDefinition
         }
     }
 
-    /// <summary>
-    /// Whether this quest can currently be offered to a player, given their quest state
-    /// (questId -&gt; completed). Offerable = not already accepted/completed and the prerequisite
-    /// (if any) is completed. Shared by the offer flow and the giver's "!" badge so they can't drift.
-    /// </summary>
+    // Whether this quest can currently be offered to a player, given their quest state
+    // (questId -> completed). Offerable = not already accepted/completed and the prerequisite
+    // (if any) is completed. Shared by the offer flow and the giver's "!" badge so they can't drift.
     public bool IsOfferableFor(IReadOnlyDictionary<int, bool> playerQuests)
     {
         if (playerQuests.ContainsKey(QuestId))

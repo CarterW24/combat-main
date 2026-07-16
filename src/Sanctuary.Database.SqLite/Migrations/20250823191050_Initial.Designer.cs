@@ -14,7 +14,6 @@ namespace Sanctuary.Database.Sqlite.Migrations
     [Migration("20250823191050_Initial")]
     partial class Initial
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

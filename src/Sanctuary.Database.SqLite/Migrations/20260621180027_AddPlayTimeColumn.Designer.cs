@@ -14,7 +14,6 @@ namespace Sanctuary.Database.Sqlite.Migrations
     [Migration("20260621180027_AddPlayTimeColumn")]
     partial class AddPlayTimeColumn
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

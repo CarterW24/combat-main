@@ -15,7 +15,6 @@ namespace Sanctuary.Database.MySql.Migrations
     [Migration("20260629185011_AddPlayTimeColumn")]
     partial class AddPlayTimeColumn
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

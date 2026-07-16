@@ -2,13 +2,11 @@
 
 public sealed class GatewayServerOptions : ServerOptions
 {
-    /// <example>live</example>
+    // live
     public required string Environment { get; set; }
 
-    /// <summary>
-    /// Client version the server supports.
-    /// </summary>
-    /// <example>1.910.1.530630</example>
+    // Client version the server supports.
+    // 1.910.1.530630
     public required string ClientVersion { get; set; }
 
     public required string ServerAddress { get; set; }

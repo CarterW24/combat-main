@@ -21,18 +21,15 @@ using Sanctuary.UdpLibrary.Statistics;
 
 namespace Sanctuary.UdpLibrary;
 
-/// <summary>
-/// The purpose of the UdpManager is to manage a set of connections that are coming in on a particular port.
-/// Typically an application will only have one UdpManager taking care of all incoming connections.  The
-/// exception is if the application is talking to two distinct sets of individuals.  For example, the leaf
-/// server application might have a UdpManager to manage the connections to all the users/players who will
-/// be connecting.  It may then have a second UdpManager to manage its connection to a master server
-/// someplace (though in theory it could use one UdpManager for everything).
-///
-/// The UdpManager owns the solitary socket that all data being sent/received by any of the managed connections uses.
-/// When the UdpManager is created, it is given a port-number that it uses for this purpose.  The UdpManager is capable
-/// of establishing new connections to other UdpManager, or it is also capable of accepting new connections.
-/// </summary>
+// The purpose of the UdpManager is to manage a set of connections that are coming in on a particular port.
+// Typically an application will only have one UdpManager taking care of all incoming connections.  The
+// exception is if the application is talking to two distinct sets of individuals.  For example, the leaf
+// server application might have a UdpManager to manage the connections to all the users/players who will
+// be connecting.  It may then have a second UdpManager to manage its connection to a master server
+// someplace (though in theory it could use one UdpManager for everything).
+// The UdpManager owns the solitary socket that all data being sent/received by any of the managed connections uses.
+// When the UdpManager is created, it is given a port-number that it uses for this purpose.  The UdpManager is capable
+// of establishing new connections to other UdpManager, or it is also capable of accepting new connections.
 public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnection : UdpConnection
 {
     private readonly Lock _clockGuard = new();

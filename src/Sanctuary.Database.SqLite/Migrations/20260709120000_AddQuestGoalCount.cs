@@ -14,7 +14,6 @@ namespace Sanctuary.Database.Sqlite.Migrations;
 [Migration("20260709120000_AddQuestGoalCount")]
 public partial class AddQuestGoalCount : Migration
 {
-    /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.AddColumn<int>(
@@ -25,7 +24,6 @@ public partial class AddQuestGoalCount : Migration
             defaultValue: 0);
     }
 
-    /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.DropColumn(

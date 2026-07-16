@@ -14,7 +14,6 @@ namespace Sanctuary.Database.Sqlite.Migrations
     [Migration("20250830192154_AddFriendAndIgnore")]
     partial class AddFriendAndIgnore
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

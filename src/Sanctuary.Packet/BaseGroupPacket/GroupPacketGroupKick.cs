@@ -22,7 +22,7 @@ public class GroupPacketGroupKick : BaseGroupPacket, IDeserializable<GroupPacket
     // header(4) + guid(8) already read → skip this many bytes to reach the target NameData at offset 40.
     private const int ReservedBlockSize = 28;
 
-    /// <summary>Target guid — present in the wire but the client sends 0; kept for completeness.</summary>
+    // Target guid — present in the wire but the client sends 0; kept for completeness.
     public ulong TargetGuid;
 
     public string? TargetFirstName;

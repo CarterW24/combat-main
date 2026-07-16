@@ -6,10 +6,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Sanctuary.Database.MySql.Migrations
 {
-    /// <inheritdoc />
     public partial class AddHousing : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -123,7 +121,6 @@ namespace Sanctuary.Database.MySql.Migrations
                 column: "OwnerId");
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

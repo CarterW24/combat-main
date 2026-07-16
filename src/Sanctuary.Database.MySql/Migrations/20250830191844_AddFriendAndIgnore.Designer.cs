@@ -15,7 +15,6 @@ namespace Sanctuary.Database.MySql.Migrations
     [Migration("20250830191844_AddFriendAndIgnore")]
     partial class AddFriendAndIgnore
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

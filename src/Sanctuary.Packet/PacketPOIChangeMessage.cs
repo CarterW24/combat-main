@@ -6,12 +6,12 @@ public class PacketPOIChangeMessage : ISerializablePacket
 {
     public const short OpCode = 104;
 
-    /// <summary>Unused</summary>
+    // Unused
     private int NameId = default;
 
     public int ZoneId;
 
-    /// <summary>Unused</summary>
+    // Unused
     private int AreaId = default;
 
     public byte[] Serialize()

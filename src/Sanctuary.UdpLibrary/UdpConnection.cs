@@ -15,9 +15,7 @@ using Sanctuary.UdpLibrary.Statistics;
 
 namespace Sanctuary.UdpLibrary;
 
-/// <summary>
-/// The purpose of the UdpConnection is to manage a single logical connection
-/// </summary>
+// The purpose of the UdpConnection is to manage a single logical connection
 public class UdpConnection : PriorityQueueMember
 {
     private readonly Lock _guard = new();

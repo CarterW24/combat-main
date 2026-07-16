@@ -126,9 +126,9 @@ public static class BaseMiniGamePacketHandler
         return true;
     }
 
-    /// <summary>Open one Battle Item Mystery Pack: roll a sphere from the reconstructed loot table,
-    /// grant 3 to inventory, send the contents banner. Public so the "!pack" test command can sample
-    /// the distribution without replaying the encounter — each roll logs "Mystery Pack -> 3x ...".</summary>
+    // Open one Battle Item Mystery Pack: roll a sphere from the reconstructed loot table,
+    // grant 3 to inventory, send the contents banner. Public so the "!pack" test command can sample
+    // the distribution without replaying the encounter — each roll logs "Mystery Pack -> 3x ...".
     public static void OpenMysteryPack(GatewayConnection connection)
     {
         var sphereDefId = MysteryPackSpherePool[_rng.Next(MysteryPackSpherePool.Length)];
@@ -161,8 +161,8 @@ public static class BaseMiniGamePacketHandler
 
     private sealed record GrantedItem(int ItemGuid, ClientItemDefinition? Definition);
 
-    /// <summary>Add an item to the player's persistent inventory + live client state (same DB/packet
-    /// flow as the coin-store buy handler, minus the cost). Returns the inventory item guid.</summary>
+    // Add an item to the player's persistent inventory + live client state (same DB/packet
+    // flow as the coin-store buy handler, minus the cost). Returns the inventory item guid.
     private static GrantedItem? GrantItem(GatewayConnection connection, int definitionId, int quantity)
     {
         if (!_resourceManager.ClientItemDefinitions.TryGetValue(definitionId, out var definition))

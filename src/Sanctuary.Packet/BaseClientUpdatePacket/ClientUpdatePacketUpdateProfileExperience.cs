@@ -2,23 +2,21 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Updates the client with new profile XP (OpCode 38, SubOpCode 14).
-/// </summary>
+// Updates the client with new profile XP (OpCode 38, SubOpCode 14).
 public class ClientUpdatePacketUpdateProfileExperience : BaseClientUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 14;
 
-    /// <summary>Profile/Job ID that gained XP.</summary>
+    // Profile/Job ID that gained XP.
     public int ProfileId;
 
-    /// <summary>XP gained this update.</summary>
+    // XP gained this update.
     public int XpGained;
 
-    /// <summary>Total XP progress within current level (0-100 percent).</summary>
+    // Total XP progress within current level (0-100 percent).
     public int TotalXpInLevel;
 
-    /// <summary>Current level of the profile.</summary>
+    // Current level of the profile.
     public int CurrentLevel;
 
     public ClientUpdatePacketUpdateProfileExperience() : base(OpCode)

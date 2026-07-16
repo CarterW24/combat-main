@@ -2,10 +2,10 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>CharacterStatus bitfield (RE'd from the client enum, IDA 2026-07-03). Set on a proxied
-/// character via <see cref="PlayerUpdatePacketUpdateCharacterState"/> and stored as
-/// ProxiedCharacter::m_nCharacterStatus (offset 0x6F8) by SetCharacterState @0x9613D0. Several bits also
-/// halt the character's movement controller (Asleep/Rooted/Stunned/KnockedOut/KnockedBack/Frozen/Scripted).</summary>
+// CharacterStatus bitfield (RE'd from the client enum, IDA 2026-07-03). Set on a proxied
+// character via PlayerUpdatePacketUpdateCharacterState and stored as
+// ProxiedCharacter::m_nCharacterStatus (offset 0x6F8) by SetCharacterState @0x9613D0. Several bits also
+// halt the character's movement controller (Asleep/Rooted/Stunned/KnockedOut/KnockedBack/Frozen/Scripted).
 [System.Flags]
 public enum CharacterStatus
 {

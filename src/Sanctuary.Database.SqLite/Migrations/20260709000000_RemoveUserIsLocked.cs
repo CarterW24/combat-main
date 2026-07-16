@@ -4,10 +4,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Sanctuary.Database.Sqlite.Migrations;
 
-/// <inheritdoc />
 public partial class RemoveUserIsLocked : Migration
 {
-    /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.DropColumn(
@@ -15,7 +13,6 @@ public partial class RemoveUserIsLocked : Migration
             table: "Users");
     }
 
-    /// <inheritdoc />
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.AddColumn<bool>(

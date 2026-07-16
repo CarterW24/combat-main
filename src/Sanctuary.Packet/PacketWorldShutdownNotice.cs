@@ -6,9 +6,7 @@ public class PacketWorldShutdownNotice : ISerializablePacket
 {
     public const short OpCode = 92;
 
-    /// <summary>
-    /// Time remaining in seconds.
-    /// </summary>
+    // Time remaining in seconds.
     public int TimeRemaining;
 
     public string Reason = null!;

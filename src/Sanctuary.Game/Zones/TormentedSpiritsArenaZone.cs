@@ -58,8 +58,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     private const float CenterX = 141f;
     private const float CenterZ = 160f;
 
-    /// <summary>The adopted real ground height (starts at the GroundY guess; overwritten by the
-    /// ground-adoption measurement each run).</summary>
+    // The adopted real ground height (starts at the GroundY guess; overwritten by the
+    // ground-adoption measurement each run).
     private float _groundY = GroundY;
 
     public const int EncounterId = 146;   // ClientActivityDefinitions "Tormented Spirits!"
@@ -70,8 +70,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     public const int Difficulty = 2;      // matches the activity definition
     public const int IconId = 1345;       // the combat-encounter swords emblem (live-proven on 174)
 
-    /// <summary>World NPCs with this NameId ("Tormented Spirit") are the wandering encounter
-    /// entries — clicking one in the overworld opens the offer popup (the Growler-wolf pattern).</summary>
+    // World NPCs with this NameId ("Tormented Spirit") are the wandering encounter
+    // entries — clicking one in the overworld opens the offer popup (the Growler-wolf pattern).
     public const int EntryNpcNameId = 76190;
 
     private const int CombatMiniGameType = 4; // client MINI_GAME_TYPE_COMBAT — the goals-pane gate
@@ -153,8 +153,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
     // KnockoutLimit + the knockout/fail/revive lifecycle now live in CombatEncounterZone.
 
-    /// <summary>Job XP at the win. No capture; Frostfang (Difficulty 1) grants 10, so Difficulty 2
-    /// grants a bit more.</summary>
+    // Job XP at the win. No capture; Frostfang (Difficulty 1) grants 10, so Difficulty 2
+    // grants a bit more.
     public const int EncounterXp = 15;
 
     private sealed class SpiritState : EncounterMobState { }
@@ -251,17 +251,17 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         }
     }
 
-    /// <summary>Broadcast a shared encounter packet to every player currently in this arena instance.
-    /// For a solo player this is exactly the old per-player send; for a party it drives everyone.</summary>
+    // Broadcast a shared encounter packet to every player currently in this arena instance.
+    // For a solo player this is exactly the old per-player send; for a party it drives everyone.
     protected override void Broadcast(ISerializablePacket packet)
     {
         foreach (var p in ActivePlayers())
             p.SendTunneled(packet);
     }
 
-    /// <summary>Snapshot of the players currently in this arena instance (co-op recipients). Prunes any
-    /// who have left (teleported away) so a departed member never receives encounter packets and the
-    /// instance can reset once it truly empties.</summary>
+    // Snapshot of the players currently in this arena instance (co-op recipients). Prunes any
+    // who have left (teleported away) so a departed member never receives encounter packets and the
+    // instance can reset once it truly empties.
     private Player[] ActivePlayers()
     {
         lock (_stateLock)
@@ -273,8 +273,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         }
     }
 
-    /// <summary>Push the currently-alive encounter NPCs (spirits/tombstones/hearts/door) to a player
-    /// who just joined mid-fight, so the running encounter is visible to them.</summary>
+    // Push the currently-alive encounter NPCs (spirits/tombstones/hearts/door) to a player
+    // who just joined mid-fight, so the running encounter is visible to them.
     private void PushLiveEncounterTo(Player player)
     {
         List<Npc> live = [];
@@ -418,10 +418,10 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         StartSpiritAi(player, _encounterRun);
     }
 
-    /// <summary>The per-player combat gate + goals burst, sent a beat after the load settles. Called for
-    /// the anchor at StartEncounter AND for every party member who joins the running fight, so each gets
-    /// their own MiniGameState (without which op45 goal packets are dropped and the goals pane never shows).
-    /// Structure is the exact live Frostfang entry sequence (launch twice with a PlayerEnter between).</summary>
+    // The per-player combat gate + goals burst, sent a beat after the load settles. Called for
+    // the anchor at StartEncounter AND for every party member who joins the running fight, so each gets
+    // their own MiniGameState (without which op45 goal packets are dropped and the goals pane never shows).
+    // Structure is the exact live Frostfang entry sequence (launch twice with a PlayerEnter between).
     private void DeliverEntrySequence(Player player, int run)
     {
         _ = Task.Run(async () =>
@@ -610,9 +610,9 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         return npc;
     }
 
-    /// <summary>Red enemy dots on the minimap — one combat notification per encounter actor. Broadcast
-    /// so every party member's minimap shows the pack (the <paramref name="player"/> arg kept for
-    /// call-site symmetry).</summary>
+    // Red enemy dots on the minimap — one combat notification per encounter actor. Broadcast
+    // so every party member's minimap shows the pack (the player arg kept for
+    // call-site symmetry).
     private void SendCombatMinimapMarkers(Player player, IReadOnlyList<ulong> guids)
     {
         if (guids.Count == 0)
@@ -715,7 +715,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         });
     }
 
-    /// <summary>The aggro burst (Frostfang live order): ExpectedSpeed low -> high -> charging state.</summary>
+    // The aggro burst (Frostfang live order): ExpectedSpeed low -> high -> charging state.
     private void BeginCharge(Player player, Npc spirit, SpiritState state)
     {
         state.Charging = true;
@@ -730,7 +730,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         });
     }
 
-    /// <summary>Damaging an idle spirit provokes it even outside aggro range.</summary>
+    // Damaging an idle spirit provokes it even outside aggro range.
     public override void OnNpcDamaged(Player player, Npc npc)
     {
         lock (_stateLock)
@@ -907,8 +907,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             WinEncounter(killer, deathPos);
     }
 
-    /// <summary>The win moment — the Frostfang burst minus the alpha theater: parting drops, goal
-    /// complete, XP + quest credit, loot wheel + score, exit door. NO auto-return.</summary>
+    // The win moment — the Frostfang burst minus the alpha theater: parting drops, goal
+    // complete, XP + quest credit, loot wheel + score, exit door. NO auto-return.
     private void WinEncounter(Player player, Vector4 lastKillPos)
     {
         lock (_stateLock)

@@ -40,11 +40,9 @@ public class PlayerUpdatePacketAddNpc : BasePlayerUpdatePacket, ISerializablePac
 
     public bool HasAttachments;
 
-    /// <summary>
-    /// 0 - Hostile
-    /// 1 - Neutral
-    /// 2 - Ally
-    /// </summary>
+    // 0 - Hostile
+    // 1 - Neutral
+    // 2 - Ally
     public int Disposition;
 
     public int Animation;
@@ -146,17 +144,13 @@ public class PlayerUpdatePacketAddNpc : BasePlayerUpdatePacket, ISerializablePac
     public string Hair = null!;
     public string ModelCustomization = null!;
 
-    /// <summary>
-    /// Replaces the terrain object based on the model id.
-    /// </summary>
+    // Replaces the terrain object based on the model id.
     public bool ReplaceTerrainObject;
 
     public int Unknown63;
     public int Unknown64;
 
-    /// <summary>
-    /// Fly-by composite effect id
-    /// </summary>
+    // Fly-by composite effect id
     public int FlyByEffectId;
 
     public int ActiveProfile;

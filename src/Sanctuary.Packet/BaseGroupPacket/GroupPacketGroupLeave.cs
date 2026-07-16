@@ -13,7 +13,7 @@ public sealed class GroupPacketGroupLeave : BaseGroupPacket, ISerializablePacket
 {
     public new const short OpCode = 3;
 
-    /// <summary>The player who left / was removed (drives the client's leave message).</summary>
+    // The player who left / was removed (drives the client's leave message).
     public ulong Guid;
 
     public NameData Name = new();

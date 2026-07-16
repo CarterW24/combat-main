@@ -27,25 +27,25 @@ public class Npc : IEntity
     public int NameId { get; set; }
     public string? Name { get; set; }
 
-    /// <summary>Nameplate text color (AddNpc.NameColor; 0 = client default). Bosses in the reference
-    /// video render RED names — first candidate mechanism alongside op32/sub9 EnableBossDisplay.</summary>
+    // Nameplate text color (AddNpc.NameColor; 0 = client default). Bosses in the reference
+    // video render RED names — first candidate mechanism alongside op32/sub9 EnableBossDisplay.
     public int NameColor { get; set; }
     public int SubTextNameId { get; set; }
-    /// <summary>HIDE the overhead nameplate. LIVE-PROVEN 2026-07-03 (builds 12 vs 13): true hides,
-    /// false shows — upstream's name is correct; the IDA "m_bShowNamePlate" annotation is wrong.</summary>
+    // HIDE the overhead nameplate. LIVE-PROVEN 2026-07-03 (builds 12 vs 13): true hides,
+    // false shows — upstream's name is correct; the IDA "m_bShowNamePlate" annotation is wrong.
     public bool HideNamePlate { get; set; }
 
-    /// <summary>AddNpc ActiveProfile. MUST be non-default (we use 1) for the nameplate color to
-    /// resolve from disposition (red hostiles) — see the notes on <see cref="Disposition"/> and in
-    /// GetAddNpcPacket. 0 = client keeps the ctor-baked ally blue. LIVE-CONFIRMED 2026-07-03.
-    /// POLICY: leave 0 (default) on normal NPCs; set non-zero ONLY on mobs/bosses (hostiles).</summary>
+    // AddNpc ActiveProfile. MUST be non-default (we use 1) for the nameplate color to
+    // resolve from disposition (red hostiles) — see the notes on Disposition and in
+    // GetAddNpcPacket. 0 = client keeps the ctor-baked ally blue. LIVE-CONFIRMED 2026-07-03.
+    // POLICY: leave 0 (default) on normal NPCs; set non-zero ONLY on mobs/bosses (hostiles).
     public int ActiveProfile { get; set; }
     public int NameplateImageId { get; set; }
     public float VerticalOffset { get; set; }
 
-    /// <summary>Overhead name text SCALE. RE'd 2026-07-03: ProxiedCharacter::Process @0x973200 does
-    /// `if (m_fNameScale != 0) Display_EliteNameScale = m_fNameScale` — so this AddNpc field directly
-    /// sets the name text size. 0 = client default (~normal); &gt;1 = bigger letters (the video's boss).</summary>
+    // Overhead name text SCALE. RE'd 2026-07-03: ProxiedCharacter::Process @0x973200 does
+    // `if (m_fNameScale != 0) Display_EliteNameScale = m_fNameScale` — so this AddNpc field directly
+    // sets the name text size. 0 = client default (~normal); >1 = bigger letters (the video's boss).
     public float NameScale { get; set; }
 
     public int ModelId { get; set; }
@@ -57,30 +57,27 @@ public class Npc : IEntity
 
     public float Scale { get; set; }
 
-    /// <summary>
-    /// 0 - Hostile
-    /// 1 - Neutral
-    /// 2 - Ally
-    ///
-    /// HOW DISPOSITION DRIVES THE NAMEPLATE COLOR (RE'd + live-proven 2026-07-03):
-    /// the client colors overhead names in ONE place, the resolver ProxiedCharacter::sub_966460.
-    /// When NameColor == 0 it picks the color from disposition: 0 (hostile) = RED (0xFFFF0000),
-    /// anything else = the bluish NPC default (0xFF6699CC). BUT the resolver only runs from the
-    /// ProxiedCharacter ctor / SetProfileId / SetIsMember — and the ctor runs BEFORE the packet's
-    /// disposition is applied (ctor default = 2 Ally = blue). There is no post-spawn recolor packet
-    /// (op35/sub28 sets disposition but never repaints), so a hostile only renders red if the
-    /// resolver RE-runs after the AddNpc apply writes disposition — which is what a non-default
-    /// <see cref="ActiveProfile"/> triggers. In short: red name = Disposition 0 + NameColor 0
-    /// + ActiveProfile != 0, all at spawn time.
-    /// </summary>
+    // 0 - Hostile
+    // 1 - Neutral
+    // 2 - Ally
+    // HOW DISPOSITION DRIVES THE NAMEPLATE COLOR (RE'd + live-proven 2026-07-03):
+    // the client colors overhead names in ONE place, the resolver ProxiedCharacter::sub_966460.
+    // When NameColor == 0 it picks the color from disposition: 0 (hostile) = RED (0xFFFF0000),
+    // anything else = the bluish NPC default (0xFF6699CC). BUT the resolver only runs from the
+    // ProxiedCharacter ctor / SetProfileId / SetIsMember — and the ctor runs BEFORE the packet's
+    // disposition is applied (ctor default = 2 Ally = blue). There is no post-spawn recolor packet
+    // (op35/sub28 sets disposition but never repaints), so a hostile only renders red if the
+    // resolver RE-runs after the AddNpc apply writes disposition — which is what a non-default
+    // ActiveProfile triggers. In short: red name = Disposition 0 + NameColor 0
+    // + ActiveProfile != 0, all at spawn time.
     public int Disposition { get; set; } = 1;
 
     public Action<Player>? InteractAction { get; set; }
     public Action? UpdateEverySecondAction { get; set; }
 
-    /// <summary>Non-zero = show a combat-encounter "Battle Starter" badge over this NPC's head (op35/sub10
-    /// AddNotifications, Type 3 = combat category = red crossed-swords + red minimap dot). 24 is the live
-    /// img-24 combat-encounter badge art. Sent per-player when the NPC comes into view (OnAddVisibleNpcs).</summary>
+    // Non-zero = show a combat-encounter "Battle Starter" badge over this NPC's head (op35/sub10
+    // AddNotifications, Type 3 = combat category = red crossed-swords + red minimap dot). 24 is the live
+    // img-24 combat-encounter badge art. Sent per-player when the NPC comes into view (OnAddVisibleNpcs).
     public virtual int CombatEncounterBadgeImageId => 0;
 
     // COMBAT WIP: server-side health so abilities can damage/kill this NPC.
@@ -88,32 +85,32 @@ public class Npc : IEntity
     public int MaxHealth { get; set; }
     public int Health { get; set; }
 
-    /// <summary>Render a nameplate health bar (maps to AddNpc.Unknown41).</summary>
+    // Render a nameplate health bar (maps to AddNpc.Unknown41).
     public bool ShowHealthBar { get; set; }
 
     public bool IsHostile => Disposition == 0;
     public bool IsDamageable => MaxHealth > 0 && !Invulnerable;
     public bool IsAlive => MaxHealth == 0 || Health > 0;
 
-    /// <summary>Damage immunity toggle (e.g. the defeated Frostfang Alpha while he runs off —
-    /// the reference video shows he can't be hit once he breaks).</summary>
+    // Damage immunity toggle (e.g. the defeated Frostfang Alpha while he runs off —
+    // the reference video shows he can't be hit once he breaks).
     public bool Invulnerable { get; set; }
 
-    /// <summary>When set, Dispose()'s remove packet is the GRACEFUL form with these live-wire params
-    /// (op35/sub3 RemovePlayerGracefully). GROUND TRUTH (04-01 capture): a dying pack wolf is removed
-    /// with (Animate=true, Delay=2000, fx 5017, Duration=1000) and NOTHING else — Animate makes the
-    /// client play the model's own death clip, then the composite effect + despawn after Delay ms.
-    /// The defeated Alpha uses Delay=10000 (he visibly runs off for 10s instead). Null = abrupt remove.</summary>
+    // When set, Dispose()'s remove packet is the GRACEFUL form with these live-wire params
+    // (op35/sub3 RemovePlayerGracefully). GROUND TRUTH (04-01 capture): a dying pack wolf is removed
+    // with (Animate=true, Delay=2000, fx 5017, Duration=1000) and NOTHING else — Animate makes the
+    // client play the model's own death clip, then the composite effect + despawn after Delay ms.
+    // The defeated Alpha uses Delay=10000 (he visibly runs off for 10s instead). Null = abrupt remove.
     public (bool Animate, int Delay, int EffectDelay, int EffectId, int Duration)? GracefulRemoval { get; set; }
 
     private readonly object _damageLock = new();
 
-    /// <summary>Apply damage; returns true if THIS hit landed the kill (exactly once). Thread-safe: an
-    /// archer fires ~every 150ms and each shot resolves its damage on a delayed task, so several in-flight
-    /// shots land almost together as the mob dies. Without the lock they would each read Health > 0, each
-    /// subtract, and EACH return true — firing OnNpcKilled 3-4x for one death (the level-up/XP effect
-    /// playing several times, and multiple graceful-removes that jam the client's combat state so a bow
-    /// can't re-fire). The lock guarantees a single caller crosses 0 and returns true.</summary>
+    // Apply damage; returns true if THIS hit landed the kill (exactly once). Thread-safe: an
+    // archer fires ~every 150ms and each shot resolves its damage on a delayed task, so several in-flight
+    // shots land almost together as the mob dies. Without the lock they would each read Health > 0, each
+    // subtract, and EACH return true — firing OnNpcKilled 3-4x for one death (the level-up/XP effect
+    // playing several times, and multiple graceful-removes that jam the client's combat state so a bow
+    // can't re-fire). The lock guarantees a single caller crosses 0 and returns true.
     public bool ApplyDamage(int amount)
     {
         lock (_damageLock)
@@ -155,12 +152,12 @@ public class Npc : IEntity
     // (that was the "wolves frozen at spawn in the treetops" bug).
     public int MovementType { get; set; }
 
-    /// <summary>Movement speed baked into AddNpc (feeds the client's ExpectedSpeed for this actor —
-    /// at 0 a CONTROLLER/PHYSICS actor has no speed to move with).</summary>
+    // Movement speed baked into AddNpc (feeds the client's ExpectedSpeed for this actor —
+    // at 0 a CONTROLLER/PHYSICS actor has no speed to move with).
     public float Speed { get; set; }
 
-    /// <summary>Rider gate: OnPlayerUpdatePosition ignores actors whose rider != the invalid-guid
-    /// sentinel (0xFFFFFFFFFFFFFFFF). Send the sentinel for AI NPCs ("no rider").</summary>
+    // Rider gate: OnPlayerUpdatePosition ignores actors whose rider != the invalid-guid
+    // sentinel (0xFFFFFFFFFFFFFFFF). Send the sentinel for AI NPCs ("no rider").
     public ulong RiderGuid { get; set; }
 
     // AddNpc bool #38. GROUND TRUTH (2014-03-25 capture): set to 1 on every red-name attackable camp

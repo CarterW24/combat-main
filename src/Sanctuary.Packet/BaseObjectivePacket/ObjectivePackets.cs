@@ -45,10 +45,10 @@ public static class ObjectivePacketWriter
     }
 }
 
-/// <summary>Sub 5 — add/announce a goal. DEPRECATED / DO NOT USE: GROUND TRUTH (2026-07-03, 04-01
-/// capture) shows the real server NEVER sends sub5. Goals are DEFINED inline in the launch details
-/// packet's ObjectiveData[] and ACTIVATED by id (sub1). Sending sub5 for an id the MiniGameState doesn't
-/// already know is dropped -> no panel. Kept only for reference; define goals via EncounterObjective.</summary>
+// Sub 5 — add/announce a goal. DEPRECATED / DO NOT USE: GROUND TRUTH (2026-07-03, 04-01
+// capture) shows the real server NEVER sends sub5. Goals are DEFINED inline in the launch details
+// packet's ObjectiveData[] and ACTIVATED by id (sub1). Sending sub5 for an id the MiniGameState doesn't
+// already know is dropped -> no panel. Kept only for reference; define goals via EncounterObjective.
 public class ObjectiveAddPacket : ISerializablePacket
 {
     public const byte SubOpCode = 5;
@@ -93,7 +93,7 @@ public class ObjectiveAddPacket : ISerializablePacket
     }
 }
 
-/// <summary>Sub 1 — (re)activate a goal: sets its Total and fires the "New Objective" announce.</summary>
+// Sub 1 — (re)activate a goal: sets its Total and fires the "New Objective" announce.
 public class ObjectiveActivatePacket : ISerializablePacket
 {
     public const byte SubOpCode = 1;
@@ -114,10 +114,10 @@ public class ObjectiveActivatePacket : ISerializablePacket
     }
 }
 
-/// <summary>Sub 3 — COMPLETE a goal: fires the green-check "Goal Complete!" announce for the id.
-/// GROUND TRUTH (04-01 capture idx 37163, the Frostfang win moment):
-///   2D00 03 [62310000 = 12642] [00000000] [88130000 = 5000]
-/// sent together with the op47/sub3 row-complete (TaskComplete) and the reward banners.</summary>
+// Sub 3 — COMPLETE a goal: fires the green-check "Goal Complete!" announce for the id.
+// GROUND TRUTH (04-01 capture idx 37163, the Frostfang win moment):
+//   2D00 03 [62310000 = 12642] [00000000] [88130000 = 5000]
+// sent together with the op47/sub3 row-complete (TaskComplete) and the reward banners.
 public class ObjectiveCompletePacket : ISerializablePacket
 {
     public const byte SubOpCode = 3;
@@ -140,9 +140,9 @@ public class ObjectiveCompletePacket : ISerializablePacket
     }
 }
 
-/// <summary>Sub 2 — progress tick: sets the goal's current Count (e.g. wolves scared 3/12).
-/// NOTE: the live Frostfang encounter never sends this — its goal (12642) is Total=1 and completes
-/// in one shot at the win (sub 3). Kept for other encounter types.</summary>
+// Sub 2 — progress tick: sets the goal's current Count (e.g. wolves scared 3/12).
+// NOTE: the live Frostfang encounter never sends this — its goal (12642) is Total=1 and completes
+// in one shot at the win (sub 3). Kept for other encounter types.
 public class ObjectiveUpdatePacket : ISerializablePacket
 {
     public const byte SubOpCode = 2;

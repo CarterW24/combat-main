@@ -2,29 +2,19 @@
 
 public enum UdpChannel : byte
 {
-    /// <summary>
-    /// Unreliable/unordered/buffered.
-    /// </summary>
+    // Unreliable/unordered/buffered.
     Unreliable,
 
-    /// <summary>
-    /// Unreliable/unordered/unbuffered.
-    /// </summary>
+    // Unreliable/unordered/unbuffered.
     UnreliableUnbuffered,
 
-    /// <summary>
-    /// Unreliable/ordered/buffered.
-    /// </summary>
+    // Unreliable/ordered/buffered.
     Ordered,
 
-    /// <summary>
-    /// Unreliable/ordered/unbuffered.
-    /// </summary>
+    // Unreliable/ordered/unbuffered.
     OrderedUnbuffered,
 
-    /// <summary>
-    /// Reliable (as per channel config).
-    /// </summary>
+    // Reliable (as per channel config).
     Reliable1,
     Reliable2,
     Reliable3,

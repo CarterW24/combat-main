@@ -13,15 +13,11 @@ public abstract class BaseZoneDefinition
 
     public float TileSize { get; set; }
 
-    /// <summary>
-    /// X axies
-    /// </summary>
+    // X axies
     public int StartLongitude { get; set; }
     public int EndLongitude { get; set; }
 
-    /// <summary>
-    /// Z axies
-    /// </summary>
+    // Z axies
     public int StartLatitude { get; set; }
     public int EndLatitude { get; set; }
 

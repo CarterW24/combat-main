@@ -14,12 +14,10 @@ public class PlayerUpdatePacketNpcRelevance : BasePlayerUpdatePacket, ISerializa
 
         public bool Unknown;
 
-        /// <summary>
-        /// Id from Cursors.txt
-        /// </summary>
+        // Id from Cursors.txt
         public byte CursorId;
 
-        /// <summary>True when the NPC should be selectable/clickable (quest NPCs send true).</summary>
+        // True when the NPC should be selectable/clickable (quest NPCs send true).
         public bool HasCursor;
 
         public void Serialize(PacketWriter writer)

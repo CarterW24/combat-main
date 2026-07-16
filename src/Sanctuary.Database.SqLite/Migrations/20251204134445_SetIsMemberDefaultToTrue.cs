@@ -4,10 +4,8 @@
 
 namespace Sanctuary.Database.Sqlite.Migrations
 {
-    /// <inheritdoc />
     public partial class SetIsMemberDefaultToTrue : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterColumn<bool>(
@@ -21,7 +19,6 @@ namespace Sanctuary.Database.Sqlite.Migrations
                 oldDefaultValue: false);
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterColumn<bool>(

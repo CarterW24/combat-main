@@ -4,10 +4,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Sanctuary.Database.Sqlite.Migrations
 {
-    /// <inheritdoc />
     public partial class AddCharacterQuests : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
@@ -35,7 +33,6 @@ namespace Sanctuary.Database.Sqlite.Migrations
                 column: "CharacterId");
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(

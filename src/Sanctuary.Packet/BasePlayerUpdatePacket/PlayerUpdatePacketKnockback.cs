@@ -19,7 +19,7 @@ public class PlayerUpdatePacketKnockback : BasePlayerUpdatePacket, ISerializable
 
     public Vector4 Position;
 
-    /// <summary>Unit XZ direction vector (same convention as op125 rotation).</summary>
+    // Unit XZ direction vector (same convention as op125 rotation).
     public Vector4 Direction;
 
     public float Magnitude;

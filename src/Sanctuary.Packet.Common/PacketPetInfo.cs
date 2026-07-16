@@ -29,12 +29,10 @@ public class PacketPetInfo : ISerializableType
     public bool IsUpgradable; // Server-side only - not serialized, client struct has no matching field
     public bool IsUpgraded; // Server-side only - not serialized, client struct has no matching field
 
-    /// <summary>
-    /// Matches the client's ClientPetData::sub_912CF0 deserializer field-for-field (reverse
-    /// engineered from FreeRealms_2014-03-13.exe). The client's PetInfoList reader also consumes
-    /// one leading int32 (used as a hash key) before constructing each ClientPetData entry, so
-    /// that value is written here too, ahead of the entry's own fields.
-    /// </summary>
+    // Matches the client's ClientPetData::sub_912CF0 deserializer field-for-field (reverse
+    // engineered from FreeRealms_2014-03-13.exe). The client's PetInfoList reader also consumes
+    // one leading int32 (used as a hash key) before constructing each ClientPetData entry, so
+    // that value is written here too, ahead of the entry's own fields.
     public void Serialize(PacketWriter writer)
     {
         writer.Write(Id); // hash key (outer PetInfoList reader)

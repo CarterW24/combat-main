@@ -27,9 +27,7 @@ public class PacketChat : BaseChatPacket, ISerializablePacket, IDeserializable<P
 
     public int LanguageId;
 
-    /// <summary>
-    /// Only needed for <see cref="ChatChannel.WorldArea"/>.
-    /// </summary>
+    // Only needed for WorldArea.
     public int AreaNameId;
 
     public PacketChat() : base(OpCode)

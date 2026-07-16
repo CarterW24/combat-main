@@ -120,8 +120,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // a landed hit sometimes restores energy. (Reflexes L15 = run speed in RecalculateStats + dodge on the
     // mob's attack.) See Sanctuary.Game.Combat.ArcherWeaponAbilities for the levels + magnitudes.
 
-    /// <summary>Apply the Archer damage traits to one hit: Precision's flat bonus + crit-chance, and (on a
-    /// crit) Marksmanship's extra crit damage. Returns the final damage for this hit.</summary>
+    // Apply the Archer damage traits to one hit: Precision's flat bonus + crit-chance, and (on a
+    // crit) Marksmanship's extra crit damage. Returns the final damage for this hit.
     private static int ApplyArcherTraitDamage(Player player, int baseDamage)
     {
         var dmg = (float)baseDamage;
@@ -145,8 +145,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         return Math.Max(1, (int)dmg);
     }
 
-    /// <summary>Lucky Shot (L20): a chance on each landed hit to refund a little energy (and kick the regen
-    /// loop so the bar visibly ticks up).</summary>
+    // Lucky Shot (L20): a chance on each landed hit to refund a little energy (and kick the regen
+    // loop so the bar visibly ticks up).
     private static void TryLuckyShotEnergy(Player player)
     {
         if (!ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.LuckyShotLevel))
@@ -167,8 +167,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // Combat.NinjaWeaponAbilities): slot 0 = common melee, slot 1 = the weapon's "of X" special. Damage /
     // swing animation 1099 / hit composite effect all come from that table.
 
-    /// <summary>Unique effect-tag ids for the lingering cast-FX plays (start high to stay clear of
-    /// the zones' heal-shower tag range).</summary>
+    // Unique effect-tag ids for the lingering cast-FX plays (start high to stay clear of
+    // the zones' heal-shower tag range).
     private static int _castFxTagCounter = 5000;
 
     // COMBAT WIP: live animation probe. When set via "!anim <id>", EVERY ability key-press plays this

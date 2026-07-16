@@ -3,34 +3,34 @@ using System.Linq;
 
 namespace Sanctuary.Game.Dungeons;
 
-/// <summary>One enemy type in a dungeon: a real client model + how many, how tough. Model IDs come from
-/// NpcSpawns.txt (Model File Name -> Model Id) or live-captured instance mobs (wolves 176/177, spirits 10).</summary>
+// One enemy type in a dungeon: a real client model + how many, how tough. Model IDs come from
+// NpcSpawns.txt (Model File Name -> Model Id) or live-captured instance mobs (wolves 176/177, spirits 10).
 public sealed class DungeonEnemy
 {
     public required int ModelId;
     public int Count = 1;
     public int Health = 1000;
     public float Scale = 1f;
-    /// <summary>Boss: shows a health bar + name plate; regular mobs use the hidden-plate pack recipe.</summary>
+    // Boss: shows a health bar + name plate; regular mobs use the hidden-plate pack recipe.
     public bool Boss;
 }
 
-/// <summary>A data-driven combat dungeon (battle instance) for the generic EncounterArenaZone. Worlds +
-/// centers come from the client packs' *Areas.xml ("Bed" sphere); text IDs from ClientActivityDefinitions;
-/// enemy model IDs from NpcSpawns.txt. Goal is always "defeat every enemy". Batch 2 (2026-07-11): the full
-/// combat-encounter set, assigned worlds + enemies by theme (some approximate; tune per dungeon later).</summary>
+// A data-driven combat dungeon (battle instance) for the generic EncounterArenaZone. Worlds +
+// centers come from the client packs' *Areas.xml ("Bed" sphere); text IDs from ClientActivityDefinitions;
+// enemy model IDs from NpcSpawns.txt. Goal is always "defeat every enemy". Batch 2 (2026-07-11): the full
+// combat-encounter set, assigned worlds + enemies by theme (some approximate; tune per dungeon later).
 public sealed class DungeonDefinition
 {
-    /// <summary>The REAL client activity id (ClientActivityDefinitions). This is the id the client sends in
-    /// JoinActivityRequest when you click the dungeon in the minigames menu's "Battles" section (Category 10)
-    /// AND the id the atlas entrance / GO! button routes on — so it must match the client's own definition,
-    /// or the join falls through and nothing launches.</summary>
+    // The REAL client activity id (ClientActivityDefinitions). This is the id the client sends in
+    // JoinActivityRequest when you click the dungeon in the minigames menu's "Battles" section (Category 10)
+    // AND the id the atlas entrance / GO! button routes on — so it must match the client's own definition,
+    // or the join falls through and nothing launches.
     public required int ActivityId;
 
-    /// <summary>For the BIG walk-through dungeons: the overworld atlas POI id (NotificationType=3 marker) that
-    /// this dungeon hangs off, used by StartingZone.SpawnDungeonEntrances to place the clickable entrance.
-    /// 0 for the small arena encounters (they have no atlas marker — they're entered via the wandering
-    /// "Battle Starter" NPCs instead). Non-zero is therefore also the "is an atlas dungeon" discriminator.</summary>
+    // For the BIG walk-through dungeons: the overworld atlas POI id (NotificationType=3 marker) that
+    // this dungeon hangs off, used by StartingZone.SpawnDungeonEntrances to place the clickable entrance.
+    // 0 for the small arena encounters (they have no atlas marker — they're entered via the wandering
+    // "Battle Starter" NPCs instead). Non-zero is therefore also the "is an atlas dungeon" discriminator.
     public int PoiId;
 
     public required string World;
@@ -43,10 +43,10 @@ public sealed class DungeonDefinition
     public int IconId = 1345;
     public int Xp = 12;
 
-    /// <summary>Playable radius of the map (from the world's Areas.xml "Bed" sphere). Drives the zone's
-    /// tile grid size AND enemy placement: small (arena encounters, ~64) = a tight ring at center; large
-    /// (the real walk-through dungeon worlds, 100-600) = enemies spread from the entrance edge toward the
-    /// far end so you fight your way through. Default = small arena.</summary>
+    // Playable radius of the map (from the world's Areas.xml "Bed" sphere). Drives the zone's
+    // tile grid size AND enemy placement: small (arena encounters, ~64) = a tight ring at center; large
+    // (the real walk-through dungeon worlds, 100-600) = enemies spread from the entrance edge toward the
+    // far end so you fight your way through. Default = small arena.
     public float Radius = 64f;
 
     public required DungeonEnemy[] Enemies;
@@ -55,8 +55,8 @@ public sealed class DungeonDefinition
     public int TotalEnemies => Enemies.Sum(e => e.Count);
 }
 
-/// <summary>All data-driven dungeons, keyed by activity id (excludes the bespoke Frostfang 145/174 +
-/// Tormented Spirits 146 zones). Each maps 1:1 to an atlas-map combat encounter.</summary>
+// All data-driven dungeons, keyed by activity id (excludes the bespoke Frostfang 145/174 +
+// Tormented Spirits 146 zones). Each maps 1:1 to an atlas-map combat encounter.
 public static class DungeonCatalog
 {
     public static readonly IReadOnlyDictionary<int, DungeonDefinition> ByActivity = new Dictionary<int, DungeonDefinition>
@@ -1367,17 +1367,16 @@ public static class DungeonCatalog
         },
     };
 
-    /// <summary>Extra hostile creature models that roam the OVERWORLD but aren't used by any instanced dungeon.
-    /// These creatures are already placed across every region in NpcSpawns.txt/Npcs.json at their real retail
-    /// coordinates — listing their model here flips those placements from neutral scenery to fightable
-    /// <see cref="Sanctuary.Game.Entities.CombatNpc"/>s, so each region's roaming mobs (cross-referenced with
-    /// the EQ Allakhazam "Mobs by Place (FR)" bestiary) become enemies right where they stand.
-    ///
-    /// Curated to HOSTILE species only: friendly-role models (robgoblin cook/banker/elder/jester, farmers,
-    /// Greenwood soldier/archer allies, Blackspore miners = robbery victims, the friendly Croaking Vale frog
-    /// village, mounts, ranch/pet dragons, named racing NPCs) are deliberately excluded. Quest givers/targets
-    /// and vendors are already filtered out at spawn time (see StartingZone.SpawnNpcs), so a named story boss
-    /// that reuses one of these models keeps its interactive path.</summary>
+    // Extra hostile creature models that roam the OVERWORLD but aren't used by any instanced dungeon.
+    // These creatures are already placed across every region in NpcSpawns.txt/Npcs.json at their real retail
+    // coordinates — listing their model here flips those placements from neutral scenery to fightable
+    // CombatNpcs, so each region's roaming mobs (cross-referenced with
+    // the EQ Allakhazam "Mobs by Place (FR)" bestiary) become enemies right where they stand.
+    // Curated to HOSTILE species only: friendly-role models (robgoblin cook/banker/elder/jester, farmers,
+    // Greenwood soldier/archer allies, Blackspore miners = robbery victims, the friendly Croaking Vale frog
+    // village, mounts, ranch/pet dragons, named racing NPCs) are deliberately excluded. Quest givers/targets
+    // and vendors are already filtered out at spawn time (see StartingZone.SpawnNpcs), so a named story boss
+    // that reuses one of these models keeps its interactive path.
     public static readonly IReadOnlySet<int> WorldEnemyModelIds = new HashSet<int>
     {
         // Robgoblin raiders (Sunstone Valley junk-camps + mechanics)
@@ -1446,19 +1445,19 @@ public static class DungeonCatalog
         4474, // bixie_m_elite_guard_gloamed (Bixie Guardian)
     };
 
-    /// <summary>Every distinct enemy ModelId that spawns as hostile in the overworld: the models used by
-    /// instanced dungeons PLUS the curated <see cref="WorldEnemyModelIds"/> roaming set. StartingZone matches
-    /// overworld NPCs against this to spawn them as aggressive <see cref="Sanctuary.Game.Entities.CombatNpc"/>s
-    /// instead of neutral scenery — so the same creatures you fight in the instances, and every region's
-    /// bestiary mob, are fightable out in the world.</summary>
+    // Every distinct enemy ModelId that spawns as hostile in the overworld: the models used by
+    // instanced dungeons PLUS the curated WorldEnemyModelIds roaming set. StartingZone matches
+    // overworld NPCs against this to spawn them as aggressive CombatNpcs
+    // instead of neutral scenery — so the same creatures you fight in the instances, and every region's
+    // bestiary mob, are fightable out in the world.
     public static readonly IReadOnlySet<int> EnemyModelIds =
         ByActivity.Values.SelectMany(d => d.Enemies).Select(e => e.ModelId)
             .Concat(WorldEnemyModelIds).ToHashSet();
 
-    /// <summary>The BIG walk-through (atlas) dungeons keyed by their overworld atlas POI id. These are now
-    /// keyed in <see cref="ByActivity"/> by their REAL client activity id (so the minigames menu's "Battles"
-    /// section can launch them), which means StartingZone can no longer derive the catalog key from the POI id
-    /// — it looks the dungeon up here instead.</summary>
+    // The BIG walk-through (atlas) dungeons keyed by their overworld atlas POI id. These are now
+    // keyed in ByActivity by their REAL client activity id (so the minigames menu's "Battles"
+    // section can launch them), which means StartingZone can no longer derive the catalog key from the POI id
+    // — it looks the dungeon up here instead.
     public static readonly IReadOnlyDictionary<int, DungeonDefinition> ByAtlasPoi =
         ByActivity.Values.Where(d => d.PoiId != 0).ToDictionary(d => d.PoiId);
 }

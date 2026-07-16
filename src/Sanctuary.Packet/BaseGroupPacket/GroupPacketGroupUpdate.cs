@@ -33,7 +33,7 @@ public sealed class GroupPacketGroupUpdate : BaseGroupPacket, ISerializablePacke
         public int Unknown8;    // int (+0xc8)
     }
 
-    /// <summary>The party leader's guid (the group id).</summary>
+    // The party leader's guid (the group id).
     public ulong LeaderGuid;
 
     public List<Member> Members = [];

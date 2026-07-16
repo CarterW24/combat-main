@@ -14,7 +14,6 @@ namespace Sanctuary.Database.Sqlite.Migrations
     [Migration("20260707000000_AddModerationFields")]
     partial class AddModerationFields
     {
-        /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

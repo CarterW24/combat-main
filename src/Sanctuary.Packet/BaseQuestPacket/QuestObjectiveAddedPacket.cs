@@ -2,22 +2,20 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-/// <summary>
-/// Wire format traced AND wire-verified from the client's real deserializer (case 7:
-/// FUN_00c7cd40 -> FUN_00c7bd30 -> FUN_00c7acd0 for the header + one int, then FUN_008fd770
-/// for the objective body). The deserializer is handed the FULL packet buffer (header
-/// included) and reads, in order:
-///   short OpCode (obj+4) + int SubOpCode (obj+8)          [6-byte header, via FUN_00c7acd0]
-///   int QuestId (obj+0xc)                                 [looked up via FUN_00c7a610]
-///   then FUN_008fd770 reads the objective body:
-///     int, int, int, bool(1),
-///     RewardBundleBase (FUN_008e7930, 18 fixed fields = 69 bytes, identical to QuestAddPacket),
-///     int, int, int, int, bool(1), int
-/// and requires NO bytes to remain. Total = 6 + 4 + 103 = 113 bytes. Earlier guessed layouts
-/// (28 then 10 bytes) overflowed/underran and were silently rejected, which stalled the quest
-/// accept flow (objective never added -> conversation never ended -> camera stuck on the giver).
-/// Field semantics beyond QuestId are positional; the byte layout is authoritative.
-/// </summary>
+// Wire format traced AND wire-verified from the client's real deserializer (case 7:
+// FUN_00c7cd40 -> FUN_00c7bd30 -> FUN_00c7acd0 for the header + one int, then FUN_008fd770
+// for the objective body). The deserializer is handed the FULL packet buffer (header
+// included) and reads, in order:
+//   short OpCode (obj+4) + int SubOpCode (obj+8)          [6-byte header, via FUN_00c7acd0]
+//   int QuestId (obj+0xc)                                 [looked up via FUN_00c7a610]
+//   then FUN_008fd770 reads the objective body:
+//     int, int, int, bool(1),
+//     RewardBundleBase (FUN_008e7930, 18 fixed fields = 69 bytes, identical to QuestAddPacket),
+//     int, int, int, int, bool(1), int
+// and requires NO bytes to remain. Total = 6 + 4 + 103 = 113 bytes. Earlier guessed layouts
+// (28 then 10 bytes) overflowed/underran and were silently rejected, which stalled the quest
+// accept flow (objective never added -> conversation never ended -> camera stuck on the giver).
+// Field semantics beyond QuestId are positional; the byte layout is authoritative.
 public class QuestObjectiveAddedPacket : BaseQuestPacket, ISerializablePacket
 {
     public const int SubOpCode = 7;

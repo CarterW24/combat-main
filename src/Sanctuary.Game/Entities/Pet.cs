@@ -12,21 +12,15 @@ public class Pet : Npc
     public Player Owner { get; init; }
     public Resources.Definitions.PetDefinition Definition { get; init; }
 
-    /// <summary>
-    /// Id of the owning player's DbPet row this instance was spawned from, used to persist rename requests.
-    /// </summary>
+    // Id of the owning player's DbPet row this instance was spawned from, used to persist rename requests.
     public int PetId { get; set; }
 
     public new string Name { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Last position sent to the client for this pet
-    /// </summary>
+    // Last position sent to the client for this pet
     public System.Numerics.Vector4 LastSentPosition { get; set; } = System.Numerics.Vector4.Zero;
 
-    /// <summary>
-    /// Last known owner position to detect if owner is moving
-    /// </summary>
+    // Last known owner position to detect if owner is moving
     public System.Numerics.Vector4 OwnerLastPosition { get; set; } = System.Numerics.Vector4.Zero;
 
     public Pet(IZone zone, Player owner, PetDefinition definition) : base(zone)

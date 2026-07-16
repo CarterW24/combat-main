@@ -241,14 +241,14 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         StartAi(player, _encounterRun);
     }
 
-    /// <summary>Enemy spawn points, ordered to match the group iteration in <see cref="StartEncounter"/>
-    /// (group 0's enemies first, then group 1's, ...).
-    /// <para>Small arenas (Radius &lt;= WalkThroughRadius): the original tight two-ring cluster at center —
-    /// an in-place arena brawl.</para>
-    /// <para>Big dungeon worlds: each enemy GROUP is a "station" spread along the path from the entrance
-    /// (south edge) to the far end (north), so the player walks through fighting cluster after cluster,
-    /// with the last group (usually the boss) waiting at the far end. Enemies only aggro within
-    /// <see cref="AggroRange"/>, so distant clusters stay put until you reach them.</para></summary>
+    // Enemy spawn points, ordered to match the group iteration in StartEncounter
+    // (group 0's enemies first, then group 1's, ...).
+    // Small arenas (Radius <= WalkThroughRadius): the original tight two-ring cluster at center —
+    // an in-place arena brawl.
+    // Big dungeon worlds: each enemy GROUP is a "station" spread along the path from the entrance
+    // (south edge) to the far end (north), so the player walks through fighting cluster after cluster,
+    // with the last group (usually the boss) waiting at the far end. Enemies only aggro within
+    // AggroRange, so distant clusters stay put until you reach them.
     private List<Vector4> BuildDungeonSpawns()
     {
         var pts = new List<Vector4>(Math.Max(Dungeon.TotalEnemies, 1));

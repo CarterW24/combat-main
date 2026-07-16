@@ -10,10 +10,8 @@ using Sanctuary.Packet.Common.Attributes;
 
 namespace Sanctuary.Gateway.Handlers;
 
-/// <summary>
-/// Handles player auto-attack requests against NPCs.
-/// Calculates melee damage using player stats and deals damage to the target CombatNpc.
-/// </summary>
+// Handles player auto-attack requests against NPCs.
+// Calculates melee damage using player stats and deals damage to the target CombatNpc.
 [PacketHandler]
 public static class CombatPacketAutoAttackTargetHandler
 {

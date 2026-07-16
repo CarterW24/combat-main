@@ -6,10 +6,8 @@ public class BaseItemStatDefinition : ISerializableType
 {
     public int Id { get; set; }
 
-    /// <summary>
-    /// 0 - Additive
-    /// 1 - Multiplicative
-    /// </summary>
+    // 0 - Additive
+    // 1 - Multiplicative
     public int Type { get; set; }
 
     public virtual void Serialize(PacketWriter writer)

@@ -4,10 +4,8 @@
 
 namespace Sanctuary.Database.MySql.Migrations
 {
-    /// <inheritdoc />
     public partial class WidenCharacterFullName : Migration
     {
-        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterColumn<string>(
@@ -28,7 +26,6 @@ namespace Sanctuary.Database.MySql.Migrations
                 .OldAnnotation("MySql:CharSet", "utf8mb4");
         }
 
-        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterColumn<string>(
