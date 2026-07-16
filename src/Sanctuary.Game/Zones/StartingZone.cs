@@ -587,6 +587,8 @@ public sealed class StartingZone : BaseZone
         enemy.EnemyStatus = true;           // AddNpc "render as enemy" flag (red name)
         enemy.ActiveProfile = 1;            // re-runs the client name-color resolver -> red
         enemy.CursorId = 11;                // crossed-swords attack cursor
+        enemy.IsInteractable = false;       // it's a combat target, not an NPC — no "Press X to talk" prompt
+                                            // (the dungeon enemies already do this; the overworld ones didn't)
         enemy.ShowHealthBar = true;
         enemy.MovementType = 2;             // PHYSICS — grounded with gravity (CONTROLLER/1 left them "flying")
 
@@ -624,6 +626,7 @@ public sealed class StartingZone : BaseZone
         enemy.EnemyStatus = true;
         enemy.ActiveProfile = 1;
         enemy.CursorId = 11;
+        enemy.IsInteractable = false;       // combat target, not a talkable NPC (same as the initial spawn)
         enemy.ShowHealthBar = true;
         enemy.MovementType = 2;             // PHYSICS — grounded with gravity (CONTROLLER/1 left them "flying")
 
@@ -966,8 +969,26 @@ public sealed class StartingZone : BaseZone
 
             BroadcastKillSignal(killer, npc); // clear the dead enemy's client notification entry (matches
                                               // every combat arena; the overworld was the only zone missing it)
+
+            // A roaming enemy can be killed by a player who ISN'T in its VisiblePlayers set — the attack picks
+            // targets by RANGE, not tile-visibility, and the mob may have shifted tiles since the client rendered
+            // it. Dispose() only sends the graceful-remove to VisiblePlayers, so that killer's client would keep
+            // the corpse forever ("dead body won't disappear"). Capture it, then send the killer the removal too.
+            var killerSaw = npc.VisiblePlayers.ContainsKey(killer.Guid);
+
             npc.GracefulRemoval = (true, QuestHostileDeathHoldMs, 0, QuestHostileDeathFxId, 1000);
             npc.Dispose();
+
+            if (!killerSaw)
+                killer.SendTunneled(new PlayerUpdatePacketRemovePlayerGracefully
+                {
+                    Guid = npc.Guid,
+                    Animate = true,
+                    Delay = QuestHostileDeathHoldMs,
+                    EffectDelay = 0,
+                    CompositeEffectId = QuestHostileDeathFxId,
+                    Duration = 1000,
+                });
 
             _ = Task.Run(async () =>
             {
