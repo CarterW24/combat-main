@@ -46,6 +46,13 @@ public class ClientItemDefinitionCollection : ObservableConcurrentDictionary<int
 
             foreach (var entry in entries)
                 this[entry.Id] = entry;
+
+            // The AbilitiesScreen's Attack / Special Attack columns come from the equipped weapon's own ability
+            // list. Our archer bows ship with none, so give each mapped bow its two ability entries (slot 0 = basic,
+            // slot 1 = special) pointing at the def ids we seed defs for; without this the screen reads "undefined".
+            foreach (var defId in Combat.ArcherWeaponAbilities.AllWeaponDefIds)
+                if (TryGetValue(defId, out var bow))
+                    bow.Abilities = Combat.ArcherWeaponAbilities.BuildItemAbilityEntries(defId);
         }
         catch (Exception ex)
         {

@@ -247,6 +247,21 @@ public static class ArcherWeaponAbilities
     public const int BasicAbilityDefId = BasicSlotDefId;
     public const int SpecialAbilityDefId = SpecialSlotDefId;
 
+    /// <summary>The equipped bow's ability entries for its ClientItemDefinition.Abilities list — THIS is what the
+    /// AbilitiesScreen reads to fill the Attack (slot 0) / Special Attack (slot 1) columns: each entry's Id is the
+    /// ability the screen looks up in the client's def map (we seed 4895/4899), and IconId is the column icon. An
+    /// empty list (our bows' default) made the screen ask for def id 0 and render "undefined".</summary>
+    public static List<ItemDefinition.ItemAbilityEntry> BuildItemAbilityEntries(int weaponDefId)
+    {
+        var (_, _, basicIcon) = SlotNameIcon(weaponDefId, 0);
+        var (_, _, specialIcon) = SlotNameIcon(weaponDefId, 1);
+        return new List<ItemDefinition.ItemAbilityEntry>
+        {
+            new() { Slot = 0, Id = BasicSlotDefId,   IconId = basicIcon },
+            new() { Slot = 1, Id = SpecialSlotDefId, IconId = specialIcon },
+        };
+    }
+
     /// <summary>Name+icon for an ability slot on a given equipped bow — the tier-1 Barrage/Volley pair backs any
     /// unmapped/absent bow so the AbilitiesScreen column never reads "undefined". Used for BOTH the op36/13 reply
     /// and the profile's ability-slot list (they must agree).</summary>
