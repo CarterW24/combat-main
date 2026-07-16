@@ -7,15 +7,14 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
-// Ninja kit — surface over NinjaWeaponAbilities. Traits are data'd; the Attack/Special columns aren't mined yet
-// (SlotNameIcon returns 0 name + no item ability entries), so those stay as-is until the ninja names land.
+// Ninja kit — surface over NinjaWeaponAbilities (traits + weapon-driven Attack/Special columns).
 public sealed class NinjaJobKit : IJobKit
 {
     public int ProfileId => NinjaWeaponAbilities.NinjaProfileId;
     public bool UsesCombatEnergy => true;
     public float AutoTargetReach => 7f;
     public IReadOnlyList<int> SlotAbilityDefIds { get; } = new[] { 4895, 4899 };
-    public IReadOnlyList<int> WeaponDefIds { get; } = Array.Empty<int>();
+    public IReadOnlyList<int> WeaponDefIds => NinjaWeaponAbilities.AllWeaponDefIds;
 
     public AbilityPacketSetDefinition? BuildToolbar(Player player, IResourceManager resources) =>
         NinjaWeaponAbilities.BuildToolbar(player, resources);
@@ -26,11 +25,11 @@ public sealed class NinjaJobKit : IJobKit
     public (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId) =>
         NinjaWeaponAbilities.ResolveDefinition(player, abilityDefId);
 
-    public List<ItemDefinition.ItemAbilityEntry> BuildItemAbilityEntries(int weaponDefId) => new();
+    public List<ItemDefinition.ItemAbilityEntry> BuildItemAbilityEntries(int weaponDefId) =>
+        NinjaWeaponAbilities.BuildItemAbilityEntries(weaponDefId);
 
     public List<AbilityExperience>? BuildTraitEntries(int rank) => NinjaWeaponAbilities.BuildTraitEntries(rank);
 
-    // Ninja ability names/icons for the Attack/Special columns aren't mined yet — 0 name tells the screen setup
-    // to leave the ability slots alone (the traits still show).
-    public (int NameId, int DescId, int IconId) SlotNameIcon(int weaponDefId, int slot) => (0, 0, 0);
+    public (int NameId, int DescId, int IconId) SlotNameIcon(int weaponDefId, int slot) =>
+        NinjaWeaponAbilities.SlotNameIcon(weaponDefId, slot);
 }

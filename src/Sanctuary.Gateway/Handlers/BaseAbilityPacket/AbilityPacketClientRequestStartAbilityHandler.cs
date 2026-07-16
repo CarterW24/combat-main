@@ -154,8 +154,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     // the zones' heal-shower tag range).
     private static int _castFxTagCounter = 5000;
 
-    // Live animation probe: !anim <id> makes every ability press play <id> instead of its own anim (spam keys
-    // to find the right per-ability move). null = use each ability's anim; !anim 0 or !anim clears it.
     public static int? DebugAnimationOverride;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)

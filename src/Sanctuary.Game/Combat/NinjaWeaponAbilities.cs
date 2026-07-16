@@ -77,6 +77,45 @@ public static class NinjaWeaponAbilities
     // Resolve a client AbilityDefinition request (op36/12) for a ninja slot def id to the equipped
     // weapon's icon (the op36/13 reply that fills the AbilitiesScreen Attack / Special columns). Ninja ability
     // NAME ids aren't mined yet, so name stays 0 for now — the icon still shows. Null for a non-ours def id.
+    public const int MeleeAbilityDefId = MeleeSlotDefId;
+    public const int SpecialAbilityDefId = SpecialSlotDefId;
+
+    // Ninja ability name ids for the AbilitiesScreen columns (reversed from en_us_data). Flame Flash / Lightning
+    // Strike don't reverse cheaply yet, so those two weapons fall back to the tier-1 names below. Descriptions
+    // aren't mined, so the column shows the name with an empty tooltip for now.
+    private static readonly IReadOnlyDictionary<string, int> AbilityNameIds = new Dictionary<string, int>
+    {
+        ["Twisted Edge"] = 420638, ["Cinder Slash"] = 421045, ["Flame Wave"] = 421047, ["Shuriken Storm"] = 420984,
+        ["Dragonstrike"] = 442457, ["Dark Assault"] = 421250, ["Ashen Strike"] = 421251, ["Fiery Slice"] = 421266,
+        ["Mystic Rush"] = 421267, ["Flame Breath"] = 421278, ["Mystical Blade"] = 421279, ["Shadowslash"] = 421290,
+        ["Hidden Strike"] = 421291, ["Mystical Drain"] = 421302, ["Fan of Blades"] = 421303, ["Shadow Army"] = 421248,
+        ["Flaming Uppercut"] = 421249,
+    };
+    private const int FallbackMeleeNameId = 420638;    // Twisted Edge
+    private const int FallbackSpecialNameId = 420984;  // Shuriken Storm
+
+    // Name/desc/icon for a column (slot 0 = Attack/melee, 1 = Special) on the equipped sword.
+    public static (int NameId, int DescId, int IconId) SlotNameIcon(int weaponDefId, int slot)
+    {
+        ByWeaponDefId.TryGetValue(weaponDefId, out var weapon);
+        var ability = weapon is null ? BareMelee : (slot == 1 ? weapon.Special : weapon.Melee);
+        var nameId = AbilityNameIds.TryGetValue(ability.Name, out var id)
+            ? id : (slot == 1 ? FallbackSpecialNameId : FallbackMeleeNameId);
+        return (nameId, 0, ability.IconImageId);
+    }
+
+    // The two ability entries for a sword's item definition (slot 0 = melee, 1 = special) — feeds the columns.
+    public static List<ItemDefinition.ItemAbilityEntry> BuildItemAbilityEntries(int weaponDefId)
+    {
+        var (_, _, meleeIcon) = SlotNameIcon(weaponDefId, 0);
+        var (_, _, specialIcon) = SlotNameIcon(weaponDefId, 1);
+        return new List<ItemDefinition.ItemAbilityEntry>
+        {
+            new() { Slot = 0, Id = MeleeSlotDefId, IconId = meleeIcon },
+            new() { Slot = 1, Id = SpecialSlotDefId, IconId = specialIcon },
+        };
+    }
+
     public static (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId)
     {
         var slot = abilityDefId switch
@@ -88,7 +127,7 @@ public static class NinjaWeaponAbilities
         if (slot < 0)
             return null;
 
-        return (0, 0, ResolveAbility(player, slot).IconImageId);
+        return SlotNameIcon(player.GetEquippedWeaponDefinitionId(), slot);
     }
 
     // ── TRAITS ──
