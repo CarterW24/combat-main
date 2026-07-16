@@ -3,6 +3,7 @@ using System.Linq;
 
 using Sanctuary.Game.Entities;
 using Sanctuary.Packet;
+using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
@@ -89,6 +90,38 @@ public static class NinjaWeaponAbilities
 
         return (0, 0, ResolveAbility(player, slot).IconImageId);
     }
+
+    // ── TRAITS ──
+    // The Ninja's four passive traits, unlocked by job level. Names/descs reversed from en_us_data (names
+    // 420947-50, descs 420971-74); icons are the abil_ninja_* 64px art (Dragon's Boon has its own; the others
+    // reuse a fitting ninja ability icon). Magnitudes below are our tuning.
+    //   L5  Shrouded Armor — reduces damage taken when struck
+    //   L10 Ninja's Grace  — faster run speed + health regen
+    //   L15 Dragon's Boon  — a hit sometimes strikes the attacker with lightning
+    //   L20 Instigation    — a crit pulls nearby enemies' aggro onto you
+    public const int ShroudedArmorLevel = 5;
+    public const int NinjasGraceLevel = 10;
+    public const int DragonsBoonLevel = 15;
+    public const int InstigationLevel = 20;
+
+    // Shrouded Armor: -12% incoming damage once unlocked.
+    public const float ShroudedArmorDamageReduction = 0.12f;
+    // Ninja's Grace: +15% run speed (matches the archer's Reflexes bump).
+    public const float NinjasGraceSpeedMultiplier = 1.15f;
+
+    private static readonly JobTraits.Trait[] TraitData =
+    [
+        new(420947, 420971, 43,    ShroudedArmorLevel),
+        new(420948, 420972, 40,    NinjasGraceLevel),
+        new(420949, 420973, 26725, DragonsBoonLevel),
+        new(420950, 420974, 11646, InstigationLevel),
+    ];
+
+    public static List<AbilityExperience> BuildTraitEntries(int rank) => JobTraits.Build(TraitData, rank);
+
+    // True when the player is a Ninja whose rank has unlocked the given trait level.
+    public static bool HasTrait(Player player, int traitLevel) =>
+        player.ActiveProfileId == NinjaProfileId && player.ActiveProfile.Rank >= traitLevel;
 
     // The 10 ninja SPECIALS, each a full kit (melee technique on slot 0 + the named "of X" special on slot 1).
     // IconImageId = the abil_ninja_* Small IMAGE_ID (real ability art). EffectId = the ability's REAL per-special

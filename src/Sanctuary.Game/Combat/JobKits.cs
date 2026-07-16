@@ -37,6 +37,11 @@ public static class JobKits
         var (basicName, _, basicIcon) = kit.SlotNameIcon(equippedWeaponDefId, 0);
         var (specialName, _, specialIcon) = kit.SlotNameIcon(equippedWeaponDefId, 1);
 
+        // A kit with no ability-name data (0) has traits but no Attack/Special column data yet — leave the
+        // ability slots as the generic combat fill.
+        if (basicName == 0)
+            return;
+
         for (var i = 0; i < profile.Abilities.Count; i++)
             profile.Abilities[i] = new Ability { Type = 0 };
 

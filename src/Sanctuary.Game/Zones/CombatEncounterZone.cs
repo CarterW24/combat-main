@@ -305,7 +305,7 @@ public abstract class CombatEncounterZone : BaseZone
         }
 
         var crit = Random.Shared.Next(100) < MobAttackCritPercent;
-        var dmg = crit ? MobAttackCritDamage : MobAttackDamage;
+        var dmg = player.ReduceIncomingDamage(crit ? MobAttackCritDamage : MobAttackDamage); // Ninja Shrouded Armor
         player.TakeDamage(dmg);
         Broadcast(new CombatPacketAttackProcessed
         {

@@ -479,6 +479,14 @@ public sealed class Player : ClientPcData, IEntity
         return pct;
     }
 
+    // Reduce an incoming enemy hit for defensive traits (Ninja's Shrouded Armor). At least 1 damage still lands.
+    public int ReduceIncomingDamage(int damage)
+    {
+        if (Combat.NinjaWeaponAbilities.HasTrait(this, Combat.NinjaWeaponAbilities.ShroudedArmorLevel))
+            damage = (int)(damage * (1f - Combat.NinjaWeaponAbilities.ShroudedArmorDamageReduction));
+        return Math.Max(1, damage);
+    }
+
     // Roll to dodge an incoming enemy attack from attackerGuid. On a dodge, sends the
     // client's dedicated AttackTargetDodged packet (op32/6) so it renders the floating "Dodge" text over this
     // player and lets the attacker play its swing, then layers the sidestep (com_dodge) clip on top so the evade
@@ -804,10 +812,13 @@ public sealed class Player : ClientPcData, IEntity
         int maxHealth = JobLeveling.MaxHealth(level);
         int maxMana = JobLeveling.MaxMana(level);
 
-        // ARCHER TRAIT — Reflexes (L15): +run speed. (Its dodge half is rolled on the mob's attack.)
+        // Run-speed traits: Archer Reflexes (L15) and Ninja's Grace (L10). (Reflexes' dodge half is rolled on
+        // the mob's attack; Ninja's Grace regen rides the normal HitPointRegen.)
         float moveSpeed = 8f;
         if (Combat.ArcherWeaponAbilities.HasTrait(this, Combat.ArcherWeaponAbilities.ReflexesLevel))
             moveSpeed *= Combat.ArcherWeaponAbilities.ReflexesSpeedMultiplier;
+        if (Combat.NinjaWeaponAbilities.HasTrait(this, Combat.NinjaWeaponAbilities.NinjasGraceLevel))
+            moveSpeed *= Combat.NinjaWeaponAbilities.NinjasGraceSpeedMultiplier;
 
         UpdateCharacterStats(
             new CharacterStat(CharacterStatId.MaxHealth, maxHealth),

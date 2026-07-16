@@ -280,6 +280,8 @@ public class CombatNpc : Npc
             return;
         }
 
+        finalDamage = target.ReduceIncomingDamage(finalDamage); // Ninja Shrouded Armor
+
         // Apply damage to target (server-authoritative HP + the player's own HP-bar packet).
         target.TakeDamage(finalDamage, this);
 
