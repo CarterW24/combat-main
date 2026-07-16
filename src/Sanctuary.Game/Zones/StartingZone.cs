@@ -71,10 +71,7 @@ public sealed class StartingZone : BaseZone
             // CombatNpcs — they aggro on approach, chase, auto-attack the player, track HP, die, and respawn.
             // Excluded when the same model is doubling as a vendor, quest giver/target, or a quest kill-target,
             // which keep their existing interactive/quest paths (kill-targets get MakeQuestHostile below).
-            if (!_resourceManager.NpcVendors.ContainsKey(guid)
-                && !_questManager.IsQuestNpc(guid)
-                && !_resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId)
-                && Sanctuary.Game.Dungeons.DungeonCatalog.EnemyModelIds.Contains(definition.ModelId))
+            if (IsWorldEnemyDefinition(definition))
             {
                 SpawnWorldEnemy(definition);
                 spawnedCount++;
@@ -570,6 +567,18 @@ public sealed class StartingZone : BaseZone
     /// short so clearing a spot doesn't leave you standing around with nothing to shoot.</summary>
     private const int WorldEnemyRespawnMs = 8_000;
 
+    /// <summary>True when an overworld NPC definition spawns as a killable hostile <see cref="Entities.CombatNpc"/>
+    /// (its model is a dungeon-enemy model and it isn't claimed as a vendor / quest giver / quest kill-target).
+    /// Used both to spawn the world enemies and to keep Battle-Starter anchors AWAY from them.</summary>
+    private bool IsWorldEnemyDefinition(NpcDefinition definition)
+    {
+        var guid = NpcGuidBase + (ulong)definition.Id;
+        return !_resourceManager.NpcVendors.ContainsKey(guid)
+            && !_questManager.IsQuestNpc(guid)
+            && !_resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId)
+            && Sanctuary.Game.Dungeons.DungeonCatalog.EnemyModelIds.Contains(definition.ModelId);
+    }
+
     private void SpawnWorldEnemy(NpcDefinition definition)
     {
         if (!TryCreateCombatNpc(out var enemy))
@@ -790,8 +799,12 @@ public sealed class StartingZone : BaseZone
     private void SpawnEncounterEntryNpcs()
     {
         // Overworld NPCs with a real (non-origin) position = candidate anchor spots (valid, walkable ground).
+        // EXCLUDE the ones that spawn as killable world enemies: anchoring a Battle Starter next to its themed
+        // "kin" put it right on top of a same-model enemy, so you couldn't tell the encounter-entry creature from
+        // the mobs you fight ("mixed in with the killable enemies"). Anchor to peaceful NPCs (towns / quest hubs)
+        // so the badged Battle Starter stands clearly apart from the combat crowd.
         var anchors = _resourceManager.Npcs.Values
-            .Where(d => d.SpawnPosition[0] != 0f || d.SpawnPosition[2] != 0f)
+            .Where(d => (d.SpawnPosition[0] != 0f || d.SpawnPosition[2] != 0f) && !IsWorldEnemyDefinition(d))
             .ToList();
         if (anchors.Count == 0)
             return;
