@@ -288,7 +288,10 @@ public abstract class CombatEncounterZone : BaseZone
             return;
         }
 
-        player.SendTunneled(new EncounterShowRespawnWindowPacket(FailEncounterId, FailInstanceId));
+        // Header ints (0,0) + 10000ms + cost 0 — the BYTE-EXACT form of the play-verified build
+        // (2026-07-15). Nonzero encounter/instance header ints here showed the PAID overworld
+        // window instead of the dungeon countdown (play-test 2026-07-16).
+        player.SendTunneled(new EncounterShowRespawnWindowPacket(0, 0));
         ScheduleAutoRevive(player);
     }
 
@@ -297,10 +300,8 @@ public abstract class CombatEncounterZone : BaseZone
         var pos = player.DeathPosition;
         player.Respawn();
 
-        var hide = new EncounterHideRespawnWindowPacket();
-        hide.Unknown = FailEncounterId;
-        hide.Unknown2 = FailInstanceId;
-        player.SendTunneled(hide);
+        // Header (0,0) — matches the play-verified 125 -> 122 -> 126 loop bytes.
+        player.SendTunneled(new EncounterHideRespawnWindowPacket());
 
         if (player.Zone == this)
         {

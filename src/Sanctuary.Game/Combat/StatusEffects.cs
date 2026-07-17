@@ -197,11 +197,13 @@ public static class StatusEffects
         player.SendTunneled(new ClientUpdatePacketRemoveEffectTag { InstanceId = tagId });
         if (hadFx)
         {
+            // The FX stop must reach the tag's OWNER too — visible-only left the loop (the heart
+            // shower) running forever on the player's own screen (play-test 2026-07-16).
             player.SendTunneledToVisible(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
             {
                 Guid = player.Guid,
                 TagId = tagId,
-            });
+            }, sendToSelf: true);
         }
     }
 
