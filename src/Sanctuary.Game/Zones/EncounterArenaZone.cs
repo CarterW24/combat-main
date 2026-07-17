@@ -319,8 +319,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                 player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules());
                 player.SendTunneled(MakeEnter(player.Guid));
 
-                player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-                player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+                // NO IsFighting/OverworldCombat here: never sent in-encounter — IsFighting=true is
+                // what flips the knockout window to the paid overworld variant (wrong-window bug).
                 player.SendTunneled(new EncounterStatePacket
                 {
                     EncounterId = EncounterId,

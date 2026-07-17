@@ -456,7 +456,20 @@ public sealed class Player : ClientPcData, IEntity
     private void WorldCombatStateTick()
     {
         if (Zone is not StartingZone)
+        {
+            // Leaving the overworld MID-FIGHT must clear the client's fighting state here, at the
+            // zone boundary: a stale IsFighting=true carried into an encounter flips the knockout
+            // window to the paid overworld variant (the 2026-07-15 wrong-window bug, play-verified —
+            // live sends NEITHER flag inside an encounter, so this is the only place to drop it).
+            if (_worldCombatActive)
+            {
+                _worldCombatActive = false;
+                _lastWorldCombatTicks = 0;
+                SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+                SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+            }
             return;
+        }
 
         if (IsDead)
             return;
