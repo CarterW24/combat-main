@@ -1,11 +1,16 @@
 using System;
 
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+
+using Sanctuary.Database;
 
 #nullable disable
 
 namespace Sanctuary.Database.MySql.Migrations
 {
+    [DbContext(typeof(DatabaseContext))]
+    [Migration("20251210000000_AddPets")]
     public partial class AddPets : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

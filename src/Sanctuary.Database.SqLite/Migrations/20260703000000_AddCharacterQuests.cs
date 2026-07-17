@@ -1,9 +1,14 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+
+using Sanctuary.Database;
 
 #nullable disable
 
 namespace Sanctuary.Database.Sqlite.Migrations
 {
+    [DbContext(typeof(DatabaseContext))]
+    [Migration("20260703000000_AddCharacterQuests")]
     public partial class AddCharacterQuests : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
