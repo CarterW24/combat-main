@@ -189,12 +189,16 @@ public static class PacketChatHandler
             return true;
         }
 
+        // "!puspawn [flame|quake|shield|energy]" — a single named pickup just ahead, or the ring of
+        // four with no arg. Real walk-over collection either way.
         if (packet.Message is { } puSpawnMsg && puSpawnMsg.StartsWith("!puspawn"))
         {
             if (connection.Player.Zone is BaseZone puZone)
             {
-                HeldPowerupProbe.SpawnPickups(puZone, connection.Player, _resourceManager);
-                _logger.LogInformation("!puspawn -> dropped the 4 pickup models around the player.");
+                var spawnParts = puSpawnMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var kind = spawnParts.Length > 1 ? spawnParts[1].ToLowerInvariant() : null;
+                HeldPowerupProbe.SpawnPickups(puZone, connection.Player, _resourceManager, kind);
+                _logger.LogInformation("!puspawn -> dropped {what}.", kind ?? "the 4 pickup models");
             }
             return true;
         }

@@ -121,21 +121,30 @@ public static class HeldPowerupProbe
         return true;
     }
 
-    public static void SpawnPickups(BaseZone zone, Player player, IResourceManager resources)
+    // onlyKind: null = the full ring of four; "flame"/"quake"/"shield"/"energy" = just that pickup
+    // dropped right in front of the player (single-powerup FX-tuning loop).
+    public static void SpawnPickups(BaseZone zone, Player player, IResourceManager resources, string? onlyKind = null)
     {
         var pickups = new List<(Npc Npc, string Kind)>();
         var kinds = new[] { ("energy", EnergyModelId), ("flame", FlameModelId), ("quake", QuakeModelId), ("shield", ShieldModelId) };
+        if (onlyKind is not null)
+        {
+            var norm = onlyKind == "energy" ? "energy" : Normalize(onlyKind);
+            kinds = Array.FindAll(kinds, k => k.Item1 == norm);
+        }
 
         for (var i = 0; i < kinds.Length; i++)
         {
             if (!zone.TryCreateNpc(out var pu))
                 continue;
 
+            // Full ring for the 4-pack; a single requested pickup lands just ahead of the player.
             var angle = MathF.PI * 2f * i / kinds.Length;
+            var dist = kinds.Length == 1 ? 3f : 5f;
             var pos = new Vector4(
-                player.Position.X + MathF.Sin(angle) * 5f,
+                player.Position.X + MathF.Sin(angle) * dist,
                 player.Position.Y,
-                player.Position.Z + MathF.Cos(angle) * 5f,
+                player.Position.Z + MathF.Cos(angle) * dist,
                 1f);
 
             pu.ModelId = kinds[i].Item2;
