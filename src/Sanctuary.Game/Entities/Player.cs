@@ -106,6 +106,11 @@ public sealed class Player : ClientPcData, IEntity
 
     public bool IsDead { get; set; }
 
+    // Damage-immunity window (Environment.TickCount64): the Super Shield powerup and the brief
+    // post-revive invulnerability (wiki). Checked by TakeDamage.
+    public long InvulnerableUntilTicks { get; set; }
+    public bool IsInvulnerable => Environment.TickCount64 < InvulnerableUntilTicks;
+
     // Where the player fell (set on Knockout) — the "Revive here" respawn option returns them here.
     public System.Numerics.Vector4 DeathPosition { get; set; }
     public int CurrentHitpoints { get; set; } = 2500;
@@ -363,9 +368,9 @@ public sealed class Player : ClientPcData, IEntity
         return packet;
     }
 
-    // Knockout visual (this client renders NOTHING on its own at 0 HP): a hit-poof so the player
-    // and nearby people see the moment of defeat. Tunable.
-    private const int KnockoutEffectId = 5017; // PFX death poof (same one dying NPCs use)
+    // Knockout/revive clips — capture-proven on a player (a live special's target anims).
+    private const int KnockdownAnimId = 1402; // knock_down fall
+    private const int GetUpAnimId = 1403;     // get-up, played on revive
 
     // Send a System-channel chat line to this player (the death/revive feedback, since there's no
     // native death UI to show it).
@@ -384,13 +389,12 @@ public sealed class Player : ClientPcData, IEntity
     // flashier than a plain poof.
     private const int ReviveEffectId = 15117; // PFX_levelup_big (~2s one-shot burst)
 
-    // Resurrect/get-up animation played on revive (0 = none — the knocked-out state clear already
-    // stands the player up; set to a real resurrect clip id once confirmed).
-    private const int ResurrectAnimId = 0;
+    private const int ReviveInvulnMs = 3000; // wiki: "briefly invulnerable" after recovering — provisional
 
     public void Respawn()
     {
         IsDead = false;
+        InvulnerableUntilTicks = Environment.TickCount64 + ReviveInvulnMs;
 
         var maxHp = Stats[CharacterStatId.MaxHealth].Int;
         CurrentHitpoints = maxHp;
@@ -399,6 +403,19 @@ public sealed class Player : ClientPcData, IEntity
         {
             CurrentHitpoints = maxHp,
             MaxHitpoints = maxHp
+        });
+
+        // op38/1 above only writes the ClientPcData copy — the DISPLAYED bar rides the op35/35
+        // ledger, so without this self-sourced full heal the bar sat low until the next hit
+        // (play-test 2026-07-15, fix (d)). Live's own regen ticks use the same packet.
+        SendTunneled(new PlayerUpdatePacketHitPointModification
+        {
+            Guid = Guid,
+            Guid2 = Guid,
+            Unknown = true,
+            Unknown2 = maxHp,
+            Unknown3 = maxHp,
+            Unknown4 = maxHp,
         });
 
         // Clear the knocked-out/rooted state (stand up + movement restored).
@@ -417,15 +434,12 @@ public sealed class Player : ClientPcData, IEntity
         SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
 
-        // Resurrect animation + revive FX at the player (visible to nearby players too).
-        if (ResurrectAnimId > 0)
+        // Get-up clip + revive FX at the player (visible to nearby players too).
+        SendTunneledToVisible(new PlayerUpdatePacketSetAnimation
         {
-            SendTunneledToVisible(new PlayerUpdatePacketSetAnimation
-            {
-                Guid = Guid,
-                AnimationId = ResurrectAnimId,
-            }, sendToSelf: true);
-        }
+            Guid = Guid,
+            AnimationId = GetUpAnimId,
+        }, sendToSelf: true);
         SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
         {
             Guid = Guid,
@@ -442,7 +456,7 @@ public sealed class Player : ClientPcData, IEntity
     // HP bar, and knock out at 0. No-op while already knocked out.
     public void TakeDamage(int amount)
     {
-        if (IsDead)
+        if (IsDead || IsInvulnerable)
             return;
 
         LastCombatDamageAt = DateTime.UtcNow; // gates HP regen so the bar doesn't jitter mid-fight
@@ -582,20 +596,18 @@ public sealed class Player : ClientPcData, IEntity
             MaxHitpoints = Stats[CharacterStatId.MaxHealth].Int
         });
 
-        // Put the actor into the KNOCKED-OUT + ROOTED state: the client plays its knockdown animation and
-        // (IsRooted) stops the player from running around while down. Cleared on Respawn.
+        // KNOCKED-OUT state (0x80 alone halts movement + gates abilities with the client's own
+        // NoCastKnockedOut message — play-verified 2026-07-15) + the knockdown fall clip. Anim 1402 is
+        // capture-proven ON A PLAYER (a live special's target anim); 1403 = the get-up, sent on Respawn.
         SendTunneledToVisible(new PlayerUpdatePacketUpdateCharacterState
         {
             Guid = Guid,
-            Status = CharacterStatus.IsKnockedOut | CharacterStatus.IsRooted,
+            Status = CharacterStatus.IsKnockedOut,
         }, sendToSelf: true);
-
-        // Also a death poof + message (belt-and-suspenders feedback).
-        SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
+        SendTunneledToVisible(new PlayerUpdatePacketSetAnimation
         {
             Guid = Guid,
-            CompositeEffectId = KnockoutEffectId,
-            Position = Position,
+            AnimationId = KnockdownAnimId,
         }, sendToSelf: true);
 
         SendSystemMessage("You have been knocked out!");

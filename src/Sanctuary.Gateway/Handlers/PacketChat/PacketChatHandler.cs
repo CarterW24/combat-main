@@ -196,6 +196,87 @@ public static class PacketChatHandler
             return true;
         }
 
+        // NAMECOLOR PROOF: "!namecolor [AARRGGBB hex]" spawns a dummy clone with a STATIC nameplate color
+        // (default purple FFA020F0) — live evidence for the AddNpc NameColor float->int fix.
+        if (packet.Message is { } ncMsg && ncMsg.StartsWith("!namecolor"))
+        {
+            var ncParts = ncMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var argb = unchecked((int)0xFFA020F0);
+            if (ncParts.Length > 1 && uint.TryParse(ncParts[1].TrimStart('#'),
+                    System.Globalization.NumberStyles.HexNumber, null, out var hex))
+                argb = unchecked((int)hex);
+
+            if (connection.Player.Zone is StartingZone ncZone)
+            {
+                ncZone.SpawnNameColorTestDummy(connection.Player, argb);
+                _logger.LogInformation("!namecolor -> spawned test dummy with NameColor 0x{argb:X8}.", argb);
+            }
+            else
+                _logger.LogWarning("!namecolor -> only works in the starting zone.");
+            return true;
+        }
+
+        // POWERUP TUNING (no wire ground truth for held-powerup use — FX/anim found by eye):
+        //   "!pufx <flame|quake|shield> <fxId> [animId]" retargets that powerup's use-FX (and optionally
+        //   the player use-animation) live, then "!pu <kind>" + press "3" to view.
+        if (packet.Message is { } pufxMsg && pufxMsg.StartsWith("!pufx"))
+        {
+            var fxParts = pufxMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            int? animId = fxParts.Length >= 4 && int.TryParse(fxParts[3], out var a) ? a : null;
+            if (fxParts.Length >= 3 && int.TryParse(fxParts[2], out var fxId) &&
+                FrostfangArenaZone.TrySetPowerupFx(fxParts[1].ToLowerInvariant(), fxId, animId))
+                _logger.LogInformation("!pufx -> {kind} use-FX now composite {fx}, anim {anim}.",
+                    fxParts[1], fxId, animId?.ToString() ?? "(unchanged)");
+            else
+                _logger.LogWarning("!pufx usage: !pufx <flame|quake|shield> <fxId> [animId]");
+            return true;
+        }
+
+        // "!puspawn" drops the four pickup models in a ring with real walk-over collection — the whole
+        // drop→pickup→"3" flow, testable in ANY zone.
+        if (packet.Message is { } puSpawnMsg && puSpawnMsg.StartsWith("!puspawn"))
+        {
+            if (connection.Player.Zone is BaseZone puZone)
+            {
+                HeldPowerupProbe.SpawnPickups(puZone, connection.Player, _resourceManager);
+                _logger.LogInformation("!puspawn -> dropped the 4 pickup models around the player.");
+            }
+            return true;
+        }
+
+        // "!ko" — force a knockout through the real damage path: exercises the whole KO -> respawn-window
+        // -> revive loop (pool bump, fail at the limit) without grinding a full HP bar of bites.
+        if (packet.Message is { } koMsg && koMsg.StartsWith("!ko"))
+        {
+            connection.Player.Knockout();
+            _logger.LogInformation("!ko -> forced player knockout.");
+            return true;
+        }
+
+        // STATUS-EFFECT TEST BED: "!status <kind> [seconds] [dummy]" applies a wiki status (stun/sleep/
+        // silence/root/fear/confuse/freeze/berserk/poison) — to YOURSELF by default (client gates the
+        // ability bar + shows the buff-bar icon, body FX, NoCast* messages), or to the nearest NPC
+        // with "dummy" (visual flags + FX; poison ticks real damage there). "!status clear" cleanses.
+        if (packet.Message is { } stMsg && stMsg.StartsWith("!status"))
+        {
+            HandleStatusTest(connection, stMsg);
+            return true;
+        }
+
+        if (packet.Message is { } puMsg && puMsg.StartsWith("!pu"))
+        {
+            var puParts = puMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (puParts.Length != 2)
+                _logger.LogWarning("!pu usage: !pu <flame|quake|shield|energy>  (also: !puspawn, !pufx)");
+            else if (connection.Player.Zone is FrostfangArenaZone puArena
+                ? puArena.GrantPowerup(connection.Player, puParts[1].ToLowerInvariant())
+                : HeldPowerupProbe.Grant(connection.Player, puParts[1].ToLowerInvariant(), _resourceManager))
+                _logger.LogInformation("!pu -> granted {kind} powerup.", puParts[1]);
+            else
+                _logger.LogWarning("!pu usage: !pu <flame|quake|shield|energy>");
+            return true;
+        }
+
         // INSTANCE WIP (Frostfang Fury): "!offer" sends the EncounterDetailsResponsePacket (op41/sub114) — the
         // adventure OFFER POPUP (title/difficulty/description + GO!). Wire format RE'd from the client's
         // Unserialize fns. Tests whether the panel renders before we wire it to the wolf interaction.
@@ -374,6 +455,72 @@ public static class PacketChatHandler
         }
 
         return true;
+    }
+
+    // STATUS-EFFECT TEST BED — see note above. "!status <kind> [seconds] [dummy]" / "!status clear".
+    private static void HandleStatusTest(GatewayConnection connection, string msg)
+    {
+        var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var player = connection.Player;
+
+        if (parts.Length < 2)
+        {
+            _logger.LogWarning("!status usage: !status <stun|sleep|silence|root|fear|confuse|freeze|berserk|poison> [seconds] [dummy] — or !status clear");
+            return;
+        }
+
+        if (parts[1].Equals("clear", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusEffects.ClearAll(player);
+            _logger.LogInformation("!status -> cleared all statuses on the player.");
+            return;
+        }
+
+        if (!StatusEffects.TryParse(parts[1], out var kind))
+        {
+            _logger.LogWarning("!status: unknown effect '{kind}'.", parts[1]);
+            return;
+        }
+
+        var seconds = parts.Length > 2 && int.TryParse(parts[2], out var s) ? Math.Clamp(s, 1, 600) : 10;
+        var onDummy = parts[^1].Equals("dummy", StringComparison.OrdinalIgnoreCase);
+
+        if (onDummy)
+        {
+            // Nearest living NPC within 15u — the starting-zone training dummy / a !namecolor clone.
+            Npc? nearest = null;
+            var bestDistSq = 15f * 15f;
+            if (player.Zone is BaseZone zone)
+            {
+                foreach (var npc in zone.Npcs)
+                {
+                    if (!npc.IsAlive)
+                        continue;
+                    var dx = npc.Position.X - player.Position.X;
+                    var dz = npc.Position.Z - player.Position.Z;
+                    var distSq = dx * dx + dz * dz;
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        nearest = npc;
+                    }
+                }
+            }
+
+            if (nearest == null)
+            {
+                _logger.LogWarning("!status: no NPC within 15u to apply {kind} to.", kind);
+                return;
+            }
+
+            StatusEffects.Apply(nearest, kind, seconds * 1000, source: player);
+            _logger.LogInformation("!status -> {kind} on NPC {guid} ({model}) for {s}s.", kind, nearest.Guid, nearest.ModelId, seconds);
+        }
+        else
+        {
+            StatusEffects.Apply(player, kind, seconds * 1000, source: player);
+            _logger.LogInformation("!status -> {kind} on the player for {s}s.", kind, seconds);
+        }
     }
 
     // COMBAT WIP — see note above. Builds a StartCasting from optional chat args and sends it.

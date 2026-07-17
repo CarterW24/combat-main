@@ -205,11 +205,69 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private const int HealShowerMs = 15000;    // live buff duration (14.88s measured) — the ~15s shower
     private int _healTagCounter = 300;         // unique effect-tag ids for concurrent heart pickups
     private readonly List<Npc> _hearts = [];
+    // The live heart tag (04-01 idx 37219, byte-decoded 2026-07-16): type 2, ×1.33, 15s, icon 17348,
+    // ability 6211, shower composite riding the tag — sent via StatusEffects.ApplyBuffTag.
+    private const int HeartBuffIconId = 17348;
+    private const uint HeartBuffNameId = 5102381;
+    private const int HeartBuffAbilityId = 6211;
+    private const float HeartBuffMult = 1.33f;
+
+    // ── POWERUPS (wiki Combat page + Models.txt + the 04-01 capture) ─────────────────────────────────
+    // `powerup_*_buff` models = INSTANT on walk-over (mana 737 = energy refill, damage 746 = ×1.33 dmg,
+    // captured in full); bare `powerup_<name>` = HELD in action-bar slot 3 until used with the "3" key
+    // (wiki), lost on zone exit: flame_wave 1949, quake 1950 (wiki "Earth Shard"), super_shield 1951.
+    private enum PowerupKind { Energy, Damage, FlameWave, Quake, Shield }
+
+    private const int EnergyPowerupModelId = 737;
+    private const int DamagePowerupModelId = 746;
+    private const int FlameWavePowerupModelId = 1949;
+    private const int QuakePowerupModelId = 1950;
+    private const int ShieldPowerupModelId = 1951;
+    private const int PowerupDropPercent = 8;
+    private const int PowerupNameId = 5102385;   // the live damage powerup's AddNpc NameId (plate hidden)
+
+    // Damage powerup — capture-verbatim (idx 30273 tag composite, removal +14.7s, icon floats 1.33):
+    private const int DamageBuffBodyFxId = 5032; // PFX_barrier-rock_gray_loop on the player while buffed
+    private const int DamageBuffMs = 15000;
+    private const int DamageBuffPct = 133;
+    // Held-powerup FX — no wire samples exist (the capture never uses one) so these are by-eye picks,
+    // live-tunable via "!pufx <kind> <fxId> [animId]".
+    private const int FlameWaveDamage = 500;
+    private const float FlameWaveRadius = 10f;
+    public static int FlameWaveFxId = 5591;        // PFX_fire-ring_orange_cog_spiral_AOE — RADIAL ring
+                                                   // (16140 ninja-flame-wave is DIRECTIONAL: "went behind me")
+    public static int FlameWaveAnimId;             // 0 = no use gesture (none existed live)
+    private const int QuakeDamage = 350;
+    private const float QuakeRadius = 10f;
+    private const int QuakeStunMs = 3000;
+    public static int QuakeFxId = 5388;            // PFX_smoke-rocks_purple_cave-in ("raining rocks")
+    public static int QuakeAnimId;
+    private const int ShieldMs = 8000;             // "invulnerable for a few moments"
+    public static int ShieldFxId = 5049;           // PFX_shield_swirl_blue_barrier_loop (matches icon art)
+    public static int ShieldAnimId;
+    private const int WolfKnockDownAnimId = 1402;
+    private const int WolfGetUpAnimId = 1403;
+    private const int FlameWaveIconId = 26832;     // icon_flame_wave_32
+    private const int QuakeIconId = 26835;         // icon_quake_32
+    private const int ShieldIconId = 26838;        // icon_super_shield_32
+    private const uint ShieldBuffNameId = 1352849523; // locale "Shield" — buff-bar label while active
+    // Super Shield speed half: stat 2 MaxMovementSpeed applies INSTANTLY on the local player
+    // (client-authoritative movement). Multiplier provisional.
+    private const float ShieldSpeedMult = 1.35f;
+
+    // Drop pool = the wiki's list (Energy / Flame Wave / Earth Shard / Super Shield; heart rolled
+    // separately). Damage (746) is capture-seen but pool-EXCLUDED until its live drop rule is known.
+    private static readonly PowerupKind[] DroppablePowerups =
+        [PowerupKind.Energy, PowerupKind.FlameWave, PowerupKind.Quake, PowerupKind.Shield];
+
+    private readonly List<(Npc Npc, PowerupKind Kind)> _powerups = [];
+    private PowerupKind? _heldPowerup;     // what's sitting in action-bar slot 3 (one at a time)
 
     // Charging / SlotAngle / NextAttackTicks / Home / Idling / Planted now live on the shared EncounterMobState.
     private sealed class WolfState : EncounterMobState
     {
         public long ChargeAtTicks;   // Environment.TickCount64 when the charge kicks in
+        public long StunnedUntil;    // Quake/Earth-Shard powerup: frozen (no move, no bite) until this tick
         // Roamer wander state
         public bool IsRoamer;
         public bool Howled;          // roamer has howled; standing in the pose until ChargeAtTicks, then charges
@@ -231,6 +289,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private bool _roamerEngaged;   // set once the roamer has howled + spawned wave 1 (gates the kickoff)
     private int _killedSnarlers;
     private bool _won;
+    private bool _victoryUiDone; // wheel/score/teardown delivered (first door click or proximity)
     private int _encounterRun; // bumped every StartEncounter; stops stale AI loops
 
     // PARTY CO-OP: the players currently in this arena instance. The encounter runs ONCE (started by
@@ -441,6 +500,11 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             foreach (var h in _hearts)
                 h.Dispose();
             _hearts.Clear();
+            foreach (var (pu, _) in _powerups)
+                pu.Dispose();
+            _powerups.Clear();
+            _heldPowerup = null;
+            _victoryUiDone = false;
             _alpha?.Dispose();
             _alpha = null;
             _fleeingAlpha?.Dispose();
@@ -539,8 +603,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules()); // 28122 — op62
                 player.SendTunneled(MakeEnter(player.Guid)); // 28224 — PlayerEnter (player guid)
 
-                player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-                player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+                // NO op41/132 (OverworldCombat) or 133 (IsFighting) here: live sends NEITHER during the
+                // encounter (whole 04-01 capture), and sending them flips the knockout window to the
+                // overworld PAID-revive variant (play-test 2026-07-15 — the wrong-window bug).
                 player.SendTunneled(new EncounterStatePacket
                 {
                     EncounterId = EncounterId,
@@ -791,9 +856,13 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         return;
                     }
 
-                    // Heart pickups: walk-over collection heals +125 (video) — any party member can grab them.
+                    // Walk-over pickups + the door proximity check — any party member.
                     foreach (var p in players)
+                    {
                         CollectHearts(p);
+                        CollectPowerups(p);
+                        CheckDoorProximity(p);
+                    }
 
                     Npc[] pack;
                     Npc? fleeingAlpha;
@@ -861,6 +930,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                                 continue;
                             }
                         }
+
+                        // Quake/Earth-Shard stun: frozen in place (no move, no bite) until it wears off.
+                        if (now < state.StunnedUntil)
+                            continue;
 
                         // Standing still: the roamer holding its howl pose, or a wave wolf in its ~2.2s
                         // post-spawn idle — either way, wait out ChargeAtTicks, then charge.
@@ -1122,50 +1195,373 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         foreach (var h in collected)
         {
-            // Green "+125" heal number over the player.
+            // Real heal into the player's HP pool + the green "+125" number (self-sourced, on the player).
+            var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
+            player.CurrentHitpoints = Math.Min(maxHp, player.CurrentHitpoints + HeartHeal);
+            player.SendTunneled(new ClientUpdatePacketHitpoints
+            {
+                CurrentHitpoints = player.CurrentHitpoints,
+                MaxHitpoints = maxHp,
+            });
             player.SendTunneled(new PlayerUpdatePacketHitPointModification
             {
-                Guid = player.Guid,   // heal is self-sourced
-                Guid2 = player.Guid,  // ...on the player
+                Guid = player.Guid,
+                Guid2 = player.Guid,
                 Unknown = true,
-                Unknown2 = 2500,      // player max HP (real pool is a TODO)
-                Unknown3 = 2500,      // current after (cosmetic until HP is tracked)
-                Unknown4 = HeartHeal, // +125 delta -> the green heal number
+                Unknown2 = maxHp,
+                Unknown3 = player.CurrentHitpoints,
+                Unknown4 = HeartHeal,
             });
 
-            // ★ THE HEALING STATUS EFFECT (live-faithful): attach the LOOPING heal shower (15921) over
-            // the player's head via an effect tag (op35/sub41) — the "heart above his head + healing
-            // trail" from the video — then stop it after HealShowerMs (op35/sub42). Sourced from the
-            // heart's guid, exactly like the capture.
-            var tagId = ++_healTagCounter;
-            player.SendTunneled(new PlayerUpdatePacketAddEffectTagCompositeEffect
-            {
-                Guid = player.Guid,
-                TagId = tagId,
-                CompositeEffectId = HealShowerFxId,
-                SourceGuid = h.Guid,
-            });
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(HealShowerMs);
-                    player.SendTunneled(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
-                    {
-                        Guid = player.Guid,
-                        TagId = tagId,
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Frostfang arena: heal-shower stop failed.");
-                }
-            });
+            // ★ THE HEALING BUFF, live-exact (04-01 idx 37215+37219, byte-decoded): op35/41 heal-shower
+            // loop THEN the op38/16 buff-bar tag (type 2, ×1.33, 15s, icon 17348, ability 6211, shower
+            // composite echoed in the tag, sourced from the heart's guid). Auto-reverts after 15s.
+            StatusEffects.ApplyBuffTag(player, HeartBuffIconId, HeartBuffNameId, HealShowerMs,
+                magnitude: HeartBuffMult, fxId: HealShowerFxId, abilityId: HeartBuffAbilityId,
+                sourceGuid: h.Guid);
 
             // Live heart removal: graceful, fx 15032 (the pickup sparkle), params verbatim.
             h.GracefulRemoval = (false, 0, 5000, HeartPickupFxId, 1000);
             h.Dispose();
         }
+    }
+
+    // ── Powerups: drop / walk-over collect / the "3"-key use ─────────────────────────────────────────
+
+    // Drop a powerup at a wolf's death spot — same neutral walk-over actor recipe as the heart.
+    private void SpawnPowerup(Player player, Vector4 pos, PowerupKind kind)
+    {
+        if (!TryCreateNpc(out var pu))
+            return;
+
+        pu.ModelId = kind switch
+        {
+            PowerupKind.Energy => EnergyPowerupModelId,
+            PowerupKind.Damage => DamagePowerupModelId,
+            PowerupKind.FlameWave => FlameWavePowerupModelId,
+            PowerupKind.Quake => QuakePowerupModelId,
+            _ => ShieldPowerupModelId,
+        };
+        pu.Name = null;
+        pu.NameId = PowerupNameId;
+        pu.Disposition = 1;
+        pu.Scale = 1f;
+        pu.IsInteractable = false;
+        pu.InteractRange = 0;
+        pu.Visible = true;
+        pu.MaxHealth = 0;
+        pu.ShowHealthBar = false;
+        pu.HideNamePlate = true;
+        pu.ActiveProfile = 8;
+        pu.WalkAnimId = -1;
+        pu.RunAnimId = -1;
+        pu.StandAnimId = -1;
+        pu.MovementType = WolfMovementTypePhysics;
+        pu.RiderGuid = ulong.MaxValue;
+        pu.UpdatePosition(pos, Quaternion.Identity);
+
+        foreach (var p in ActivePlayers())
+        {
+            p.OnAddVisibleNpcs(pu);
+            pu.OnAddVisiblePlayers(p);
+        }
+
+        lock (_stateLock)
+            _powerups.Add((pu, kind));
+
+        _logger.LogInformation("Frostfang arena: dropped a {kind} powerup.", kind);
+    }
+
+    // Walk-over powerup collection. Instant kinds (Energy/Damage — the `_buff` model family) apply on
+    // pickup like the heart; held kinds (Flame Wave / Quake / Super Shield) go into action-bar slot 3
+    // for the "3" key (wiki), replacing whatever was held.
+    private void CollectPowerups(Player player)
+    {
+        List<(Npc Npc, PowerupKind Kind)>? collected = null;
+        lock (_stateLock)
+        {
+            for (var i = _powerups.Count - 1; i >= 0; i--)
+            {
+                var (p, k) = _powerups[i];
+                var dx = player.Position.X - p.Position.X;
+                var dz = player.Position.Z - p.Position.Z;
+                if (dx * dx + dz * dz > HeartPickupRange * HeartPickupRange)
+                    continue;
+                // ENERGY at a full bar stays on the ground (user design call) — it collects on a later
+                // walk-over once some energy has been spent. (Hearts intentionally NOT gated: the live
+                // player collected one at full HP.)
+                if (k == PowerupKind.Energy && CombatBuffs.IsEnergyFull?.Invoke(player) == true)
+                    continue;
+                (collected ??= []).Add(_powerups[i]);
+                _powerups.RemoveAt(i);
+            }
+        }
+
+        if (collected is null)
+            return;
+
+        foreach (var (pu, kind) in collected)
+        {
+            switch (kind)
+            {
+                case PowerupKind.Energy:
+                    // Instant refill (wiki: "Replenishes energy") — the ability handler owns the bar.
+                    CombatBuffs.RequestEnergyRefill(player);
+                    break;
+
+                case PowerupKind.Damage:
+                    // Capture-verbatim: ×1.33 outgoing damage for ~15s + barrier-rock loop on the body,
+                    // buff tag live-exact (idx 30275: type 2, ×1.33, 15s, icon 17351, ability 6213).
+                    CombatBuffs.AddDamageBuff(player.Guid, DamageBuffPct, DamageBuffMs);
+                    StatusEffects.ApplyBuffTag(player, 17351, PowerupNameId, DamageBuffMs,
+                        magnitude: DamageBuffPct / 100f, fxId: DamageBuffBodyFxId, abilityId: 6213,
+                        sourceGuid: pu.Guid);
+                    break;
+
+                default:
+                    lock (_stateLock)
+                        _heldPowerup = kind; // one at a time — a new pickup replaces the held one
+                    SendPowerupSlot(player);
+                    break;
+            }
+
+            _logger.LogInformation("Frostfang arena: player collected a {kind} powerup.", kind);
+
+            pu.GracefulRemoval = (false, 0, 5000, HeartPickupFxId, 1000);
+            pu.Dispose();
+        }
+    }
+
+    // The "3" key (action-bar slot index 2, routed from the ability handler): fire the held powerup.
+    // Returns false if nothing is held.
+    public bool UseHeldPowerup(Player player)
+    {
+        PowerupKind kind;
+        lock (_stateLock)
+        {
+            if (_heldPowerup is not { } held)
+                return false;
+            kind = held;
+            _heldPowerup = null;
+        }
+
+        var now = Environment.TickCount64;
+
+        // No use gesture existed in the real game — an anim only plays when one was set via !pufx.
+        var useAnim = kind switch
+        {
+            PowerupKind.FlameWave => FlameWaveAnimId,
+            PowerupKind.Quake => QuakeAnimId,
+            _ => ShieldAnimId,
+        };
+        if (useAnim > 0)
+        {
+            player.SendTunneled(new AbilityPacketStartCasting
+            {
+                Unknown = player.Guid,
+                Unknown2 = player.Guid,
+                Animation = useAnim,
+                AbilityId = 3,
+                ActionTime = 0.4f,
+                HasActionProgress = false,
+            });
+        }
+
+        switch (kind)
+        {
+            case PowerupKind.FlameWave:
+                // "Instantly damages all surrounding enemies."
+                Broadcast(new PlayerUpdatePacketPlayCompositeEffect
+                {
+                    Guid = player.Guid,
+                    CompositeEffectId = FlameWaveFxId,
+                    Position = player.Position,
+                });
+                DamageWolvesAround(player, FlameWaveRadius, FlameWaveDamage);
+                break;
+
+            case PowerupKind.Quake:
+                // "Damages all enemies around you and briefly stuns them" (Earth Shard).
+                Broadcast(new PlayerUpdatePacketPlayCompositeEffect
+                {
+                    Guid = player.Guid,
+                    CompositeEffectId = QuakeFxId,
+                    Position = player.Position,
+                });
+                DamageWolvesAround(player, QuakeRadius, QuakeDamage);
+                List<Npc> stunned = [];
+                lock (_stateLock)
+                {
+                    foreach (var wolf in _wolves)
+                    {
+                        var dx = wolf.Position.X - player.Position.X;
+                        var dz = wolf.Position.Z - player.Position.Z;
+                        if (dx * dx + dz * dz <= QuakeRadius * QuakeRadius &&
+                            _wolfStates.TryGetValue(wolf.Guid, out var state))
+                        {
+                            state.StunnedUntil = now + QuakeStunMs;
+                            stunned.Add(wolf);
+                        }
+                    }
+                }
+                // The stun must READ as a stun: real IsStunned state + stars-over-head (StatusEffects,
+                // auto-reverts) + knock the wolf down and stand it back up when the freeze ends.
+                foreach (var wolf in stunned)
+                {
+                    StatusEffects.Apply(wolf, StatusEffectKind.Stun, QuakeStunMs,
+                        baseline: (CharacterStatus)CharState_Charging, source: player);
+                    Broadcast(new PlayerUpdatePacketSetAnimation
+                    {
+                        Guid = wolf.Guid,
+                        AnimationId = WolfKnockDownAnimId,
+                    });
+                }
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(QuakeStunMs);
+                        foreach (var wolf in stunned)
+                            if (wolf.IsAlive)
+                                Broadcast(new PlayerUpdatePacketSetAnimation
+                                {
+                                    Guid = wolf.Guid,
+                                    AnimationId = WolfGetUpAnimId,
+                                });
+                    }
+                    catch { /* instance torn down mid-stun */ }
+                });
+                break;
+
+            case PowerupKind.Shield:
+                // "Increases your speed and makes you invulnerable for a few moments."
+                player.InvulnerableUntilTicks = now + ShieldMs;
+                // Buff-bar tag (shield icon + duration pie) + the blue-swirl barrier loop, live pairing.
+                StatusEffects.ApplyBuffTag(player, ShieldIconId, ShieldBuffNameId, ShieldMs,
+                    magnitude: ShieldSpeedMult, fxId: ShieldFxId);
+
+                var baseSpeed = player.Stats.TryGetValue(CharacterStatId.MaxMovementSpeed, out var speedStat)
+                    ? speedStat.Float
+                    : 8f;
+                player.UpdateCharacterStats(new CharacterStat(CharacterStatId.MaxMovementSpeed, baseSpeed * ShieldSpeedMult));
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(ShieldMs);
+                        if (player.Zone == this)
+                            player.UpdateCharacterStats(new CharacterStat(CharacterStatId.MaxMovementSpeed, baseSpeed));
+                    }
+                    catch { /* player left mid-buff */ }
+                });
+                break;
+        }
+
+        _logger.LogInformation("Frostfang arena: player used the held {kind} powerup.", kind);
+        SendPowerupSlot(player); // re-send the bar with slot 3 cleared
+        return true;
+    }
+
+    // Radial damage helper for the held offensive powerups (bypasses the energy gate).
+    private void DamageWolvesAround(Player player, float radius, int damage)
+    {
+        List<Npc> victims = [];
+        lock (_stateLock)
+        {
+            foreach (var wolf in _wolves)
+            {
+                if (!wolf.IsAlive || !wolf.IsDamageable)
+                    continue;
+                var dx = wolf.Position.X - player.Position.X;
+                var dz = wolf.Position.Z - player.Position.Z;
+                if (dx * dx + dz * dz <= radius * radius)
+                    victims.Add(wolf);
+            }
+        }
+
+        foreach (var wolf in victims)
+        {
+            var killed = wolf.ApplyDamage(damage);
+            Broadcast(new PlayerUpdatePacketHitPointModification
+            {
+                Guid = player.Guid,
+                Guid2 = wolf.Guid,
+                Unknown = true,
+                Unknown2 = wolf.MaxHealth,
+                Unknown3 = wolf.Health,
+                Unknown4 = -damage,
+            });
+            if (killed)
+                OnNpcKilled(player, wolf);
+        }
+    }
+
+    // Debug: "!pu <flame|quake|shield|energy>" — hand the player a powerup directly (skips the drop
+    // grind while tuning FX/feel). Held kinds land on the "3" key like a pickup.
+    public bool GrantPowerup(Player player, string kind)
+    {
+        switch (kind)
+        {
+            case "energy":
+                CombatBuffs.RequestEnergyRefill(player);
+                return true;
+            case "flame":
+                lock (_stateLock) _heldPowerup = PowerupKind.FlameWave;
+                break;
+            case "quake" or "earth":
+                lock (_stateLock) _heldPowerup = PowerupKind.Quake;
+                break;
+            case "shield":
+                lock (_stateLock) _heldPowerup = PowerupKind.Shield;
+                break;
+            default:
+                return false;
+        }
+
+        SendPowerupSlot(player);
+        return true;
+    }
+
+    // Debug: "!pufx <flame|quake|shield> <fxId> [animId]" — retarget a held powerup's use-FX (and
+    // optionally its use-animation) live (no wire ground truth exists; found by eye).
+    public static bool TrySetPowerupFx(string kind, int fxId, int? animId = null)
+    {
+        switch (kind)
+        {
+            case "flame":
+                FlameWaveFxId = fxId;
+                if (animId is { } fa) FlameWaveAnimId = fa;
+                return true;
+            case "quake" or "earth":
+                QuakeFxId = fxId;
+                if (animId is { } qa) QuakeAnimId = qa;
+                return true;
+            case "shield":
+                ShieldFxId = fxId;
+                if (animId is { } sa) ShieldAnimId = sa;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // Re-send the ability toolbar with the held powerup pinned at slot index 2 (the "3" key) — or
+    // cleared when nothing is held.
+    private void SendPowerupSlot(Player player)
+    {
+        AbilityPacketSetDefinition.Slot? slot = null;
+        lock (_stateLock)
+        {
+            slot = _heldPowerup switch
+            {
+                PowerupKind.FlameWave => JobWeaponAbilities.MakePowerupSlot(FlameWaveIconId, PowerupNameId),
+                PowerupKind.Quake => JobWeaponAbilities.MakePowerupSlot(QuakeIconId, PowerupNameId),
+                PowerupKind.Shield => JobWeaponAbilities.MakePowerupSlot(ShieldIconId, PowerupNameId),
+                _ => null,
+            };
+        }
+
+        player.SendTunneled(JobWeaponAbilities.BuildToolbar(player, _resourceManager, slot));
     }
 
     // ── Kills / waves / victory ─────────────────────────────────────────────────────────────────────
@@ -1214,9 +1610,12 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             var deathPos = npc.Position;
             npc.Dispose();
 
-            // Random mid-fight heart drop (video: the +125 pickup mid-fight).
+            // Random mid-fight drops: heart (video: the +125 pickup) and, on a separate roll, one of
+            // the wiki's powerups (Energy / Flame Wave / Earth Shard / Super Shield).
             if (_rng.Next(100) < HeartDropPercent)
                 SpawnHeart(killer, deathPos);
+            else if (_rng.Next(100) < PowerupDropPercent)
+                SpawnPowerup(killer, deathPos, DroppablePowerups[_rng.Next(DroppablePowerups.Length)]);
 
             if (scheduleWave)
                 ScheduleNextWave(killer, _encounterRun);
@@ -1296,18 +1695,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         SpawnCoinPop(player, alphaPos);
 
         // ★ CO-OP: award the win to EVERY party member in the arena (each gets their own goal
-        // complete, XP, quest credit, and loot-wheel prize). For a solo player this loops once.
-        var enemies = _killedSnarlers;
-        var knockoutsLeft = System.Math.Max(0, KnockoutLimit - KnockoutsUsed(player.Guid)); // real remaining lives
-        MiniGameGameEndScorePacket MakeScore()
-        {
-            var s = new MiniGameGameEndScorePacket();
-            s.Rows.Add(new MiniGameScoreRow { Name = "scoreEnemiesDefeated", Order = 0, Value = enemies, Points = enemies * 300 });
-            s.Rows.Add(new MiniGameScoreRow { Name = "scorePlayerKnockouts", Order = 3, Value = knockoutsLeft, Max = KnockoutLimit, Points = knockoutsLeft * 5000 });
-            s.Rows.Add(new MiniGameScoreRow { Name = "scoreTotalScore", Order = 4, Points = enemies * 300 + knockoutsLeft * 5000 });
-            return s;
-        }
-
+        // complete, XP, and quest credit). For a solo player this loops once.
         foreach (var member in ActivePlayers())
         {
             // Goal complete — op45/sub3 (green-check announce) + op47/sub3 (Goals-window row done).
@@ -1320,7 +1708,34 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
             // Credit any quest whose active goal is "win THIS encounter" (EncounterComplete id 174).
             _questManager.OnEncounterComplete(member, EncounterId);
+        }
 
+        // THE EXIT DOOR — spawned once, visible + clickable to all members. The loot wheel + score
+        // card fire on the FIRST DOOR CLICK (or walking up to it), NOT at the win moment — the
+        // user-confirmed live timing (the wheel-at-win teardown popped the card mid-arena).
+        SpawnExitDoor(player);
+
+        _logger.LogInformation("Frostfang arena: encounter WON — exit door out ({kills} kills).", _killedSnarlers);
+    }
+
+    // First door interaction (click or proximity) after the win: the loot wheel + score card + the
+    // win teardown for the whole party, ONCE. The card's own exit button (op41/109) then routes to
+    // LeaveEncounter -> ReturnHome; a second door click leaves too.
+    private void SendVictoryWheelAndScore()
+    {
+        var enemies = _killedSnarlers;
+        var knockoutsLeft = Math.Max(0, KnockoutLimit - KnockoutsUsed(0)); // pooled — guid unused
+        MiniGameGameEndScorePacket MakeScore()
+        {
+            var s = new MiniGameGameEndScorePacket();
+            s.Rows.Add(new MiniGameScoreRow { Name = "scoreEnemiesDefeated", Order = 0, Value = enemies, Points = enemies * 300 });
+            s.Rows.Add(new MiniGameScoreRow { Name = "scorePlayerKnockouts", Order = 3, Value = knockoutsLeft, Max = KnockoutLimit, Points = knockoutsLeft * 5000 });
+            s.Rows.Add(new MiniGameScoreRow { Name = "scoreTotalScore", Order = 4, Points = enemies * 300 + knockoutsLeft * 5000 });
+            return s;
+        }
+
+        foreach (var member in ActivePlayers())
+        {
             // Loot wheel — each member spins their OWN prize (server picks it; the spin is theater).
             // Must be the member's own active-job set (NameId matching — see GetPrizePreviewFor).
             var prizes = GetPrizePreviewFor(member);
@@ -1341,12 +1756,51 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
             member.SendTunneled(wheel);
             member.SendTunneled(MakeScore());
+            EndEncounterForPlayer(member, won: true); // teardown pops the persistent win card w/ wheel
         }
 
-        // THE EXIT DOOR — spawned once, visible + clickable to all members (each leaves on their own).
-        SpawnExitDoor(player);
+        _logger.LogInformation("Frostfang arena: victory wheel + score delivered at the door.");
+    }
 
-        _logger.LogInformation("Frostfang arena: encounter WON — wheel armed, exit door out ({kills} kills).", enemies);
+    public override void UseExitDoor(Player player)
+    {
+        bool first;
+        lock (_stateLock)
+        {
+            first = _won && !_victoryUiDone;
+            if (first)
+                _victoryUiDone = true;
+        }
+
+        if (first)
+        {
+            SendVictoryWheelAndScore();
+            return; // the player leaves via the card's exit button (or a second door click)
+        }
+
+        base.UseExitDoor(player);
+    }
+
+    // Post-Dec-2009 behavior: standing near the victory door for a moment auto-opens the score
+    // screen — no click needed (the click also works, and makes you invulnerable on live).
+    private const float DoorProximityRange = 3f;
+
+    private void CheckDoorProximity(Player player)
+    {
+        bool near;
+        lock (_stateLock)
+        {
+            if (!_won || _victoryUiDone || ExitDoor is not { } door)
+                return;
+            var dx = player.Position.X - door.Position.X;
+            var dz = player.Position.Z - door.Position.Z;
+            near = dx * dx + dz * dz <= DoorProximityRange * DoorProximityRange;
+            if (near)
+                _victoryUiDone = true;
+        }
+
+        if (near)
+            SendVictoryWheelAndScore();
     }
 
     // The live coin-pile pop: loot_coins_01 spawns at the Alpha's spot, gets a Knockback
@@ -1417,7 +1871,8 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         door.ModelId = DoorModelId;
         door.NameId = DoorNameId;
         door.Name = null;
-        door.Disposition = 0;           // live AddNpc ships 0, then flips neutral via sub28 below
+        door.Disposition = 1;           // spawn NEUTRAL: the nameplate color LOCKS at AddNpc, so live's
+                                        // 0-then-sub28-flip renders a RED name (play-test 2026-07-12)
         door.Scale = DoorScale;
         door.IsInteractable = true;
         door.InteractRange = DoorInteractRange;
@@ -1482,11 +1937,15 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         if (player.Zone != this)
             return; // already left
 
-        bool won;
+        bool won, tornDown;
         lock (_stateLock)
+        {
             won = _won;
+            tornDown = _victoryUiDone; // the door-click wheel/score burst already tore the UI down
+        }
 
-        EndEncounterForPlayer(player, won);
+        if (!tornDown)
+            EndEncounterForPlayer(player, won);
 
         var home = _zoneManager.StartingZone;
 

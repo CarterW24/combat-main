@@ -43,7 +43,7 @@ namespace Sanctuary.Game.Combat;
 // EnergyCost = what a NON-BASIC slot press drains from the 100-point energy bar (also the slot's
 //   ManaCost, which drives the client grey-out). Weapon specials keep the live-decoded full bar
 //   (100); extra job abilities can cost less so the bar supports more than one cast.
-public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0, float AoeRadius = 0f, int CastEffectStopMs = 0, int EnergyCost = 100);
+public sealed record WeaponAbility(string Name, int IconImageId, int Damage, int Animation, int EffectId, int CastEffectId = 0, int SummonCount = 0, int SwordEffectId = 0, int CasterEndEffectId = 0, int EnemyExtraEffectId = 0, float AoeRadius = 0f, int CastEffectStopMs = 0, int EnergyCost = 100, int BuffMultiplierPct = 0, int BuffDurationMs = 0, int PersistEffectId = 0, float Reach = 7f);
 
 public sealed record NinjaWeapon(WeaponAbility Melee, WeaponAbility Special);
 
@@ -208,7 +208,8 @@ public static class NinjaWeaponAbilities
 
     private static readonly NinjaWeapon MysticismKit = new(
         new("Mystic Rush",    MeleeIcon, 2608, MeleeAnimation, MeleeHitFx),
-        new("Mystical Blade",     22980, 3000, 1061141, 0, 0, 0, 16169)); // anim weapon_power (DEDICATED); empowers the WEAPON: 16169 WFX_beam-trail_blue-purple_ninja-mystical-blade binds to the SWORD slot (SwordEffectId); NO body/enemy FX (user round-2: only on my sword, not on any bodies)
+        new("Mystical Blade",     22980, 0, 1061141, 0, 0, 0, 16169,
+            BuffMultiplierPct: 200, BuffDurationMs: 15000)); // anim weapon_power (DEDICATED); empowers the WEAPON: 16169 WFX_beam-trail_blue-purple_ninja-mystical-blade binds to the SWORD slot; SPREADSHEET-CONFIRMED a pure buff, NO damage ("drastically increasing your attack power") — x2 melee damage for 15s (numbers provisional)
 
     private static readonly NinjaWeapon SoulPowerKit = new(
         new("Shadowslash",    MeleeIcon, 2609, MeleeAnimation, MeleeHitFx),

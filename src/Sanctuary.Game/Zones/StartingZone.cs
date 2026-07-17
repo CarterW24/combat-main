@@ -330,6 +330,34 @@ public sealed class StartingZone : BaseZone
     // ninja ability damage (from the wiki: 2609 melee .. 10674 special) would otherwise one-shot a 5000 dummy.
     private const int TrainingDummyMaxHealth = 50000;
 
+    // NAMECOLOR PROOF: "!namecolor [AARRGGBB]" spawns a dummy clone whose AddNpc carries a STATIC
+    // NameColor — live proof the field is an int ARGB. Re-running replaces the previous dummy.
+    private Npc? _nameColorTestDummy;
+
+    public void SpawnNameColorTestDummy(Player player, int argb)
+    {
+        _nameColorTestDummy?.Dispose();
+        _nameColorTestDummy = null;
+
+        if (!TryCreateNpc(out var npc))
+            return;
+
+        npc.ModelId = 4;                // same robgoblin as the training dummy
+        npc.Name = "Name Color Test";
+        npc.NameId = 0;
+        npc.NameColor = argb;           // static color — nonzero suppresses the disposition resolver
+        npc.ActiveProfile = 1;
+        npc.Scale = 1f;
+        npc.IsInteractable = false;
+        npc.Visible = true;
+
+        var pos = new Vector4(player.Position.X + 3f, player.Position.Y, player.Position.Z + 1f, 1f);
+        npc.UpdatePosition(pos, SpawnRotation);
+
+        player.OnAddVisibleNpcs(npc);
+        _nameColorTestDummy = npc;
+    }
+
     private void SpawnTrainingDummy(Player player)
     {
         if (_trainingDummy is null)

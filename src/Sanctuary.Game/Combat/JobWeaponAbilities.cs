@@ -99,4 +99,39 @@ public static class JobWeaponAbilities
             });
         }
     }
+
+    // Toolbar with a held powerup pinned at SLOT INDEX 2 — the "3" key. The on-screen 1/2/3/4 keys are
+    // ability-bar (Id=1) slots 0-3 and slots are POSITIONAL in this packet (no index field), so the
+    // powerup sits at list index 2 behind Type-0 fillers when slots 0/1 are empty.
+    public static AbilityPacketSetDefinition BuildToolbar(Player player, IResourceManager resources,
+        AbilityPacketSetDefinition.Slot? heldPowerup)
+    {
+        var def = BuildToolbar(player, resources)
+                  ?? AbilityPacketSetDefinition.CreateEmpty(player.ActiveProfileId);
+
+        if (heldPowerup is not null)
+        {
+            while (def.Slots.Count < 2)
+                def.Slots.Add(null);
+            if (def.Slots.Count == 2)
+                def.Slots.Add(heldPowerup);
+            else
+                def.Slots[2] = heldPowerup;
+        }
+
+        return def;
+    }
+
+    // A held-powerup toolbar slot (Flame Wave / Earth Shard / Super Shield). Reuses the proven-castable
+    // melee slot-def id so the client accepts the press; the server routes ability-bar slot 2 to the
+    // held-powerup use path.
+    public static AbilityPacketSetDefinition.Slot MakePowerupSlot(int iconId, int nameId) => new()
+    {
+        Type = 3,
+        Unknown2 = NinjaWeaponAbilities.MeleeAbilityDefId,
+        ManaCost = 0,
+        IconId = iconId,
+        NameId = nameId,
+        AbilityDefinitionId = NinjaWeaponAbilities.MeleeAbilityDefId,
+    };
 }

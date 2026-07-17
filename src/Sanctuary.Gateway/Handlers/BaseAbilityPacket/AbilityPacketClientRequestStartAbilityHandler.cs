@@ -163,6 +163,14 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
         _dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<DatabaseContext>>();
+
+        // Zones raise these (the ENERGY powerup / full-bar pickup gate); the energy bar lives here.
+        CombatBuffs.EnergyRefillRequested += player =>
+        {
+            _energy[player.Guid] = MaxEnergy;
+            SendEnergy(player, MaxEnergy);
+        };
+        CombatBuffs.IsEnergyFull = player => GetEnergy(player) >= MaxEnergy;
     }
 
     public static bool HandlePacket(GatewayConnection connection, ReadOnlySpan<byte> data)
@@ -178,6 +186,13 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         // DEATH: no acting while knocked out (can't swing/shoot/use items until you respawn).
         if (connection.Player.IsDead)
+            return true;
+
+        // STATUS-EFFECT AUTHORITY: the client already blocks these presses with its NoCast* messages —
+        // reject them server-side too. Silence blocks the ability bars but NOT the item bar (client rule).
+        if (StatusEffects.BlocksAbilities(connection.Player.Guid))
+            return true;
+        if (StatusEffects.IsSilenced(connection.Player.Guid) && packet.Data.Id != 2)
             return true;
 
         // Item bar (id 2) = consumables (boombox / cake / transform food); any other bar = combat ability.
@@ -727,6 +742,18 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         var player = connection.Player;
         var zone = player.Zone;
 
+        // Slot index 2 = the "3" key — a HELD POWERUP (Flame Wave / Earth Shard / Super Shield). Not a
+        // weapon ability: bypasses the energy gate and swing pacing. In the arena the zone owns it;
+        // anywhere else the overworld test bed (!pu / !puspawn -> HeldPowerupProbe) does.
+        if (packet.Data.Slot == 2)
+        {
+            if (zone is FrostfangArenaZone powerupArena)
+                powerupArena.UseHeldPowerup(player);
+            else
+                HeldPowerupProbe.TryUse(player, _resourceManager);
+            return true;
+        }
+
         // We DON'T enter world-combat just for pressing fire — entry is gated on actually hitting an enemy (see
         // EnterWorldCombat once a target resolves, + the re-stamp in ResolveDamageAfterCast). Swinging at air
         // animates but doesn't flag you. The killing blow keeps you in combat for the decay window so the bow
@@ -879,6 +906,46 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         if (ability.SummonCount > 0 && zone is StartingZone summonZone)
             summonZone.SummonShadowClones(player, ability.SummonCount, 12);
 
+        // PURE SELF-BUFFS (Mystical Blade "drastically increasing your attack power", brawler Enrage):
+        // no damage — multiply the caster's outgoing ability damage for the window, with the lingering
+        // body FX riding an effect tag for the same duration. Spreadsheet-confirmed behavior.
+        if (ability.BuffMultiplierPct > 0)
+        {
+            CombatBuffs.AddDamageBuff(player.Guid, ability.BuffMultiplierPct, ability.BuffDurationMs);
+            if (ability.PersistEffectId > 0)
+            {
+                var buffTagId = System.Threading.Interlocked.Increment(ref _castFxTagCounter);
+                player.SendTunneledToVisible(new PlayerUpdatePacketAddEffectTagCompositeEffect
+                {
+                    Guid = player.Guid,
+                    TagId = buffTagId,
+                    CompositeEffectId = ability.PersistEffectId,
+                    SourceGuid = player.Guid,
+                }, sendToSelf: true);
+                var buffMs = ability.BuffDurationMs;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(buffMs);
+                        player.SendTunneledToVisible(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
+                        {
+                            Guid = player.Guid,
+                            TagId = buffTagId,
+                        }, sendToSelf: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Buff persist-FX stop failed.");
+                    }
+                });
+            }
+
+            _logger.LogInformation("Ability slot {slot} = '{name}' self-buff ×{pct}% for {ms}ms.",
+                packet.Data.Slot, ability.Name, ability.BuffMultiplierPct, ability.BuffDurationMs);
+            return true;
+        }
+
         // AOE specials (AoeRadius > 0) hit EVERY live hostile within the radius of the CASTER — the whole
         // pack, not just the selected target. Single-target abilities keep the resolved target.
         System.Collections.Generic.List<Npc> targets;
@@ -958,7 +1025,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
                     // Archer traits (basic + specials): Precision adds flat damage + crit chance, Marksmanship
                     // makes crits hit harder. Rolled per hit so AoE specials can crit some targets and not others.
-                    var hitDamage = ApplyArcherTraitDamage(player, damage);
+                    // Then the active self-buff multiplier (Mystical Blade / Enrage / the damage powerup).
+                    var hitDamage = CombatBuffs.ApplyDamage(player.Guid, ApplyArcherTraitDamage(player, damage));
 
                     var killed = target.ApplyDamage(hitDamage);
 

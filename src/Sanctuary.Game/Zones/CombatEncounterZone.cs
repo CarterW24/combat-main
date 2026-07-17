@@ -42,8 +42,10 @@ public abstract class CombatEncounterZone : BaseZone
     // Knockouts before the encounter fails (retail = 5).
     protected const int KnockoutLimit = 5;
 
+    // POOLED across the whole group (wiki: "any group member knocked out detracts from everyone's
+    // total allowed") — not per-player.
     private readonly object _knockoutLock = new();
-    private readonly Dictionary<ulong, int> _knockouts = [];
+    private int _knockouts;
 
     // Encounter/activity id + instance for the client encounter packets (respawn window etc.).
     protected abstract int FailEncounterId { get; }
@@ -85,18 +87,18 @@ public abstract class CombatEncounterZone : BaseZone
     // GameOver, and the score card comes from the zone's win flow / SendFailEndScreen), and the teleport goes
     // out with it — which is the behavior that actually works in-game.
 
-    // Forget a player's knockout tally (call on encounter start/complete so a fresh run starts at 0).
+    // Reset the shared pool (call on encounter start/complete so a fresh run starts at 0).
     protected void ResetKnockouts(ulong guid)
     {
         lock (_knockoutLock)
-            _knockouts.Remove(guid);
+            _knockouts = 0;
     }
 
-    // How many times this player has been knocked out this run (for the win-screen score).
+    // The group's shared knockout count this run (for the win-screen score).
     protected int KnockoutsUsed(ulong guid)
     {
         lock (_knockoutLock)
-            return _knockouts.TryGetValue(guid, out var k) ? k : 0;
+            return _knockouts;
     }
 
     // Enter the encounter at full REAL max HP + mana (Stats[MaxHealth]) so the bar matches the
@@ -134,7 +136,7 @@ public abstract class CombatEncounterZone : BaseZone
             return _exitDoor is { } door && door.Guid == guid;
     }
 
-    public void UseExitDoor(Player player)
+    public virtual void UseExitDoor(Player player)
     {
         // WIN: the victory door tears down + teleports home. EndEncounterForPlayer(won: true) raises the
         // "You Win!" card on the way out; the player reads/closes it once they're back. (Waiting for them to
@@ -327,42 +329,47 @@ public abstract class CombatEncounterZone : BaseZone
 
         int kos;
         lock (_knockoutLock)
-        {
-            _knockouts.TryGetValue(player.Guid, out kos);
-            kos++;
-            _knockouts[player.Guid] = kos;
-        }
+            kos = ++_knockouts; // POOLED group budget
 
-        _logger.LogInformation("{label}: {name} knocked out ({kos}/{limit}).", EncounterLogName, player.Name, kos, KnockoutLimit);
+        _logger.LogInformation("{label}: {name} knocked out ({kos}/{limit} group pool).", EncounterLogName, player.Name, kos, KnockoutLimit);
 
-        // Drop the fighting flags either way (so sub125 shows the auto-recover version, not the overworld
-        // pay/safe one).
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        // NO IsFighting/OverworldCombat toggles here: live sends neither in-encounter, and their absence
+        // (from the entry burst onward) is what keeps sub125 in the dungeon-countdown mode — sending
+        // true at entry was the wrong-window cause (play-test 2026-07-15).
+
+        // The pooled counter reaches EVERY member (shared budget display).
+        Broadcast(new MiniGameKnockOutPacket(kos, KnockoutLimit));
 
         if (kos >= KnockoutLimit)
         {
-            // Out of lives — FAIL. Persistent "TRY AGAIN!" end-screen (SendFailEndScreen: clears the knockdown
-            // UI + Won=0 + score card), HOLD it, THEN tear down + teleport home and REVIVE so the player arrives
-            // ALIVE (a fail used to strand them knocked out, which blocked firing even through a job-swap).
-            // The hold is a timer because the client never reports the card being closed — see the note on
-            // the result cards above.
-            SendFailEndScreen(player);
+            // Pool exhausted — the run is lost for the WHOLE GROUP (shared budget). Persistent
+            // "TRY AGAIN!" end-screen for every member (SendFailEndScreen: clears the knockdown UI +
+            // Won=0 + score card), HOLD it, THEN tear down + teleport home and REVIVE so each player
+            // arrives ALIVE (a fail used to strand them knocked out, which blocked firing even through
+            // a job-swap). The hold is a timer because the client never reports the card being closed.
+            var members = new List<Player>(Players);
+            foreach (var member in members)
+                SendFailEndScreen(member);
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await Task.Delay(FailCardHoldMs);
-                    ReturnHome(player);
-                    player.Respawn();
+                    foreach (var member in members)
+                    {
+                        if (member.Zone != this)
+                            continue;
+                        ReturnHome(member);
+                        member.Respawn();
+                    }
                 }
                 catch (Exception ex) { _logger.LogError(ex, "Fail-return failed."); }
             });
             return;
         }
 
-        // Non-fatal knockout — show the recover window + counter; auto-revive is the fallback.
-        player.SendTunneled(new MiniGameKnockOutPacket(kos, KnockoutLimit));
+        // Non-fatal knockout — the downed player's recover window (10s countdown, free in-instance
+        // revive); auto-revive is the fallback. Counter already broadcast above.
         player.SendTunneled(new EncounterShowRespawnWindowPacket(FailEncounterId, FailInstanceId));
         ScheduleAutoRevive(player);
     }
@@ -373,10 +380,17 @@ public abstract class CombatEncounterZone : BaseZone
         var pos = player.DeathPosition;
         player.Respawn();
 
+        // op41/126 (header-only) fires RespawnWindow:Hide — closes the countdown window and restores
+        // keyboard/movement (IDA sub_90D830; the play-verified 125 -> 122 -> 126 loop).
+        var hide = new EncounterHideRespawnWindowPacket();
+        hide.Unknown = FailEncounterId;
+        hide.Unknown2 = FailInstanceId;
+        player.SendTunneled(hide);
+
         if (player.Zone == this)
         {
-            player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = true });
-            player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = true });
+            // No IsFighting/OverworldCombat re-arm: live sends neither in-encounter (see the entry-burst
+            // note) — re-arming them here would flip the NEXT knockout to the paid overworld window.
             player.UpdatePosition(pos, player.Rotation);
             player.SendTunneled(new ClientUpdatePacketUpdateLocation
             {
