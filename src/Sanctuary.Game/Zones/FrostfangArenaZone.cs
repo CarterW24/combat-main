@@ -187,6 +187,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
     private const int GoalScareWolves = 12642;
     private const int GoalScareWolvesNameId = 104176;
+    private const int GoalKnockoutBudget = 12288; // "Don't get knocked out 5 times!" — activated, no Goals row (live)
     private const int GoalScareWolvesDescId = 104177;
 
     public const int CombatProfileType = 2;
@@ -400,6 +401,14 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 };
 
                 player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit));
+                // Live activates TWO objectives (capture 28045/28047): the knockout-budget goal
+                // ("Don't get knocked out 5 times!", id 12288, total 5 — no Goals-window row) THEN
+                // the scare-wolves goal.
+                player.SendTunneled(new ObjectiveActivatePacket
+                {
+                    ObjectiveId = GoalKnockoutBudget,
+                    Total = KnockoutLimit,
+                });
                 player.SendTunneled(new ObjectiveActivatePacket
                 {
                     ObjectiveId = GoalScareWolves,
@@ -412,6 +421,15 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 player.SendTunneled(MakeLaunch());
                 player.SendTunneled(ScareWolvesRow());
                 player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit));
+                // Capture 28075: enable effect-tag composite rendering (live re-sends the login tags
+                // right after — why the buff FX render in-encounter).
+                player.SendTunneled(new PlayerUpdatePacketEffectTagCompositeEffectsEnable { Enable = true });
+                // Capture 28116: the PLAYER's character state set to the baseline bit, right before op62.
+                player.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
+                {
+                    Guid = player.Guid,
+                    Status = (CharacterStatus)CharState_Baseline,
+                });
                 player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules());
                 player.SendTunneled(MakeEnter(player.Guid));
 
