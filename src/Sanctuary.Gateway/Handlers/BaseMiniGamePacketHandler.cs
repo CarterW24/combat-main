@@ -17,27 +17,12 @@ using Sanctuary.Packet.Common.Attributes;
 
 namespace Sanctuary.Gateway.Handlers;
 
-// INSTANCE WIP (Frostfang Fury): C2S dispatcher for BaseMiniGamePacket (op39) — ported from the team's
-// `minigame` branch. LIVE TEST 1 (2026-07-01) taught us the GO! button does NOT send op41/sub108
-// (EncounterParticipantRequestEntrance) as assumed — the only thing we logged was CommandPacket sub42
-// ClosedMinigameEndScreen (the panel closing). The branch's flow says starting a minigame sends
-// op39/sub5 MiniGameStartGame -> server acks with sub17 GameStart. This handler observe-logs EVERY op39
-// sub-opcode and treats sub5 as the GO! press: ack + enter the Frostfang arena.
 [PacketHandler]
 public static class BaseMiniGamePacketHandler
 {
-    // op39 sub-opcodes (byte-sized!) from the minigame branch.
-    private const byte MiniGameStartGame = 5;              // C2S — pressing GO!/start on a minigame offer panel
-    private const byte LootWheelOnRotationStopped = 46;    // C2S — the victory wheel finished spinning (04-01 idx 38115)
+    private const byte MiniGameStartGame = 5;
+    private const byte LootWheelOnRotationStopped = 46;
 
-    // The Battle Item Mystery Pack wheel prize: on live (04-01 idx 38142) it opened INSTANTLY into
-    // battle items. Client locale (DescriptionId 6667): "This prize grants the winner 3 battle items!".
-    // The real loot TABLE was server-side and is lost — the pack def's Param1 = 636 is its table id
-    // (the same 636 echoes as the trailing int of the live contents banner). RECONSTRUCTED pool: the
-    // six Cost-50 combat SPHERES — the family the one captured opening drew from (3x Flabbergast) and
-    // the same set duplicated as grant-copies right next to the pack's id block (10516-10520):
-    //   Sleep 3011 · Unmoving 3013 · Flabbergast 3015 · Frag 3025 · Blast 3074 · Confusion 3089.
-    // One random sphere type x3 (the live grant was a single 3x stack). Weights unknown -> uniform.
     private const int MysteryPackDefId = 10482;
     private const int MysteryPackContentsCount = 3;
     private const int MysteryPackTableId = 636;
@@ -74,16 +59,10 @@ public static class BaseMiniGamePacketHandler
             LootWheelOnRotationStopped => HandleLootWheelStopped(connection),
             MiniGameEndPacket.OpCode => MiniGameEndPacketHandler.HandlePacket(connection, reader.Span),
             MiniGamePayloadPacket.OpCode => MiniGamePayloadPacketHandler.HandlePacket(connection, reader.Span),
-            // observe-only: log-and-accept unknown minigame sub-opcodes while we reverse the family
             _ => true
         };
     }
 
-    // ★ LOOT WHEEL PAYOUT (op39/sub46, body = base 3 ints only). The wheel finished spinning on the
-    // prize WE preselected in FrostfangArenaZone.WinEncounter (SetItemToLandOn) — grant it now, exactly
-    // like the live server did after 04-01 idx 38115: inventory add/update + RewardBundlePacket
-    // (op50/sub1) grant banners. Mystery Pack opens into battle items (contents banner first, then the
-    // prize banner — the live order).
     private static bool HandleLootWheelStopped(GatewayConnection connection)
     {
         var player = connection.Player;
@@ -100,7 +79,6 @@ public static class BaseMiniGamePacketHandler
 
         if (prize is null)
         {
-            // COINS slice.
             GrantCoins(connection, coins);
             connection.SendTunneled(new RewardBundlePacket { Coins = coins, Unknown15 = 957 });
             _logger.LogInformation("Loot wheel payout: {coins} coins -> {name}.", coins, player.Name);
@@ -115,7 +93,6 @@ public static class BaseMiniGamePacketHandler
             return true;
         }
 
-        // Plain item prize.
         var granted = GrantItem(connection, prize.ItemDefId, prize.Quantity);
         if (granted is not null)
             connection.SendTunneled(new RewardBundlePacket { IconId = prize.IconId, NameId = prize.NameId, Unknown15 = 957 });
@@ -126,9 +103,6 @@ public static class BaseMiniGamePacketHandler
         return true;
     }
 
-    // Open one Battle Item Mystery Pack: roll a sphere from the reconstructed loot table,
-    // grant 3 to inventory, send the contents banner. Public so the "!pack" test command can sample
-    // the distribution without replaying the encounter — each roll logs "Mystery Pack -> 3x ...".
     public static void OpenMysteryPack(GatewayConnection connection)
     {
         var sphereDefId = MysteryPackSpherePool[_rng.Next(MysteryPackSpherePool.Length)];
@@ -153,16 +127,12 @@ public static class BaseMiniGamePacketHandler
             });
         }
 
-        // Sphere names for the log (defs don't carry the comment string):
-        // 3011 Sleep · 3013 Unmoving · 3015 Flabbergast · 3025 Frag · 3074 Blast · 3089 Confusion.
         _logger.LogInformation("Mystery Pack -> {n}x sphere def {def} for {name} ({ok}).",
             MysteryPackContentsCount, sphereDefId, connection.Player.Name, contents is not null ? "granted" : "GRANT FAILED");
     }
 
     private sealed record GrantedItem(int ItemGuid, ClientItemDefinition? Definition);
 
-    // Add an item to the player's persistent inventory + live client state (same DB/packet
-    // flow as the coin-store buy handler, minus the cost). Returns the inventory item guid.
     private static GrantedItem? GrantItem(GatewayConnection connection, int definitionId, int quantity)
     {
         if (!_resourceManager.ClientItemDefinitions.TryGetValue(definitionId, out var definition))
@@ -265,7 +235,6 @@ public static class BaseMiniGamePacketHandler
 
     private static bool HandleStartGame(GatewayConnection connection, PacketReader reader)
     {
-        // body: [int StateId][int GroupId][int GameId]
         if (!reader.TryRead(out int stateId) || !reader.TryRead(out int groupId) || !reader.TryRead(out int gameId))
         {
             _logger.LogWarning("MiniGameStartGame: short body ( {hex} ) — acking anyway.", Convert.ToHexString(reader.Span));
@@ -275,8 +244,6 @@ public static class BaseMiniGamePacketHandler
         _logger.LogInformation("MiniGameStartGame (GO! pressed): StateId={state} GroupId={group} GameId={game}",
             stateId, groupId, gameId);
 
-        // Same entry as the sub108 GO! path: proper server-side zone transfer into the arena
-        // (also sends the GameStart ack).
         EncounterParticipantRequestEntranceHandler.EnterFrostfangArena(connection);
 
         return true;

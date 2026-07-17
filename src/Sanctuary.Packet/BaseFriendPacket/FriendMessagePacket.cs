@@ -1,4 +1,4 @@
-﻿using Sanctuary.Core.IO;
+using Sanctuary.Core.IO;
 using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Packet;
@@ -13,7 +13,6 @@ public class FriendMessagePacket : BaseFriendPacket, ISerializablePacket
 
     public NameData Name = new();
 
-    // Used by FriendNameChanged
     public NameData NewName = new();
 
     public FriendMessagePacket() : base(OpCode)

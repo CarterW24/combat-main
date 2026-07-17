@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -28,8 +28,6 @@ public static class ActivityPacketActivityListRefreshRequestHandler
         }
 
         _logger.LogTrace("Received {name} packet.", nameof(ActivityPacketActivityListRefreshRequest));
-
-        // TODO
 
         return true;
     }

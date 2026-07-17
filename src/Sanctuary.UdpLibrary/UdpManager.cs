@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -21,24 +21,13 @@ using Sanctuary.UdpLibrary.Statistics;
 
 namespace Sanctuary.UdpLibrary;
 
-// The purpose of the UdpManager is to manage a set of connections that are coming in on a particular port.
-// Typically an application will only have one UdpManager taking care of all incoming connections.  The
-// exception is if the application is talking to two distinct sets of individuals.  For example, the leaf
-// server application might have a UdpManager to manage the connections to all the users/players who will
-// be connecting.  It may then have a second UdpManager to manage its connection to a master server
-// someplace (though in theory it could use one UdpManager for everything).
-// The UdpManager owns the solitary socket that all data being sent/received by any of the managed connections uses.
-// When the UdpManager is created, it is given a port-number that it uses for this purpose.  The UdpManager is capable
-// of establishing new connections to other UdpManager, or it is also capable of accepting new connections.
 public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnection : UdpConnection
 {
     private readonly Lock _clockGuard = new();
-    // private readonly Lock _poolGuard = new();
     private readonly Lock _eventListGuard = new();
     private readonly Lock _availableEventGuard = new();
     private readonly Lock _statsGuard = new();
     private readonly Lock _disconnectPendingGuard = new();
-    // private readonly Lock _simulateGuard = new();
     private readonly Lock _giveTimeGuard = new();
     private readonly Lock _connectionGuard = new();
     private readonly Lock _handlerGuard = new();
@@ -56,7 +45,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
     protected UdpClockStamp LastEmptySocketBufferStamp;
 
-    // how long the currently being processed packet could have possibly been sitting in the socket-buffer waiting for processing (which is effectively how long it has been since we last quit polling packets from the socket queue)
     public UdpClockStamp ProcessingInducedLag { get; private set; }
 
     protected ErrorCondition ErrorCondition;
@@ -73,10 +61,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
     private int RandomSeed;
 
-    // TODO Pooling
-    // private PooledQueue<PooledLogicalPacket> PoolCreatedList = new();
-    // private PooledQueue<PooledLogicalPacket> PoolAvailableList = new();
-
     private int EventListBytes;
     private LinkedList<CallbackEvent> EventList = new();
     private LinkedList<CallbackEvent> AvailableEventList = new();
@@ -86,7 +70,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
     public bool EventQueuing
     {
-        // don't allow changing of queuing mode while inside GiveTime from another thread
 
         get
         {
@@ -109,48 +92,35 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
     public UdpManager(UdpParams udpParams, IServiceProvider serviceProvider)
     {
-        // negative ClockSyncDelay is not allowed (makes no sense)
         ArgumentOutOfRangeException.ThrowIfNegative(udpParams.ClockSyncDelay);
 
-        // crc bytes must be between 0 and 4
         ArgumentOutOfRangeException.ThrowIfNegative(udpParams.CrcBytes);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(udpParams.CrcBytes, 4);
 
-        // illegal encryption method specified
         for (var i = 0; i < Constants.EncryptPasses; i++)
         {
             ArgumentOutOfRangeException.ThrowIfNegative((byte)udpParams.EncryptMethod[i]);
             ArgumentOutOfRangeException.ThrowIfGreaterThan((byte)udpParams.EncryptMethod[i], 4);
         }
 
-        // a hash table size greater than zero is required
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(udpParams.HashTableSize, 0);
 
-        // raw packet size must be at least 64 bytes
         ArgumentOutOfRangeException.ThrowIfLessThan(udpParams.MaxRawPacketSize, 64);
 
-        // incoming socket buffer size must be at least as big as one raw packet
         ArgumentOutOfRangeException.ThrowIfLessThan(udpParams.IncomingBufferSize, udpParams.MaxRawPacketSize);
 
-        // keep alive delay can't be negative
         ArgumentOutOfRangeException.ThrowIfNegative(udpParams.KeepAliveDelay);
 
-        // port alive delay can't be negative
         ArgumentOutOfRangeException.ThrowIfNegative(udpParams.PortAliveDelay);
 
-        // must have at least 1 connection allowed
         ArgumentOutOfRangeException.ThrowIfLessThan(udpParams.MaxConnections, 1);
 
-        // outgoing socket buffer must larger than a raw packet size
         ArgumentOutOfRangeException.ThrowIfLessThan(udpParams.OutgoingBufferSize, udpParams.MaxRawPacketSize);
 
-        // packet history must be at least 1
         ArgumentOutOfRangeException.ThrowIfLessThan(udpParams.PacketHistoryMax, 1);
 
-        // port cannot be negative
         ArgumentOutOfRangeException.ThrowIfNegative(udpParams.Port);
 
-        // if encryption expansion is larger than raw packet size, we are screwed
         ArgumentOutOfRangeException.ThrowIfGreaterThan(udpParams.UserSuppliedEncryptExpansionBytes + udpParams.UserSuppliedEncryptExpansionBytes2, udpParams.MaxRawPacketSize);
 
         for (var i = 0; i < Constants.ReliableChannelCount; i++)
@@ -203,7 +173,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
         AddressHashTable = new ConcurrentDictionary<int, TConnection>(Environment.ProcessorCount, Params.HashTableSize);
 
-        // rarely used, so make it a fraction of the main tables size
         ConnectCodeHashTable = new ConcurrentDictionary<int, TConnection>(Environment.ProcessorCount, Math.Max(Params.HashTableSize / 5, 10));
 
         if (Params.PortRange == 0)
@@ -278,8 +247,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
             if (Params.EventQueuing && EventList.Count > 0)
             {
-                // if we have events queued and we are not in queuing mode, we must deliver those events
-                // before we can actually do a give time (this should only happen when the queuing mode is changed on the fly)
                 DeliverEvents(maxPollingTime);
                 return true;
             }
@@ -299,10 +266,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
                 {
                     var curStamp = CachedClock;
 
-                    // TODO: Packet History
-
-                    // TODO: Simulation
-
                     var res = _driver.SocketReceive(_buffer, _socketAddress);
 
                     if (res < 0)
@@ -320,17 +283,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
                     var data = _buffer.AsSpan(0, res);
 
-                    // if the application takes too long to process packets, or doesn't give the UdpManager frequent enough time via GiveTime
-                    // then it's possible that we will have a clock-sync packet that is sitting in the socket buffer waiting to be processed
-                    // we don't want the applications inability to give us frequent processing time to totally whack up the clock sync stuff
-                    // so we have the clock-sync code ignore clock-sync packets that get stalled in the socket buffer for too long because our
-                    // application is busy processing other packets that were queued before it, or because the application paused for a long
-                    // time before calling GiveTime.
-                    // note: this is intended to prevent cpu induced stalls from causing a sync packet to appear to take longer.  For example
-                    // if the player is on a modem, it's possible for the socket-buffer to fill up while the application is stalled and cause the
-                    // the sync-packet to actually get stalled at the terminal buffer on the other end up of the modem.  When the application starts
-                    // processing again, it will empty the socket-buffer, but then the get an empty-socket-buffer briefly until the terminal server
-                    // can send the rest of the buffered packets on over.  A large client side receive socket buffer may help in this regard.
                     ProcessingInducedLag = CachedClockElapsed(LastEmptySocketBufferStamp);
 
                     found = true;
@@ -353,17 +305,7 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
             {
                 if (PriorityQueue is not null)
                 {
-                    // give time to everybody in the priority-queue that needs it
                     var curPriority = CachedClock;
-
-                    // at the time we start processing the priority queue, we should effectively be taking a snap-shot
-                    // of everybody who needs time, before we give anybody time.  Otherwise, it is possible that in the
-                    // process of giving one connection time, another connection could get bumped up the queue to the point
-                    // where it needs time now as well (for example, one connection sending another connection data during the
-                    // give time phase).  Although very rare, in theory this could result in an infinite loop situation.
-                    // To solve this, we simply set the earliest time period that somebody can schedule for to 1 ms after
-                    // the current time stamp that we are processing, effectively making it impossible for any connection
-                    // to be given time twice in the same interation of the loop below
 
                     lock (_connectionGuard)
                     {
@@ -405,8 +347,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
                 ProcessDisconnectPending();
             }
-
-            // TODO Simulation
 
             return found;
         }
@@ -537,7 +477,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
                 if (ConnectionList.Count >= Params.MaxConnections)
                     return;
 
-                // Skip protocol version
                 reader.Advance(4);
 
                 if (!reader.TryReadInt32(out int connectCode))
@@ -561,9 +500,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
                 {
                     if (zeroByte == 0 && packetType == (byte)UdpPacketType.RequestRemap)
                     {
-                        // ok, we got a packet from somebody, that we don't know who they are, but, it appears they are asking
-                        // for their address/port to be remapped.  If we allow port (and/or address) remapping, then go ahead
-                        // an honor their request if possible
 
                         if (!reader.TryReadInt32(out int connectCode))
                             return;
@@ -580,11 +516,9 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
                             if (Params.AllowAddressRemapping || curCon.EndPoint.Address == ipEndPoint.Address)
                             {
-                                // one final security check to ensure these are really the same connection, compare encryption codes
 
                                 if (curCon.ConnectionConfig.EncryptCode == encryptCode)
                                 {
-                                    // remapping is allowed, remap ourselves to the address of the incoming request
 
                                     lock (_connectionGuard)
                                     {
@@ -603,18 +537,10 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
                     }
                 }
 
-                // got a packet from somebody and we don't know who they are and the packet we got was not a connection request
-                // just in case they are a previous client who thinks they are still connected, we will send them an internal
-                // packet telling them that we don't know who they are
                 if (Params.ReplyUnreachableConnection)
                 {
-                    // do not reply back with unreachable if the packet coming in is a terminate or unreachable packet itself
                     if (zeroByte != 0 || (zeroByte == 0 && packetType != (byte)UdpPacketType.UnreachableConnection && packetType != (byte)UdpPacketType.Terminate))
                     {
-                        // since we do not have a connection-object associated with this incoming packet, there is no way we could
-                        // encrypt it or add CRC bytes to it, since we have no idea what the other end of the connection is expecting
-                        // in this regard.  As such, the UnreachableConnection packet (like the connect and confirm packets) is one
-                        // of those internal packet types that is designated as not being encrypted or CRC'ed.
                         Span<byte> buf = [0, (byte)UdpPacketType.UnreachableConnection];
                         ActualSend(buf, buf.Length, socketAddress);
                     }
@@ -691,18 +617,14 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
         ManagerStats.BytesSent += dataLen;
         ManagerStats.PacketsSent++;
 
-        // TODO: Simulation
-
         ActualSendHelper(data, dataLen, socketAddress);
     }
 
     private void ActualSendHelper(ReadOnlySpan<byte> data, int dataLen, SocketAddress socketAddress)
     {
-        // TODO: Simulation
 
         if (!_driver.SocketSend(data.Slice(0, dataLen), socketAddress))
         {
-            // assume a send error is a socket overflow, which we track only for statistical purposes
             lock (_statsGuard)
             {
                 ManagerStats.SocketOverflowErrors++;
@@ -714,9 +636,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
     {
         lock (_connectionGuard)
         {
-            // do not ever let anybody schedule themselves for processing time sooner then mMinimumScheduledStamp
-            // otherwise, they could end up getting processing time multiple times in a single UdpManager::GiveTime iteration
-            // of the priority queue, which under odd circumstances could result in an infinite loop
             if (stamp < MinimumScheduledStamp)
                 stamp = MinimumScheduledStamp;
 
@@ -732,12 +651,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
 
             if (totalLen <= Params.PooledPacketSize)
             {
-                // TODO Pooling
-                /* if (!PoolAvailableList.TryDequeue(out var lp))
-                {
-                    // create a new pooled packet to fulfil request
-                    lp = new PooledLogicalPacket(Params.PooledPacketSize);
-                } */
 
                 var lp = new PooledLogicalPacket(Params.PooledPacketSize);
 
@@ -926,7 +839,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
                 serverAddress = serverAddress.Substring(0, portIndex);
             }
 
-            // can't connect to no ip/port
             if (string.IsNullOrEmpty(serverAddress) || serverPort == 0)
                 return null;
 
@@ -934,12 +846,11 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
                 return null;
 
             if (!_driver.GetHostByName(out var destIp, serverAddress))
-                return null; // could not resolve name
+                return null;
 
             var endPoint = new IPEndPoint(destIp, serverPort);
             var socketAddress = endPoint.Serialize();
 
-            // first, see if we already have a connection object managing this ip/port, if we do, then fail
             var con = AddressGetConnection(socketAddress);
 
             if (con is not null)
@@ -958,10 +869,6 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
         lock (_statsGuard)
         {
             stats = ManagerStats;
-
-            // TODO Pooling
-            // stats.PoolAvailable = PoolAvailableList.Count;
-            // stats.PoolCreated = PoolCreatedList.Count;
 
             lock (_disconnectPendingGuard)
             {
@@ -1071,15 +978,8 @@ public class UdpManager<TConnection> : IUdpManager, IDisposable where TConnectio
             DisconnectPendingList.Clear();
         }
 
-        // TODO Pooling
-        /* lock (_poolGuard)
-        {
-            PoolCreatedList.Clear();
-        } */
-
         if (Params.LingerDelay != 0)
         {
-            // sleep momentarily before closing socket to give it a chance to empty the socket buffer if there is something in it
             _driver.Sleep(Params.LingerDelay);
         }
 

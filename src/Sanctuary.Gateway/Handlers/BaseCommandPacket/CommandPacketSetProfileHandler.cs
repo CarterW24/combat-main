@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -45,11 +45,8 @@ public static class CommandPacketSetProfileHandler
 
         connection.Player.ActiveProfileId = packet.Id;
 
-        // Each job has its own level, so switching jobs rescales HP/mana/stats to the new job's rank.
         connection.Player.RecalculateStats(refill: true);
 
-        // Refresh the (now-active) job's trait list to its current rank so the Traits panel is right after a
-        // swap too, not just at login.
         connection.Player.RefreshTraits();
 
         var clientUpdatePacketActivateProfile = new ClientUpdatePacketActivateProfile();
@@ -62,14 +59,11 @@ public static class CommandPacketSetProfileHandler
 
         clientUpdatePacketActivateProfile.Attachments = connection.Player.GetAttachments();
 
-        clientUpdatePacketActivateProfile.Animation = 3001; // emo_outfit_all
-        clientUpdatePacketActivateProfile.CompositeEffect = 4005; // PFX_Job_Swirl
+        clientUpdatePacketActivateProfile.Animation = 3001;
+        clientUpdatePacketActivateProfile.CompositeEffect = 4005;
 
         connection.SendTunneled(clientUpdatePacketActivateProfile);
 
-        // COMBAT: on swap to any kit job (ninja/archer), populate the ability toolbar from the
-        // EQUIPPED WEAPON (same builder zone-load + equip use, FX cache warmed for first casts).
-        // No kit weapon equipped => empty bar.
         if (JobWeaponAbilities.SendToolbarWithFxPreload(connection.Player, _resourceManager))
         {
             _logger.LogInformation("Sent weapon-driven ability SetDefinition on swap to profile {id}.", profile.Id);

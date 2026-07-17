@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -33,34 +33,22 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
     private static readonly ConcurrentDictionary<ulong, ConcurrentDictionary<int, DateTimeOffset>> _itemCooldowns = new();
 
-    // Back to the normal standing idle after a boombox dance.
     private const int BoomboxIdleAnimId = 1;
 
-    // How long a boombox stays out, which is also its use cooldown.
     private const int BoomboxDurationMs = 120_000;
 
     private const int FoodEffectCooldownMs = 120_000;
 
-    // Basic attack is essentially spammable (2014 capture: presses as fast as 0.17s apart, no real cooldown).
-    // StartCasting ActionTime locks the action-bar slot: tiny window for the basic, short wind-up for specials.
-    private const float MeleeActionTime = 0.15f;   // slot 0 basic attack — spammable, matches live cadence
-    private const float SpecialActionTime = 0.4f;  // slot 1 named special — a real wind-up
-    private const float MeleeDamageDelay = 0.15f;  // number pops as the fast swing lands
-    private const float SpecialDamageDelay = 0.4f; // number pops at the end of the special's animation
+    private const float MeleeActionTime = 0.15f;
+    private const float SpecialActionTime = 0.4f;
+    private const float MeleeDamageDelay = 0.15f;
+    private const float SpecialDamageDelay = 0.4f;
 
-    // Basic attack resolves ONE swing per animation, not per key-press (the client can fire faster than the
-    // clip plays). Pacing is server-side: gate basic resolution to the swing cadence; presses inside the window
-    // are ignored so the animation plays fully and one number lands per swing. ~0.66s between hits (2014-04-01
-    // capture median 0.662s; sub-0.1s bursts are AoE specials). Specials are rate-gated by energy instead.
     private const int BasicSwingMs = 660;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, long> _nextBasicSwingTicks = new();
 
-    // Energy (from the 2014-04-01 capture): max 100, regen +4/s time-based (full refill 25s, in & out of combat,
-    // no kill chunks). Special (slot 1) costs the whole bar (100); basic (slot 0) costs nothing. Reported on the
-    // same op38/sub13 ClientUpdatePacketMana the real server used.
     private const int MaxEnergy = 100;
-    private const int SpecialEnergyCost = NinjaWeaponAbilities.SpecialEnergyCost; // 100 — shared with the toolbar's slot ManaCost (client grey-out)
-    // Live value = 4 (25s refill, 04-01 capture). Bump locally for faster energy while iterating.
+    private const int SpecialEnergyCost = NinjaWeaponAbilities.SpecialEnergyCost;
     private const int EnergyRegenPerSec = 4;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, int> _energy = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, bool> _regenRunning = new();
@@ -70,12 +58,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     private static void SendEnergy(Player player, int energy) =>
         player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = energy, MaxMana = MaxEnergy });
 
-    // Time-based +4/sec regen loop, running only while the player's energy is below max (mirrors the real
-    // server, which only streamed op38/sub13 while the bar was refilling).
     private static void StartEnergyRegen(Player player)
     {
         if (!_regenRunning.TryAdd(player.Guid, true))
-            return; // already regenerating
+            return;
 
         _ = Task.Run(async () =>
         {
@@ -100,12 +86,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         });
     }
 
-    // Archer traits (passive, on basic + specials): Precision L5 (+dmg/+crit chance), Marksmanship L10 (crits
-    // harder), Lucky Shot L20 (hit sometimes restores energy); Reflexes L15 = run speed + dodge (elsewhere).
-    // Levels/magnitudes in ArcherWeaponAbilities.
-
-    // Apply the Archer damage traits to one hit: Precision's flat bonus + crit-chance, and (on a
-    // crit) Marksmanship's extra crit damage. Returns the final damage for this hit.
     private static int ApplyArcherTraitDamage(Player player, int baseDamage)
     {
         var dmg = (float)baseDamage;
@@ -113,7 +93,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         if (ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.PrecisionLevel))
             dmg *= 1f + ArcherWeaponAbilities.PrecisionDamageBonus;
 
-        // Crit chance: base + Precision's bonus (only archers with Precision roll crits here).
         var critChance = 0;
         if (ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.PrecisionLevel))
             critChance = ArcherWeaponAbilities.BaseCritChancePercent + ArcherWeaponAbilities.PrecisionCritChanceBonus;
@@ -129,8 +108,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         return Math.Max(1, (int)dmg);
     }
 
-    // Lucky Shot (L20): a chance on each landed hit to refund a little energy (and kick the regen
-    // loop so the bar visibly ticks up).
     private static void TryLuckyShotEnergy(Player player)
     {
         if (!ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.LuckyShotLevel))
@@ -147,11 +124,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         SendEnergy(player, next);
     }
 
-    // The ability comes from the pressed slot + equipped weapon (the job kit): slot 0 = melee, slot 1 = the
-    // weapon's special. Damage / animation / hit-FX all from that table.
-
-    // Unique effect-tag ids for the lingering cast-FX plays (start high to stay clear of
-    // the zones' heal-shower tag range).
     private static int _castFxTagCounter = 5000;
 
     public static int? DebugAnimationOverride;
@@ -164,7 +136,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
         _dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<DatabaseContext>>();
 
-        // Zones raise these (the ENERGY powerup / full-bar pickup gate); the energy bar lives here.
         CombatBuffs.EnergyRefillRequested += player =>
         {
             _energy[player.Guid] = MaxEnergy;
@@ -184,18 +155,14 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         _logger.LogInformation("AbilityPacket: Id={Id} Slot={Slot}", packet.Data.Id, packet.Data.Slot);
 
-        // DEATH: no acting while knocked out (can't swing/shoot/use items until you respawn).
         if (connection.Player.IsDead)
             return true;
 
-        // STATUS-EFFECT AUTHORITY: the client already blocks these presses with its NoCast* messages —
-        // reject them server-side too. Silence blocks the ability bars but NOT the item bar (client rule).
         if (StatusEffects.BlocksAbilities(connection.Player.Guid))
             return true;
         if (StatusEffects.IsSilenced(connection.Player.Guid) && packet.Data.Id != 2)
             return true;
 
-        // Item bar (id 2) = consumables (boombox / cake / transform food); any other bar = combat ability.
         if (packet.Data.Id == 2)
             return HandleItemAbility(connection, packet);
 
@@ -228,8 +195,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         if (_resourceManager.Consumables.Cakes.TryGetValue(itemDefinition.Id, out var cakeDefinition))
             return HandleCake(connection, packet.Data.Slot, clientItem, itemDefinition, cakeDefinition);
 
-        // Random-transform foods (e.g. Jack-O-Lantern) roll one of their listed
-        // transformations instead of using the item's fixed ability id.
         var transformAbilityId = itemDefinition.ActivatableAbilityId;
 
         if (_resourceManager.Consumables.RandomTransformFoods.TryGetValue(itemDefinition.Id, out var randomFood) && randomFood.TransformAbilityIds.Length > 0)
@@ -487,7 +452,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
                 scareReadyTime = DateTimeOffset.UtcNow.AddMilliseconds(cakeDefinition.ScareCooldownMs);
 
-                // Every scare group and transform is equally likely.
                 var roll = Random.Shared.Next(cakeDefinition.ScareGroups.Length + cakeDefinition.TransformAbilityIds.Length);
 
                 if (roll < cakeDefinition.ScareGroups.Length)
@@ -559,8 +523,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         boomboxNpc.TextureAlias = itemDefinition.TextureAlias ?? "";
         boomboxNpc.TintAlias = itemDefinition.TintAlias ?? "";
         boomboxNpc.Scale = 1.0f;
-        boomboxNpc.Animation = 2100; // Bouncing animation
-        boomboxNpc.CompositeEffectId = effectId; // Owned by the entity, so the client stops it on RemovePlayer
+        boomboxNpc.Animation = 2100;
+        boomboxNpc.CompositeEffectId = effectId;
         boomboxNpc.HideNamePlate = true;
         boomboxNpc.IsInteractable = false;
 
@@ -572,14 +536,13 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             connection.Player.Position.W
         );
 
-        // Visible must be set before UpdatePosition so the zone tile system sends AddNpc to players in range.
         boomboxNpc.Visible = true;
         boomboxNpc.UpdatePosition(spawnPosition, connection.Player.Rotation);
 
         var poofEffect = new PlayerUpdatePacketPlayCompositeEffect
         {
             Guid = boomboxNpc.Guid,
-            CompositeEffectId = 21, // PFX_smoke_black_explosion
+            CompositeEffectId = 21,
             Position = spawnPosition,
             Clear = false
         };
@@ -588,7 +551,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         if (!boomboxNpc.VisiblePlayers.ContainsKey(connection.Player.Guid))
         {
-            // Spawner is outside zone tile range, send the packets manually.
             connection.Player.SendTunneled(boomboxNpc.GetAddNpcPacket());
             poofRecipients.Insert(0, connection.Player);
         }
@@ -608,7 +570,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         var dancing = new HashSet<ulong>();
         var elapsedMs = 0;
-        var sinceSwitch = SwitchMs; // so a dance starts on the first tick
+        var sinceSwitch = SwitchMs;
         var sequenceIndex = 0;
         var previousAnim = -1;
         var currentAnim = 0;
@@ -624,8 +586,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 return;
             }
 
-            // Rotate to the next dance when due. Only flag a change when the id actually
-            // differs, so single-dance boomboxes don't restart the crowd every rotation.
             var animChanged = false;
 
             if (sinceSwitch >= SwitchMs)
@@ -654,8 +614,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             var newcomers = inRange.Where(p => !dancing.Contains(p.Guid)).ToList();
             dancing = inRangeGuids;
 
-            // On a rotation, re-sync the whole crowd so it stays phase-locked. Otherwise just
-            // start late arrivals on the current dance without hitching everyone else.
             if (animChanged)
                 SyncDance(inRange, currentAnim);
             else if (newcomers.Count > 0)
@@ -727,12 +685,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
     internal static void RemoveTransform(GatewayConnection connection)
         => connection.Player.RemoveTemporaryAppearance();
 
-    // COMBAT (combat branch): an ability-bar press — resolve the target + the equipped weapon's ability,
-    // play the cast, then resolve damage. See NinjaWeaponAbilities for the slot -> ability mapping.
     private static bool HandleCombatAbility(GatewayConnection connection, AbilityPacketClientRequestStartAbility packet, ReadOnlySpan<byte> data)
     {
-        // COMBAT WIP: capture the live client->server StartAbility fields so we can map
-        // action-bar slots to abilities and implement real resolution. Remove/lower once mapped.
         _logger.LogInformation(
             "StartAbility: ActionBar.Id={id} Slot={slot} Target={target} Guid={guid} Pos=({px},{py},{pz},{pw}) Raw={raw}",
             packet.Data.Id, packet.Data.Slot, packet.Target, packet.Guid,
@@ -742,9 +696,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         var player = connection.Player;
         var zone = player.Zone;
 
-        // Slot index 2 = the "3" key — a HELD POWERUP (Flame Wave / Earth Shard / Super Shield). Not a
-        // weapon ability: bypasses the energy gate and swing pacing. In the arena the zone owns it;
-        // anywhere else the overworld test bed (!pu / !puspawn -> HeldPowerupProbe) does.
         if (packet.Data.Slot == 2)
         {
             if (zone is FrostfangArenaZone powerupArena)
@@ -754,14 +705,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             return true;
         }
 
-        // We DON'T enter world-combat just for pressing fire — entry is gated on actually hitting an enemy (see
-        // EnterWorldCombat once a target resolves, + the re-stamp in ResolveDamageAfterCast). Swinging at air
-        // animates but doesn't flag you. The killing blow keeps you in combat for the decay window so the bow
-        // auto-fires at the next enemy after a kill.
-
-        // Resolve the target: honor the client's selected-enemy guid if it sent one; otherwise hit the nearest
-        // live hostile within reach (a swing at nothing whiffs — StartCasting plays, no damage). (Old code
-        // grabbed the first hostile anywhere in the zone — the "random wolf across the arena gets hit" bug.)
         Npc? targetNpc = null;
 
         if (packet.Guid != 0 && zone.TryGetNpc(packet.Guid, out var selected) && selected.IsDamageable && selected.IsAlive)
@@ -770,12 +713,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         }
         else
         {
-            // Auto-target for an unselected swing = nearest live hostile within range (the SOE server chose the
-            // target when the client sent Target=0; "nearest in range" reconstructs it). The range cap stops the
-            // "random far wolf gets hit" bug; closest (not first-in-list) hits the one on you. No facing cone —
-            // the client only sends facing while moving, so a cone whiffs when you stand still. Horizontal (X/Z)
-            // radius. Melee = 7u (04-01 capture: 37 hits ran 0.6–9.2, median 2.3; 7 is forgiving of tick lag
-            // without grabbing far wolves — lower toward 5 if grabby). Archers use the bow range instead.
             var attackReach = JobWeaponAbilities.AutoTargetReach(player);
             var reach2 = attackReach * attackReach;
             var best2 = reach2;
@@ -798,28 +735,20 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         var targetGuid = targetNpc?.Guid ?? (packet.Guid != 0 ? packet.Guid : player.Guid);
 
-        // Resolve the ability from the pressed slot + equipped weapon for the ACTIVE JOB's kit
-        // (slot 0 = basic attack/shot, slot 1 = the weapon's named special).
         var ability = JobWeaponAbilities.ResolveAbility(player, packet.Data.Slot);
 
-        // Basic attack (slot 0) is fast/spammable; specials wind up. This controls both the client-side
-        // slot lock (StartCasting.ActionTime) and when the damage number resolves.
         var isBasicMelee = packet.Data.Slot <= 0;
         var actionTime = isBasicMelee ? MeleeActionTime : SpecialActionTime;
         var damageDelay = isBasicMelee ? MeleeDamageDelay : SpecialDamageDelay;
 
-        // Pace the basic attack to the swing animation: drop presses that arrive before the current swing
-        // finishes so we get one swing + one damage number per animation, not one per key-press.
         if (isBasicMelee && BasicSwingMs > 0)
         {
             var now = Environment.TickCount64;
             if (_nextBasicSwingTicks.TryGetValue(player.Guid, out var next) && now < next)
-                return true; // still mid-swing — ignore this extra click (no cast, no number)
+                return true;
             _nextBasicSwingTicks[player.Guid] = now + BasicSwingMs;
         }
 
-        // Energy gate (non-basic slots): each ability drains its EnergyCost (weapon specials = full 100, archer
-        // level abilities = 50). Can't afford it => drop the press. Matches the server-gated special.
         if (!isBasicMelee)
         {
             var cost = ability.EnergyCost;
@@ -833,13 +762,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
             var remaining = energy - cost;
             _energy[player.Guid] = remaining;
-            SendEnergy(player, remaining);   // op38/sub13: bar drops by the cost
-            StartEnergyRegen(player);        // begin the +4/sec refill
+            SendEnergy(player, remaining);
+            StartEnergyRegen(player);
         }
 
-        // Lingering cast FX (CastEffectStopMs > 0: projectile trails / loops that never self-terminate): play as
-        // an effect tag on the caster and remove after the window, so the trail flashes with the shot instead of
-        // lingering. One-shot cast FX keep riding StartCasting's CompositeEffectId.
         var startCastingFx = ability.CastEffectId;
         if (startCastingFx > 0 && ability.CastEffectStopMs > 0)
         {
@@ -872,43 +798,32 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             });
         }
 
-        // COMBAT WIP: respond to an ability press with a real StartCasting (proven to render a cast bar
-        // + play the caster's animation) instead of the AbilityPacketFailed stub.
         var startCasting = new AbilityPacketStartCasting
         {
             Unknown = player.Guid,            // caster
             Unknown2 = targetGuid,            // target
-            CompositeEffectId = startCastingFx, // one-shot FX on the caster during the cast
-            Animation = DebugAnimationOverride ?? ability.Animation, // override via !anim for live probing
-            AbilityId = packet.Data.Slot + 1, // cast identifier (not visual-critical)
+            CompositeEffectId = startCastingFx,
+            Animation = DebugAnimationOverride ?? ability.Animation,
+            AbilityId = packet.Data.Slot + 1,
             ActionTime = actionTime,
-            HasActionProgress = false,        // no cast/progress bar for a basic melee swing
+            HasActionProgress = false,
         };
 
-        // Broadcast the cast to everyone who can see the caster (not just their own screen) so party members
-        // see each other's moves/FX. Was caster-only, which is why teammates saw enemies die but not the moves.
         player.SendTunneledToVisible(startCasting, sendToSelf: true);
 
-        // Weapon-empowering specials (Mysticism / Mystical Blade) bind their FX to the sword (item slot 7)
-        // instead of the body. SlotCompositeEffectOverride op35/sub31: Guid + slot + composite effect.
         if (ability.SwordEffectId > 0)
         {
             player.SendTunneledToVisible(new PlayerUpdatePacketSlotCompositeEffectOverride
             {
                 Guid = player.Guid,
-                Slot = NinjaWeaponAbilities.WeaponSlot, // 7 = the equipped weapon
+                Slot = NinjaWeaponAbilities.WeaponSlot,
                 CompositeEffect = ability.SwordEffectId,
             }, sendToSelf: true);
         }
 
-        // COMBAT WIP: Shadow Army (any special with SummonCount>0) spawns temporary shadow-clone NPCs
-        // around the caster (using the caster's model), then they poof away after a few seconds.
         if (ability.SummonCount > 0 && zone is StartingZone summonZone)
             summonZone.SummonShadowClones(player, ability.SummonCount, 12);
 
-        // PURE SELF-BUFFS (Mystical Blade "drastically increasing your attack power", brawler Enrage):
-        // no damage — multiply the caster's outgoing ability damage for the window, with the lingering
-        // body FX riding an effect tag for the same duration. Spreadsheet-confirmed behavior.
         if (ability.BuffMultiplierPct > 0)
         {
             CombatBuffs.AddDamageBuff(player.Guid, ability.BuffMultiplierPct, ability.BuffDurationMs);
@@ -946,8 +861,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             return true;
         }
 
-        // AOE specials (AoeRadius > 0) hit EVERY live hostile within the radius of the CASTER — the whole
-        // pack, not just the selected target. Single-target abilities keep the resolved target.
         System.Collections.Generic.List<Npc> targets;
         if (ability.AoeRadius > 0)
         {
@@ -975,8 +888,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             return true;
         }
 
-        // A real enemy is being engaged (at least one live hostile target) — NOW enter world-combat. Gating it
-        // here (instead of on every key press) is what stops firing into empty air from flagging you in-combat.
         player.EnterWorldCombat();
 
         _logger.LogInformation("Ability slot {slot} = '{name}' (dmg {dmg}, anim {anim}, fx {fx}, targets {count})",
@@ -988,10 +899,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         return true;
     }
 
-
-    // After the cast bar completes: apply damage, play the hit FX, push each health bar, kill/respawn at 0 HP.
-    // Runs off-thread so the cast time elapses first. AoE specials pass the whole in-radius pack (one
-    // HitPointModification per victim in a burst, like the 04-01 capture).
     private static void ResolveDamageAfterCast(Player player, System.Collections.Generic.IReadOnlyList<Npc> targets,
         int damage, int effectId, float damageDelay, int casterEndEffectId = 0, int enemyExtraEffectId = 0)
     {
@@ -1001,13 +908,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             {
                 await Task.Delay((int)(damageDelay * 1000));
 
-                // Landing a hit puts you in world-combat (sub132 SetInWorldCombat + sub133 SetIsFighting),
-                // which opens the client's floating-damage-number gate and job-locks while fighting (released by
-                // the decay). Player owns the state machine, so getting HIT enters it too.
                 player.EnterWorldCombat();
 
-                // Caster-side end FX plays ONCE regardless of how many victims (e.g. Dragonstrike's land FX).
-                // Broadcast to visible players (sendToSelf) so teammates see it too.
                 if (casterEndEffectId > 0)
                 {
                     player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
@@ -1021,17 +923,12 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 foreach (var target in targets)
                 {
                     if (!target.IsAlive)
-                        continue; // e.g. died to an earlier hit this same tick
+                        continue;
 
-                    // Archer traits (basic + specials): Precision adds flat damage + crit chance, Marksmanship
-                    // makes crits hit harder. Rolled per hit so AoE specials can crit some targets and not others.
-                    // Then the active self-buff multiplier (Mystical Blade / Enrage / the damage powerup).
                     var hitDamage = CombatBuffs.ApplyDamage(player.Guid, ApplyArcherTraitDamage(player, damage));
 
                     var killed = target.ApplyDamage(hitDamage);
 
-                    // Impact FX on the victim (the ability's EffectId). HitPointModification has no effect field,
-                    // so play it explicitly (the switch away from AttackProcessed had dropped every impact FX).
                     if (effectId > 0)
                     {
                         player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
@@ -1042,8 +939,6 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                         }, sendToSelf: true);
                     }
 
-                    // EnemyExtraEffectId plays an ADDITIONAL effect on each victim on top of the hit FX
-                    // (e.g. Soul Power's purple ring around the enemy).
                     if (enemyExtraEffectId > 0)
                     {
                         player.SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
@@ -1054,31 +949,22 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                         }, sendToSelf: true);
                     }
 
-                    // Deal the player's own hits via HitPointModification (op35/35), NOT AttackProcessed:
-                    // AttackProcessed resets the action-bar melee timer when attacker == local player (the [1]
-                    // cooldown bug); HitPointModification gives the number + bar + recoil without touching it.
-                    // Wire (04-01): Guid=source(player), Guid2=victim, leading bool=01, i2=maxHP, i3=curHP-after,
-                    // i4=-damage.
                     player.SendTunneledToVisible(new PlayerUpdatePacketHitPointModification
                     {
-                        Guid = player.Guid,           // source / attacker
-                        Guid2 = target.Guid,          // victim
+                        Guid = player.Guid,
+                        Guid2 = target.Guid,
                         Unknown = true,               // player->NPC sample had the leading bool = 01
                         Unknown2 = target.MaxHealth,  // max HP (bar denominator)
                         Unknown3 = target.Health,     // current HP AFTER the hit (bar position)
                         Unknown4 = -hitDamage,        // delta = -damage -> the floating number
                     }, sendToSelf: true);
 
-                    // ARCHER TRAIT — Lucky Shot (L20): a landed hit sometimes restores a little energy.
                     TryLuckyShotEnergy(player);
 
                     _logger.LogInformation(
                         "Ability hit {name} ({guid}) for {dmg} -> {hp}/{max} HP (killed={killed})",
                         target.Name, target.Guid, hitDamage, target.Health, target.MaxHealth, killed);
 
-                    // Route the kill to the zone (OnNpcKilled): starting zone resets the training dummy, Frostfang
-                    // advances the encounter. Non-fatal hits go to OnNpcDamaged so the zone can react to HP
-                    // thresholds (the Alpha flees at low health instead of dying).
                     if (killed)
                         player.Zone.OnNpcKilled(player, target);
                     else

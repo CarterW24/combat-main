@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -40,7 +40,7 @@ public static class PacketBaseInGamePurchaseHandler
             PacketInGamePurchaseAccountInfoRequest.OpCode => PacketInGamePurchaseAccountInfoRequestHandler.HandlePacket(connection, reader.Span),
             PacketInGamePurchaseStoreBundleContentRequest.OpCode => PacketInGamePurchaseStoreBundleContentRequestHandler.HandlePacket(connection, reader.Span),
             InGamePurchaseUpdateItemRequirementsRequest.OpCode => InGamePurchaseUpdateItemRequirementsRequestHandler.HandlePacket(connection),
-            29 => true, // PacketInGamePurchaseStoreClientStatistics: client-side analytics, no response needed
+            29 => true,
             _ => false
         };
 

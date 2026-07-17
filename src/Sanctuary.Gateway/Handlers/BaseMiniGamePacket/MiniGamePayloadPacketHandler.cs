@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Text;
 
@@ -31,7 +31,6 @@ public static class MiniGamePayloadPacketHandler
 
         _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(MiniGamePayloadPacket), packet);
 
-        // Mining Practice
         if (packet.StateId == 1113)
         {
             var message = Encoding.UTF8.GetString(packet.Payload).TrimEnd('\0');

@@ -10,7 +10,6 @@ public sealed class PartyManager : IPartyManager
 {
     private readonly ILogger _logger;
 
-    // player guid -> the party they belong to (or are the founding leader of).
     private readonly ConcurrentDictionary<ulong, Party> _partyByPlayer = new();
 
     public PartyManager(ILoggerFactory loggerFactory)
@@ -23,7 +22,6 @@ public sealed class PartyManager : IPartyManager
 
     public Party? Invite(Player inviter, Player target)
     {
-        // Target already in a party -> can't invite.
         if (_partyByPlayer.ContainsKey(target.Guid))
         {
             _logger.LogInformation("Party invite refused: {target} is already grouped.", target.Name);
@@ -33,7 +31,6 @@ public sealed class PartyManager : IPartyManager
         var party = GetParty(inviter);
         if (party is null)
         {
-            // First invite creates the inviter's party (they become the founding leader).
             party = new Party(inviter);
             _partyByPlayer[inviter.Guid] = party;
             _logger.LogInformation("Party created by leader {leader}.", inviter.Name);
@@ -47,7 +44,6 @@ public sealed class PartyManager : IPartyManager
         if (party.IsFull)
         {
             _logger.LogInformation("Party invite refused: party is full.");
-            // If we just created an empty-ish party for a full check that can't happen; leave it.
             return null;
         }
 
@@ -58,7 +54,6 @@ public sealed class PartyManager : IPartyManager
 
     public Party? Accept(Player target)
     {
-        // Find the party that invited this player.
         foreach (var party in _partyByPlayer.Values)
         {
             if (!party.HasPendingInvite(target.Guid))
@@ -106,7 +101,6 @@ public sealed class PartyManager : IPartyManager
         if (party is null || !party.IsLeader(leader) || leader.Guid == memberGuid)
             return;
 
-        // Resolve the kicked member from the party roster.
         foreach (var member in party.Members)
         {
             if (member.Guid != memberGuid)
@@ -127,7 +121,7 @@ public sealed class PartyManager : IPartyManager
         if (!_partyByPlayer.TryRemove(player.Guid, out var party))
             return null;
 
-        var collapsed = party.Remove(player); // true if <2 members remain
+        var collapsed = party.Remove(player);
         _logger.LogInformation("Party: {player} removed.", player.Name);
 
         if (collapsed)
@@ -145,6 +139,5 @@ public sealed class PartyManager : IPartyManager
         _logger.LogInformation("Party disbanded (leader {leader}).", party.LeaderGuid);
     }
 
-    // Drop every remaining member's mapping (a sub-two party is torn down completely).
     private void Disband(Party party) => DisbandParty(party);
 }

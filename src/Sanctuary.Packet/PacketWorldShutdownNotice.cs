@@ -1,4 +1,4 @@
-﻿using Sanctuary.Core.IO;
+using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
@@ -6,7 +6,6 @@ public class PacketWorldShutdownNotice : ISerializablePacket
 {
     public const short OpCode = 92;
 
-    // Time remaining in seconds.
     public int TimeRemaining;
 
     public string Reason = null!;

@@ -86,7 +86,6 @@ public class ResourceManager : IResourceManager
     public NpcVendorCollection NpcVendors { get; }
     public NpcDefinitionCollection Npcs { get; }
 
-
     public ConsumableCollection Consumables { get; }
 
     public QuestDefinitionCollection Quests { get; }
@@ -215,7 +214,6 @@ public class ResourceManager : IResourceManager
 
         if (!Npcs.Load(NpcsFile))
             return false;
-
 
         if (!Consumables.Load(ConsumablesFile))
             return false;

@@ -164,16 +164,12 @@ public static class InventoryPacketEquipByGuidHandler
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange);
 
-        // COMBAT: equipping a weapon (slot 7) on any kit job (ninja/archer) refreshes the ability
-        // toolbar to match the new weapon's granted abilities (item-driven — see JobWeaponAbilities)
-        // and warms the FX cache so the new weapon's first casts render.
         if (packet.Slot == 7 && JobWeaponAbilities.SendToolbarWithFxPreload(connection.Player, _resourceManager))
         {
             _logger.LogInformation("Refreshed ability toolbar after equipping weapon definition {def} (profile {profile}).",
                 clientItemDefinition.Id, connection.Player.ActiveProfileId);
         }
 
-        // Update the Weapon composite effect if we have a Flair Shard equipped.
         if (packet.Slot == 13)
         {
             if (profile.Items.TryGetValue(7, out var weaponProfileItem))

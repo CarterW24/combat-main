@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -41,33 +41,23 @@ public static class WallOfDataUIEventPacketHandler
         Console.WriteLine($"[DEBUG] Packet deserialized successfully: TableName={packet.TableName}, Callback={packet.Callback}, Param={packet.Param}");
         _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(WallOfDataUIEventPacket), packet);
 
-        // ATLAS FAST-TRAVEL: clicking a marker on the world map sends this UI event (TableName=Atlas,
-        // Callback=teleportPlayerToPointOfInterest, Param=<POI id>). The client teleports itself locally,
-        // but without a server-side zone handshake the client froze (no HUD, can't move) on POIs that sit
-        // across a streaming/region boundary — "some dungeons freeze, some don't". Do the teleport
-        // server-authoritatively with a proper same-world re-entry so the load handshake always completes.
         if (packet.TableName == "Atlas" && packet.Callback == "teleportPlayerToPointOfInterest"
             && int.TryParse(packet.Param, out var poiId))
         {
             return HandleAtlasTeleport(connection, poiId);
         }
 
-        // Handle claim code redemption
         if (packet.Callback == "redeemCode" && !string.IsNullOrEmpty(packet.Param))
         {
             Console.WriteLine($"[DEBUG] Calling HandleClaimCode with code: {packet.Param}");
             return HandleClaimCode(connection, packet.Param);
         }
 
-        // The "My Pets" browser panel opens via this UI event rather than a raw PetBasePacket
-        // request, so re-push the pet list here in case the client only renders on this trigger.
         if (packet.Callback is "ShowPets" or "GotoMyPets")
         {
             return HandleShowPets(connection);
         }
 
-        // DIAGNOSTIC: mirroring the pet fix for mounts, to test whether resending on this UI
-        // event is enough to populate a browser list panel, or if the whole approach is wrong.
         if (packet.Callback is "ShowMounts" or "GotoMyMounts")
         {
             return HandleShowMounts(connection);
@@ -90,14 +80,6 @@ public static class WallOfDataUIEventPacketHandler
         var target = poi.SpawnPosition != default ? poi.SpawnPosition : poi.Position;
         var rotation = new System.Numerics.Quaternion(MathF.Sin(poi.Heading), 0f, MathF.Cos(poi.Heading), 0f);
 
-        // SEAMLESS same-world teleport (no full-zone reload). The client's own atlas teleport moved it
-        // locally but the server did nothing, so the server kept streaming the OLD location's NPCs while
-        // the client was at the new spot — the desync that froze the client (no HUD, can't move). A full
-        // BeginZoning re-entry fixed that but added a multi-second LOAD SCREEN that itself reads as a
-        // freeze. Instead: move the player server-side (UpdatePosition streams the destination's NPCs —
-        // incl. the dungeon entrance on this spot — via the tile system) AND command the client to warp
-        // in place (server-initiated UpdateLocation, the same recipe the safe-teleport uses). No reload,
-        // no load screen, server + client stay in sync.
         player.UpdatePosition(target, rotation);
 
         player.SendTunneled(new ClientUpdatePacketUpdateLocation
@@ -192,7 +174,6 @@ public static class WallOfDataUIEventPacketHandler
             return true;
         }
 
-        // Reject if the player already has any of the bundle items
         if (connection.Player.Items.Any(x => itemDefs.Any(d => d.Id == x.Definition)))
         {
             _logger.LogInformation("Player {Guid} already redeemed code {Code}", connection.Player.Guid, code);
@@ -216,12 +197,10 @@ public static class WallOfDataUIEventPacketHandler
             newItems.Add(newItem);
         }
 
-        // Send all item definitions in one packet
         using var defWriter = new Core.IO.PacketWriter();
         defWriter.Write(itemDefs.ToArray());
         connection.SendTunneled(new PlayerUpdatePacketItemDefinitions { Payload = defWriter.Buffer });
 
-        // Send one ItemAdd packet per item
         foreach (var item in newItems)
         {
             using var writer = new Core.IO.PacketWriter();
@@ -241,7 +220,6 @@ public static class WallOfDataUIEventPacketHandler
     private static void SendRedemptionNotification(GatewayConnection connection, bool success)
     {
         connection.SendTunneled(new KeyCodeRedemptionNotificationPacket { Success = success });
-        // Empty bundle list dismisses the "Processing... Please Wait" spinner in the Claim window
         connection.SendTunneled(new PromotionalBundleDataPacket());
         _logger.LogInformation("Sent KeyCodeRedemptionNotificationPacket (Success={Success})", success);
     }

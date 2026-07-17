@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,7 +43,6 @@ public static class ListQueuesRequestPacketHandler
         {
             new MatchmakingQueueDefinition
             {
-                // Pirate's Plunder
                 Id = 5,
                 NameId = 427834,
                 MatchType = 13,
@@ -68,7 +67,6 @@ public static class ListQueuesRequestPacketHandler
             },
             new MatchmakingQueueDefinition
             {
-                // Soccer
                 Id = 11,
                 NameId = 31030,
                 MatchType = 12,
@@ -93,7 +91,6 @@ public static class ListQueuesRequestPacketHandler
             },
             new MatchmakingQueueDefinition
             {
-                // Kart Racing
                 Id = 21,
                 NameId = 426304,
                 MatchType = 10,
@@ -118,7 +115,6 @@ public static class ListQueuesRequestPacketHandler
             },
             new MatchmakingQueueDefinition
             {
-                // Demo Derby
                 Id = 31,
                 NameId = 382789,
                 MatchType = 11,
@@ -143,7 +139,6 @@ public static class ListQueuesRequestPacketHandler
             },
             new MatchmakingQueueDefinition
             {
-                // Snowball Fighting
                 Id = 51,
                 NameId = 419545,
                 MatchType = 4,

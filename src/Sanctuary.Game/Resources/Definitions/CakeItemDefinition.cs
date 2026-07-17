@@ -12,11 +12,9 @@ public class CakeItemDefinition
     public int SpawnPoofEffectId { get; set; } = 21;
     public int LifetimeMs { get; set; } = 60000;
 
-    // ScaredyCake
     public int[][] ScareGroups { get; set; } = [];
     public int ScareCooldownMs { get; set; } = 2000;
 
-    // BossCake
     public int[] TransformAbilityIds { get; set; } = [];
 }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -82,7 +82,7 @@ public static class PacketMountSpawnHandler
         connection.Player.SendTunneled(mount.GetAddNpcPacket());
 
         var mountResponse = mount.GetMountResponsePacket();
-        mountResponse.CompositeEffectId = 46; // PFX_Teleport_Flash
+        mountResponse.CompositeEffectId = 46;
 
         connection.Player.SendTunneledToVisible(mountResponse, sendToSelf: true);
 

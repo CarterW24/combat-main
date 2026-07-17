@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -80,17 +80,11 @@ public static class PacketTunneledClientPacketHandler
         }
         catch (Exception ex)
         {
-            // A handler throwing here would otherwise propagate to the UDP receive loop in
-            // GatewayService.ExecuteAsync and tear down the entire host. Log and swallow so one
-            // bad packet/interaction only drops that action, not the whole server.
             _logger.LogError(ex, "Unhandled exception processing tunneled packet op={op}. ( Data: {data} )",
                 opCode, Convert.ToHexString(packet.Payload));
             handled = true;
         }
 
-        // OBSERVE: unhandled tunneled opcodes used to be visible only in DEBUG builds (Debug.WriteLine) —
-        // which is how the GO! button's real packet got dropped invisibly in Release (LIVE TEST 1, 2026-07-01).
-        // Log them at INFO (with the resolved packet name) so no client packet ever disappears silently again.
         if (!handled)
         {
             reader.Reset();

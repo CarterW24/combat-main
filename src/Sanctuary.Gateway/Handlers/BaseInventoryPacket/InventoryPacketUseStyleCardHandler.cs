@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -66,11 +66,11 @@ public static class InventoryPacketUseStyleCardHandler
             0 => GetHeadStringParam(clientItemDefinition.Param2),
             1 => GetSkinToneStringParam(clientItemDefinition.Param2),
             2 => GetHairStringParam(clientItemDefinition.Param2),
-            3 => string.Empty, // Hair Color
-            4 => string.Empty, // Eye Color
+            3 => string.Empty,
+            4 => string.Empty,
             5 => GetModelCustomizationStringParam(clientItemDefinition.Param2),
             6 => GetFacePaintStringParam(clientItemDefinition.Param2),
-            8 => string.Empty, // Model
+            8 => string.Empty,
             _ => null
         };
 

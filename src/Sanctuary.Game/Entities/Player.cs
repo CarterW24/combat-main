@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -31,38 +31,17 @@ public sealed class Player : ClientPcData, IEntity
     public ulong LastInteractNpcGuid { get; set; }
     public DateTime LastInteractAt { get; set; }
 
-    // When the player last accepted a quest. Used to ignore a spurious CommandPacketQuestAbandon
-    // (26/23) that the client can fire in the moments right after accepting - without this guard
-    // that stray packet would immediately drop the quest the player just took.
     public DateTime LastQuestAcceptedAt { get; set; }
 
-    // PARTY: last time a group-invite C2S was acted on. The client re-sends GroupInvite
-    // ~6x/sec while the invite UI is up (like FreeInteractionNpc), so the handler debounces on this
-    // to fire the invite once per burst.
     public DateTime LastPartyInviteAt { get; set; }
 
-    // True once the login-only zone-in burst (Welcome screen etc.) has been sent this
-    // session. The overworld's OnClientIsReady runs on EVERY zone-in — including the return from a
-    // combat instance — and re-sending PacketLoadWelcomeScreen there re-opens the client's Welcome
-    // popup (Main.wndWelcomeHandler) ON TOP of the encounter's victory screen (live bug 2026-07-04).
     public bool LoginBurstSent { get; set; }
 
-    // Set once the Hero's Journal has been repopulated this session. The client keeps the
-    // journal across a re-zone (e.g. the Frostfang arena round-trip), so re-sending QuestAdd on every
-    // overworld entry APPENDS duplicate rows the client never dedupes - and completion can only clear
-    // one, leaving finished quests stuck in the helper. Gate the restore to login only.
     public bool JournalRestored { get; set; }
 
-    // LOOT WHEEL: the prize the victory wheel was told to land on (set when the encounter
-    // sends MiniGameLootWheelSetItemToLandOn; consumed by the C2S LootWheelOnRotationStopped handler,
-    // which grants it). Null = no spin pending. A null prize with PendingWheelCoins > 0 = the
-    // COINS slice.
     public Sanctuary.Packet.RewardEntry? PendingWheelPrize { get; set; }
     public int PendingWheelCoins { get; set; }
 
-    // Where the exit door returns the player after a combat instance: the overworld spot
-    // they stood on when GO! teleported them out (set by the entrance handler, consumed + cleared by
-    // the arena's ReturnHome). Null = fall back to the zone spawn.
     public System.Numerics.Vector4? EncounterReturnPosition { get; set; }
 
     public IZone Zone { get; set; }
@@ -106,12 +85,9 @@ public sealed class Player : ClientPcData, IEntity
 
     public bool IsDead { get; set; }
 
-    // Damage-immunity window (Environment.TickCount64): the Super Shield powerup and the brief
-    // post-revive invulnerability (wiki). Checked by TakeDamage.
     public long InvulnerableUntilTicks { get; set; }
     public bool IsInvulnerable => Environment.TickCount64 < InvulnerableUntilTicks;
 
-    // Where the player fell (set on Knockout) — the "Revive here" respawn option returns them here.
     public System.Numerics.Vector4 DeathPosition { get; set; }
     public int CurrentHitpoints { get; set; } = 2500;
     public int CurrentMana { get; set; } = 100;
@@ -127,28 +103,15 @@ public sealed class Player : ClientPcData, IEntity
 
     public Pet? Pet { get; set; }
 
-    // QuestId -> Completed. Presence in the dictionary means the quest has been accepted.
     public Dictionary<int, bool> Quests { get; } = new();
 
-    // QuestId -> number of goals completed (goals tick off in order). The active goal is at this index.
-    // Absent = 0 goals done. Persisted alongside the quest so multi-goal progress survives relog.
     public Dictionary<int, int> QuestGoalProgress { get; } = new();
 
-    // QuestId -> current collect count for the quest's ACTIVE Collect goal (how many pickups gathered so
-    // far, 0..RequiredCount). In-memory only: a relog restarts the in-progress collect goal from 0 (the
-    // shared collectibles respawn), while completed goals persist via QuestGoalProgress.
-    // Cleared when the collect goal ticks off.
     public Dictionary<int, int> QuestCollectProgress { get; } = new();
 
-    // The quest the player currently has selected/tracked in the quest helper (set on accept and when
-    // they pick one in the journal). The tracker arrow and the "Take Me There" breadcrumb point at THIS
-    // quest's objective, not just the first active quest. 0 = none selected.
     public int ActiveQuestId { get; set; }
 
-    // Deferred quest turn-in finalization: set when a quest end screen is shown, invoked (once)
-    // when the client sends QuestEndReplyPacket (the player clicked "Complete").
     public System.Action? PendingQuestEndAction { get; set; }
-
 
     private readonly ConcurrentQueue<(DateTimeOffset SendAt, ISerializablePacket Packet, bool SendToSelf)> _delayedPackets = new();
 
@@ -238,9 +201,6 @@ public sealed class Player : ClientPcData, IEntity
 
     public void UpdateEveryTick()
     {
-        // Drive the overworld in-combat state here (10 Hz, single thread) so the op41 enter/exit packets are
-        // never sent from the async auto-fire tasks — which raced and latched the client "in combat" (menu
-        // stuck). See WorldCombatStateTick.
         WorldCombatStateTick();
 
         LevelUpBurstTick();
@@ -273,14 +233,10 @@ public sealed class Player : ClientPcData, IEntity
         }
     }
 
-    // Out-of-combat window (seconds): HP won't regen until this long after the last hit taken.
-    // Matches the ability handler's world-combat decay so "in combat" means the same thing on both sides.
     private const int OutOfCombatSeconds = 6;
 
-    // When the player last took combat damage — gates HP regen so it doesn't fight incoming hits.
     public DateTime LastCombatDamageAt { get; set; } = DateTime.MinValue;
 
-    // Regenerates HP (and, for non-combat jobs, mana) toward their maximums.
     private void RegenTick()
     {
         if (IsDead)
@@ -288,13 +244,11 @@ public sealed class Player : ClientPcData, IEntity
 
         if (!Stats.TryGetValue(CharacterStatId.MaxHealth, out var maxHpStat) ||
             !Stats.TryGetValue(CharacterStatId.MaxMana, out var maxManaStat))
-            return; // stats not initialized yet
+            return;
 
         int maxHp = maxHpStat.Int;
         int maxMana = maxManaStat.Int;
 
-        // COMBAT: don't regen HP while actively fighting (a hit within the out-of-combat window). The old
-        // behavior raced incoming enemy damage and made the health bar visibly jitter up and down mid-fight.
         bool inCombat = DateTime.UtcNow - LastCombatDamageAt < TimeSpan.FromSeconds(OutOfCombatSeconds);
 
         bool hpChanged = false;
@@ -305,10 +259,6 @@ public sealed class Player : ClientPcData, IEntity
             hpChanged = true;
         }
 
-        // STAMINA: combat jobs' stamina bar is owned ENTIRELY by the ability handler's energy system
-        // (0-100, drains on specials, +4/sec). RegenTick must NOT also drive it with the level-scaled
-        // CurrentMana, or the two systems fight over the same bar — that flicker was the "stamina bar
-        // glitching" AND it re-enabled the special slot client-side mid-cooldown (the "ability #2 spam").
         bool usesCombatEnergy = Combat.JobKits.Active(this)?.UsesCombatEnergy ?? false;
 
         bool manaChanged = false;
@@ -368,12 +318,9 @@ public sealed class Player : ClientPcData, IEntity
         return packet;
     }
 
-    // Knockout/revive clips — capture-proven on a player (a live special's target anims).
-    private const int KnockdownAnimId = 1402; // knock_down fall
-    private const int GetUpAnimId = 1403;     // get-up, played on revive
+    private const int KnockdownAnimId = 1402;
+    private const int GetUpAnimId = 1403;
 
-    // Send a System-channel chat line to this player (the death/revive feedback, since there's no
-    // native death UI to show it).
     public void SendSystemMessage(string text)
     {
         SendTunneled(new PacketChat
@@ -385,11 +332,9 @@ public sealed class Player : ClientPcData, IEntity
         });
     }
 
-    // Revive burst played on respawn — a big flashy particle burst (the level-up FX), far
-    // flashier than a plain poof.
-    private const int ReviveEffectId = 15117; // PFX_levelup_big (~2s one-shot burst)
+    private const int ReviveEffectId = 15117;
 
-    private const int ReviveInvulnMs = 3000; // wiki: "briefly invulnerable" after recovering — provisional
+    private const int ReviveInvulnMs = 3000;
 
     public void Respawn()
     {
@@ -405,9 +350,6 @@ public sealed class Player : ClientPcData, IEntity
             MaxHitpoints = maxHp
         });
 
-        // op38/1 above only writes the ClientPcData copy — the DISPLAYED bar rides the op35/35
-        // ledger, so without this self-sourced full heal the bar sat low until the next hit
-        // (play-test 2026-07-15, fix (d)). Live's own regen ticks use the same packet.
         SendTunneled(new PlayerUpdatePacketHitPointModification
         {
             Guid = Guid,
@@ -418,23 +360,17 @@ public sealed class Player : ClientPcData, IEntity
             Unknown4 = maxHp,
         });
 
-        // Clear the knocked-out/rooted state (stand up + movement restored).
         SendTunneledToVisible(new PlayerUpdatePacketUpdateCharacterState
         {
             Guid = Guid,
             Status = CharacterStatus.None,
         }, sendToSelf: true);
 
-        // Clear the overworld "in combat" flags the knockout flow raised for the respawn window, and reset the
-        // combat-state machine so it doesn't immediately re-enter combat on revive (the pre-death timestamp
-        // could still be within the out-of-combat window). Otherwise the player stays wedged "in combat" after
-        // reviving. WorldCombatStateTick resumes once alive.
         _worldCombatActive = false;
         _lastWorldCombatTicks = 0;
         SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
         SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
 
-        // Get-up clip + revive FX at the player (visible to nearby players too).
         SendTunneledToVisible(new PlayerUpdatePacketSetAnimation
         {
             Guid = Guid,
@@ -452,14 +388,12 @@ public sealed class Player : ClientPcData, IEntity
 
     public void TakeDamage(int amount, CombatNpc source) => TakeDamage(amount);
 
-    // Apply combat damage from any source (world CombatNpc, arena claw, etc.): drop HP, push the
-    // HP bar, and knock out at 0. No-op while already knocked out.
     public void TakeDamage(int amount)
     {
         if (IsDead || IsInvulnerable)
             return;
 
-        LastCombatDamageAt = DateTime.UtcNow; // gates HP regen so the bar doesn't jitter mid-fight
+        LastCombatDamageAt = DateTime.UtcNow;
 
         CurrentHitpoints = Math.Max(0, CurrentHitpoints - amount);
 
@@ -473,18 +407,13 @@ public sealed class Player : ClientPcData, IEntity
         if (CurrentHitpoints <= 0)
             Knockout();
         else
-            EnterWorldCombat(); // taking a hit puts you in combat too (weapon drawn, HP bars, damage text)
+            EnterWorldCombat();
     }
 
-    // --- DODGE (avoidance) ---------------------------------------------------------------------------
-    // com_dodge — the sidestep clip (AnimationGroups.xml id 1406). Played on a successful dodge.
     public const int DodgeAnimId = 1406;
 
-    // Base dodge chance every player has, before job bonuses.
     public const int BaseDodgePercent = 5;
 
-    // Total chance (%) to dodge an incoming enemy attack: the base avoidance plus any job bonus
-    // (Archer's Reflexes trait adds its dodge % at rank 15+).
     public int DodgePercent()
     {
         var pct = BaseDodgePercent;
@@ -493,7 +422,6 @@ public sealed class Player : ClientPcData, IEntity
         return pct;
     }
 
-    // Reduce an incoming enemy hit for defensive traits (Ninja's Shrouded Armor). At least 1 damage still lands.
     public int ReduceIncomingDamage(int damage)
     {
         if (Combat.NinjaWeaponAbilities.HasTrait(this, Combat.NinjaWeaponAbilities.ShroudedArmorLevel))
@@ -501,12 +429,6 @@ public sealed class Player : ClientPcData, IEntity
         return Math.Max(1, damage);
     }
 
-    // Roll to dodge an incoming enemy attack from attackerGuid. On a dodge, sends the
-    // client's dedicated AttackTargetDodged packet (op32/6) so it renders the floating "Dodge" text over this
-    // player and lets the attacker play its swing, then layers the sidestep (com_dodge) clip on top so the evade
-    // reads clearly. Returns true so the caller deals no damage.
-    // DEV: when set (via !dodge on), every incoming attack is dodged — lets us test the op32/6 "Dodge"
-    // text in real combat, where its client-side gate may pass (a synthetic send shows nothing).
     public bool ForceDodgeDebug;
 
     public bool TryDodgeIncomingAttack(ulong attackerGuid)
@@ -516,53 +438,26 @@ public sealed class Player : ClientPcData, IEntity
         if (!ForceDodgeDebug && Random.Shared.Next(100) >= DodgePercent())
             return false;
 
-        // The dedicated op32/6 "Dodge" text is gated on a client-side combat-text map entry (hit-type key 123)
-        // our client build doesn't have, so it renders NOTHING server-side (reversed 2026-07-15). op32/5 "Miss"
-        // uses no such map and reliably shows green floating text — the working avoidance indicator. Layer the
-        // com_dodge sidestep on top so the evade still reads as a dodge, not a whiffed enemy swing.
         SendTunneledToVisible(new CombatPacketAttackAttackerMissed { AttackerGuid = attackerGuid, TargetGuid = Guid }, sendToSelf: true);
         SendTunneledToVisible(new PlayerUpdatePacketSetAnimation { Guid = Guid, AnimationId = DodgeAnimId }, sendToSelf: true);
         return true;
     }
 
-    // --- Overworld "in combat" state (client op41 sub132 SetInWorldCombat + sub133 SetIsFighting) ---
-    // These flags draw the weapon, show enemy HP bars + floating damage numbers, and put the client in its
-    // combat mode. We enter on ANY overworld combat action — dealing damage, TAKING damage, or pressing an
-    // attack — and drop out OutOfCombatSeconds after the last one.
-    //
-    // CRITICAL THREADING: the op41 enter/exit packets are sent ONLY from WorldCombatStateTick, which runs on
-    // the single UpdateEveryTick loop. EnterWorldCombat (called from the async auto-fire tasks + the NPC-attack
-    // tick, i.e. arbitrary threads) merely STAMPS a timestamp. Earlier we sent op41 straight from those async
-    // callers, so an "enter" (true) from a fire task could land AFTER the decay's "exit" (false) and latch the
-    // client ON forever — the client's combat mode locks the main menu, and once latched it never released
-    // ("can't press anything even out of combat"). Funneling every send through one thread makes enter/exit a
-    // clean, ordered state machine that can't cross. Instanced arenas own their own fighting-state, so this
-    // no-ops there (a stale flag reconciles on return to the overworld: want=false -> exit sent).
     private long _lastWorldCombatTicks;
     private volatile bool _worldCombatActive;
 
-    // Stamp that a combat action just happened. Callable from ANY thread — it only writes the
-    // timestamp; the actual op41 packets are driven by WorldCombatStateTick on the tick thread
-    // so enter and exit can never race (see the threading note above).
     public void EnterWorldCombat()
     {
         if (Zone is not StartingZone)
-            return; // arenas own their combat-state lifecycle
+            return;
         _lastWorldCombatTicks = Environment.TickCount64;
     }
 
-    // Single-threaded combat-state driver (UpdateEveryTick, 10 Hz). Compares "had a combat action
-    // within OutOfCombatSeconds" against the current client state and sends the op41 enter/exit packets only
-    // on a transition. Every op41 send happens here on one thread, so the client can never get latched "in
-    // combat" with the menu stuck. Sends BOTH flags for the full indicator; arenas drive their own.
     private void WorldCombatStateTick()
     {
         if (Zone is not StartingZone)
-            return; // arenas drive their own combat-state; a stale flag reconciles on return (want=false -> exit)
+            return;
 
-        // While knocked out, the death flow owns op41: OnPlayerKnockedOut raises it so the pay/safe respawn
-        // WINDOW shows its buttons, and Respawn clears it (and resets _worldCombatActive). Don't let the decay
-        // tear the window's combat-state down from under it.
         if (IsDead)
             return;
 
@@ -570,17 +465,13 @@ public sealed class Player : ClientPcData, IEntity
             && Environment.TickCount64 - _lastWorldCombatTicks < OutOfCombatSeconds * 1000L;
 
         if (want == _worldCombatActive)
-            return; // no transition
+            return;
 
         _worldCombatActive = want;
         SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = want });
         SendTunneled(new EncounterPacketIsFighting { InWorldCombat = want });
     }
 
-    // DEATH: the player's HP reached 0 — they're knocked out. Marks them dead (blocks further
-    // damage + their own abilities), pins HP at 0, and hands off to the zone: the overworld leaves the
-    // client's knockout UI up for a respawn-in-place; a combat instance counts the KO and fails the
-    // encounter at the limit. The client shows its own knockout state when it receives 0 HP.
     public void Knockout()
     {
         if (IsDead)
@@ -588,7 +479,7 @@ public sealed class Player : ClientPcData, IEntity
 
         IsDead = true;
         CurrentHitpoints = 0;
-        DeathPosition = Position; // where "Revive here" brings the player back
+        DeathPosition = Position;
 
         SendTunneled(new ClientUpdatePacketHitpoints
         {
@@ -596,9 +487,6 @@ public sealed class Player : ClientPcData, IEntity
             MaxHitpoints = Stats[CharacterStatId.MaxHealth].Int
         });
 
-        // KNOCKED-OUT state (0x80 alone halts movement + gates abilities with the client's own
-        // NoCastKnockedOut message — play-verified 2026-07-15) + the knockdown fall clip. Anim 1402 is
-        // capture-proven ON A PLAYER (a live special's target anim); 1403 = the get-up, sent on Respawn.
         SendTunneledToVisible(new PlayerUpdatePacketUpdateCharacterState
         {
             Guid = Guid,
@@ -615,24 +503,17 @@ public sealed class Player : ClientPcData, IEntity
         Zone.OnPlayerKnockedOut(this);
     }
 
-    // Grants XP to the active job: accrues into the current level, levels up (and rescales stats +
-    // refills HP/mana) when the curve threshold is crossed, notifies the client, and updates the star
-    // meter. Persistence happens on the normal save path (DbProfile.Level / LevelXP).
     public void AwardXp(int xp)
     {
         if (xp <= 0)
             return;
 
         if (ActiveProfile.Rank >= JobLeveling.MaxLevel)
-            return; // already max level - no more XP
+            return;
 
-        // Award XP per kill (immediately). This used to be deferred to combat-drop as a workaround for the
-        // ranged-fire wedge — but the real culprits (the op41 combat-state flags + the ActivateProfile in the
-        // XP flush) are now removed, so the XP feedback packets are safe to send on the kill.
         ApplyXp(xp);
     }
 
-    // Accrue XP, level up, and send the client-facing feedback.
     private void ApplyXp(int xp)
     {
         var profile = ActiveProfile;
@@ -646,7 +527,7 @@ public sealed class Player : ClientPcData, IEntity
         {
             profile.LevelXpRaw -= JobLeveling.XpForLevel(profile.Rank);
             profile.Rank++;
-            profile.StarsEarned++;   // one star per level
+            profile.StarsEarned++;
         }
 
         if (profile.Rank >= JobLeveling.MaxLevel)
@@ -656,7 +537,6 @@ public sealed class Player : ClientPcData, IEntity
 
         bool leveled = profile.Rank != startLevel;
 
-        // Floating "+XP" feedback.
         SendTunneled(new ClientUpdatePacketUpdateProfileExperience
         {
             ProfileId = profile.Id,
@@ -665,8 +545,6 @@ public sealed class Player : ClientPcData, IEntity
             CurrentLevel = profile.Rank
         });
 
-        // Native job XP bar + level-up: the ability-set experience (opcode 36/8). The client renders the
-        // on-screen job XP bar from Progress/TotalForLevel and fires JobLevelUp when Level increases.
         SendTunneled(new AbilityPacketUpdateAbilityExperience { Experience = BuildJobAbilityExperience() });
 
         if (leveled)
@@ -680,15 +558,6 @@ public sealed class Player : ClientPcData, IEntity
             });
         }
 
-        // Real-time job XP bar + level-up — on every kill, even mid-combat (retail shows XP as you earn it and
-        // levels you up on the spot). The bar only redraws on a full profile re-send: on a level-up,
-        // ApplyLevelUpEffects does that re-send via the JobLevelUp presentation (stat rescale + celebration +
-        // full-screen UI) and moves the bar to the new level; otherwise a plain silent ActivateProfile moves
-        // it. The incremental experience packets above move the +XP text/level number but NOT the bar — the
-        // client outright ignores ClientUpdatePacketUpdateProfileExperience (op38/14: its handler has no case
-        // for that sub-opcode). EITHER re-send clears the client's ability toolbar, so RestoreWeaponToolbar()
-        // re-sends it right after — that restore is what keeps the ranged auto-fire alive across the re-send.
-        // Both the per-kill AND the post-level-up firing wedges were a profile re-send with no toolbar restore.
         if (leveled)
             ApplyLevelUpEffects();
         else
@@ -697,9 +566,6 @@ public sealed class Player : ClientPcData, IEntity
         RestoreWeaponToolbar();
     }
 
-    // Re-send the active job's weapon toolbar (op36/5 SetDefinition). A profile re-send
-    // (ActivateProfile / JobLevelUp) clears the client's ability slots, so this must follow any such re-send
-    // or the ranged auto-fire has no ability to repeat and wedges — the same toolbar restore a job-swap does.
     private void RestoreWeaponToolbar()
     {
         var toolbar = JobWeaponAbilities.BuildToolbar(this, _resourceManager);
@@ -707,33 +573,19 @@ public sealed class Player : ClientPcData, IEntity
             SendTunneled(toolbar);
     }
 
-    // The level-up presentation — stat rescale + HP/mana refill, the particle celebration, and the
-    // full-screen JobLevelUp UI. Runs on the spot when a kill levels you (retail behavior). It re-sends the
-    // profile, which clears the client's ability toolbar, so callers MUST follow it with
-    // RestoreWeaponToolbar or the ranged auto-fire wedges ("after leveling up I can't refire").
     private void ApplyLevelUpEffects()
     {
         RecalculateStats(refill: true);
 
-        // Refresh the trait list to the NEW rank so a level-up that crosses a trait's unlock level flips its
-        // padlock on the spot — otherwise the traits carry their login-rank state and only update on relog.
         RefreshTraits();
 
-        // Full-screen job level-up UI (levelup_<job>.gfx) via the "JobLevelUp" client event — ClientUpdate
-        // 38/15: the client reads one length-prefixed payload and parses it as the active profile.
         using var jluWriter = new PacketWriter();
         ActiveProfile.Serialize(jluWriter);
         SendTunneled(new ClientUpdatePacketJobLevelUp { Payload = jluWriter.Buffer });
 
-        // Fire the particle burst a few ticks LATER instead of in this same batch. Sent alongside the
-        // JobLevelUp packet, the burst raced the full-screen presentation's scene setup and was sometimes
-        // wiped before it rendered ("effects sometimes won't show when leveling up"). Deferring it onto the
-        // tick loop lands it cleanly on the character every time — still one clean burst (no 3-4 repeats).
         _levelUpBurstAtTicks = Environment.TickCount64 + LevelUpBurstDelayMs;
     }
 
-    // Rebuild the active profile's Traits list to the current rank so newly-unlocked traits show after a
-    // level-up / job-swap, not just on relog. No-op for jobs without trait data. Call before any profile re-send.
     public void RefreshTraits()
     {
         var traits = Combat.JobKits.Active(this)?.BuildTraitEntries(ActiveProfile.Rank);
@@ -741,13 +593,12 @@ public sealed class Player : ClientPcData, IEntity
             ActiveProfile.AbilityExperiences = traits;
     }
 
-    // Builds the active job's ability-set experience entry (drives the native job XP bar / level-up).
     private AbilityExperience BuildJobAbilityExperience()
     {
         var p = ActiveProfile;
         return new AbilityExperience
         {
-            Present = 1,                 // non-zero = a present/valid entry (0 terminates the profile list)
+            Present = 1,
             NameId = p.NameId,
             DescriptionId = p.DescriptionId,
             IconId = p.Icon,
@@ -757,11 +608,8 @@ public sealed class Player : ClientPcData, IEntity
         };
     }
 
-    private const int LevelUpCompositeEffect = 15117; // PFX_levelup_big (retail level-up particle burst)
+    private const int LevelUpCompositeEffect = 15117;
 
-    // Re-sends the active job's serialized profile (ClientUpdatePacketActivateProfile) so the client
-    // refreshes the Jobs panel level + XP bar from the authoritative Rank/RankPercent. An optional
-    // composite effect plays on the player (used for the level-up celebration).
     public void RefreshActiveProfile(int compositeEffect = 0)
     {
         using var writer = new PacketWriter();
@@ -776,10 +624,6 @@ public sealed class Player : ClientPcData, IEntity
         });
     }
 
-    // Re-send the currently-equipped weapon (slot 7) — the ClientUpdatePacketEquipItem +
-    // PlayerUpdatePacketEquipItemChange pair the inventory equip flow sends. Manually re-equipping the bow
-    // is what players found un-freezes the ranged auto-fire after a kill: the weapon re-attach (WieldType)
-    // resets the client's wield/combat state WITHOUT the profile re-activation that itself froze firing.
     public void ResendEquippedWeapon()
     {
         if (!ActiveProfile.Items.TryGetValue(7, out var weaponProfileItem))
@@ -815,17 +659,12 @@ public sealed class Player : ClientPcData, IEntity
         }, sendToSelf: true);
     }
 
-    // Recomputes level-scaled character stats from the active job's Rank, pushes them to the client and
-    // caches them in Stats. When refill is set (login,
-    // level-up) current HP/mana are topped to the new maximum; otherwise they're only clamped down.
     public void RecalculateStats(bool refill = false)
     {
         int level = ActiveProfile.Rank;
         int maxHealth = JobLeveling.MaxHealth(level);
         int maxMana = JobLeveling.MaxMana(level);
 
-        // Run-speed traits: Archer Reflexes (L15) and Ninja's Grace (L10). (Reflexes' dodge half is rolled on
-        // the mob's attack; Ninja's Grace regen rides the normal HitPointRegen.)
         float moveSpeed = 8f;
         if (Combat.ArcherWeaponAbilities.HasTrait(this, Combat.ArcherWeaponAbilities.ReflexesLevel))
             moveSpeed *= Combat.ArcherWeaponAbilities.ReflexesSpeedMultiplier;
@@ -862,19 +701,14 @@ public sealed class Player : ClientPcData, IEntity
         SendHealthMana();
     }
 
-    // Pushes current HP and mana (with their level-scaled maximums) to the client. Sends both the
-    // self-HUD packets (ClientUpdate 38/1 hitpoints, 38/13 mana) AND the over-head bar packets
-    // (PlayerUpdate 35/5 hitpoints, 35/9 mana) so both the HUD and the bar over the character update.
     public void SendHealthMana()
     {
         int maxHealth = Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : CurrentHitpoints;
         int maxMana = Stats.TryGetValue(CharacterStatId.MaxMana, out var mm) ? mm.Int : CurrentMana;
 
-        // Self HUD.
         SendTunneled(new ClientUpdatePacketHitpoints { CurrentHitpoints = CurrentHitpoints, MaxHitpoints = maxHealth });
         SendTunneled(new ClientUpdatePacketMana { CurrentMana = CurrentMana, MaxMana = maxMana });
 
-        // Over-head bars, visible to self + nearby players.
         SendTunneledToVisible(new PlayerUpdatePacketUpdateHitpoints
         {
             Guid = Guid,
@@ -890,17 +724,10 @@ public sealed class Player : ClientPcData, IEntity
         }, sendToSelf: true);
     }
 
-    // Delay (ms) between the JobLevelUp full-screen UI and the particle burst — a few ticks, long
-    // enough that the burst isn't in the presentation's setup frame (where it was getting wiped) but short
-    // enough to still read as part of the level-up moment.
     private const int LevelUpBurstDelayMs = 300;
 
-    // When to fire the deferred level-up burst (Environment.TickCount64), or 0 for none. Set by
-    // ApplyLevelUpEffects, consumed by LevelUpBurstTick on the tick loop.
     private long _levelUpBurstAtTicks;
 
-    // Tick-loop driver for the deferred level-up burst (a single PFX_levelup_big ~2s burst). Firing
-    // it off the tick instead of in the JobLevelUp packet's batch is what makes it show reliably.
     private void LevelUpBurstTick()
     {
         if (_levelUpBurstAtTicks == 0 || Environment.TickCount64 < _levelUpBurstAtTicks)
@@ -910,7 +737,6 @@ public sealed class Player : ClientPcData, IEntity
         FireLevelUpBurst();
     }
 
-    // One level-up particle burst at the player's current position (guarded against post-logout sends).
     private void FireLevelUpBurst()
     {
         if (!Visible)
@@ -954,20 +780,13 @@ public sealed class Player : ClientPcData, IEntity
 
     public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation)
     {
-        // Preserve the original hardcoded values for existing (deep-mines test) callers.
         TeleportToZone(zone, position, rotation, "sky_deep_mines.xml", 214);
     }
 
-    // INSTANCE (Frostfang Fury): overload with explicit sky/geometry so real zone transfers (e.g. the
-    // sg_random_encounter_clearing arena) can use the destination world's own sky (null) instead of the
-    // deep-mines test values. This is the PROPER server-side zone handoff — tiles/visibility rebuilt,
-    // OverrideUpdateRadius=true (the client's case-31 handler feeds this to ActorManager::SetOverrideUpdateRadius;
-    // without it NPCs in the new world get distance-culled -> the "invisible wolves" bug).
     public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation, string? sky, int geometryId)
     {
         if (Zone == zone)
         {
-            // Same-zone teleport: skip zone membership changes, just reset visibility and reposition.
             foreach (var visiblePlayer in VisiblePlayers)
                 visiblePlayer.Value.OnRemoveVisiblePlayers([this]);
 
@@ -986,9 +805,9 @@ public sealed class Player : ClientPcData, IEntity
                 Name = Zone.Name,
                 Position = position,
                 Rotation = rotation,
-                Sky = sky,               // honor the caller's sky (was hardcoded deep-mines) — the 3-arg
-                Id = Zone.Id,            // overload still passes the deep-mines values for its old callers
-                GeometryId = geometryId, // (was hardcoded 214)
+                Sky = sky,
+                Id = Zone.Id,
+                GeometryId = geometryId,
                 OverrideUpdateRadius = true
             };
 
@@ -1005,7 +824,6 @@ public sealed class Player : ClientPcData, IEntity
         if (Mount is not null)
             Mount.TeleportToZone(zone, position, rotation);
 
-        // Alert/Remove visible entities
         foreach (var visiblePlayer in VisiblePlayers)
             visiblePlayer.Value.OnRemoveVisiblePlayers([this]);
 
@@ -1016,11 +834,7 @@ public sealed class Player : ClientPcData, IEntity
 
         Zone.TryRemovePlayer(Guid);
 
-        // Add to new zone/zonetile
-
         zone.TryAddPlayer(this);
-
-        // Teleport to new zone
 
         Visible = false;
 
@@ -1105,9 +919,6 @@ public sealed class Player : ClientPcData, IEntity
 
             var playerUpdatePacketAddNpc = npc.GetAddNpcPacket();
 
-            // Vendors bake a static badge into the AddNpc packet itself (npc.NotificationImageSetId).
-            // Quest badges are per-player, so override that field per-recipient here - this is likely
-            // the primary mechanism the client uses for the badge, not just the separate NotificationInfo packet.
             playerUpdatePacketAddNpc.NotificationImageSetId = GetNotificationImageId(npc);
 
             // EXPERIMENT: Unknown68 sits immediately next to NotificationImageSetId in the wire
@@ -1117,8 +928,6 @@ public sealed class Player : ClientPcData, IEntity
 
             SendTunneled(playerUpdatePacketAddNpc);
 
-            // Damageable hostiles (quest kill targets, world combat NPCs) need their attack cursor
-            // (NpcRelevance) + health bar as soon as they come into view, not just at zone load.
             if (npc.IsDamageable)
             {
                 Zone.SendNpcRelevance(this, npc);
@@ -1151,8 +960,6 @@ public sealed class Player : ClientPcData, IEntity
 
         foreach (var npc in npcs)
         {
-            // Combat-encounter "Battle Starter" badge (img-24): red crossed-swords over the head + red minimap
-            // dot. Type 3 = combat category; Unknown3=7 / Unknown10=1 are the live 2014 combat-badge values.
             if (npc.CombatEncounterBadgeImageId != 0)
             {
                 notifications.Notifications.Add(new NotificationInfo
@@ -1188,13 +995,10 @@ public sealed class Player : ClientPcData, IEntity
             VisibleNpcs.TryAdd(npc.Guid, npc);
     }
 
-    // Quest badges are per-player (unlike vendor badges, which are static on the Npc entity),
-    // since they depend on this player's own quest progress.
     public int GetNotificationImageId(Npc npc)
     {
         var quests = _resourceManager.Quests;
 
-        // Giver: "!" if this NPC gives a quest the player can currently take.
         if (quests.ByGiver.TryGetValue(npc.Guid, out var giverQuestIds))
         {
             foreach (var questId in giverQuestIds)
@@ -1204,7 +1008,6 @@ public sealed class Player : ClientPcData, IEntity
             }
         }
 
-        // Target: "?" if the player has an active (accepted, not completed) quest that turns in here.
         if (quests.ByTarget.TryGetValue(npc.Guid, out var targetQuestIds))
         {
             foreach (var questId in targetQuestIds)
@@ -1217,8 +1020,6 @@ public sealed class Player : ClientPcData, IEntity
         return npc.NotificationImageSetId;
     }
 
-    // AddNpc.Unknown68 sits next to NotificationImageSetId; used to carry the "quest this NPC offers"
-    // id. Returns the first currently-offerable quest this NPC gives, else 0.
     public int GetOfferedQuestId(Npc npc)
     {
         var quests = _resourceManager.Quests;
@@ -1279,10 +1080,6 @@ public sealed class Player : ClientPcData, IEntity
             }
             else if (npc.GracefulRemoval is { } graceful)
             {
-                // Live-server despawn (04-01 capture): the ONE graceful-remove packet carries the whole
-                // death presentation — Animate=true plays the model's own death clip client-side, the
-                // composite effect (5017 poof) fires and the actor despawns after Delay ms. No separate
-                // SetAnimation / PlayCompositeEffect packets are needed (the real server sends none).
                 var packet = new PlayerUpdatePacketRemovePlayerGracefully();
 
                 packet.Guid = npc.Guid;
@@ -1389,8 +1186,6 @@ public sealed class Player : ClientPcData, IEntity
         return list;
     }
 
-    // COMBAT WIP: the item-definition id of the weapon currently equipped in the weapon slot (7), or 0 if
-    // none. Used to drive the ability toolbar off the equipped weapon (see Combat/NinjaWeaponAbilities).
     public int GetEquippedWeaponDefinitionId()
     {
         if (!ActiveProfile.Items.TryGetValue(7, out var profileItem))
@@ -1416,7 +1211,6 @@ public sealed class Player : ClientPcData, IEntity
 
         var compositeEffectId = clientItemDefinition.CompositeEffectId;
 
-        // Update the Weapon composite effect if we have a Flair Shard equipped.
         if (slot == 7)
         {
             var flairShardcompositeEffectId = GetFlairShardCompositeEffect();
@@ -1497,7 +1291,6 @@ public sealed class Player : ClientPcData, IEntity
 
         return packet;
     }
-
 
     public void ApplyTemporaryAppearance(int modelId, int durationMs, int effectId = 0)
     {

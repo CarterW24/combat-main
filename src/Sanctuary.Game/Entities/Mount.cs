@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Numerics;
 
 using Sanctuary.Game.Resources.Definitions;
@@ -23,7 +23,6 @@ public class Mount : Npc
 
     public override void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation)
     {
-        // Alert/Remove visible entities
         foreach (var visiblePlayer in VisiblePlayers)
             visiblePlayer.Value.OnRemoveVisibleNpcs([this]);
 
@@ -33,11 +32,7 @@ public class Mount : Npc
 
         Zone.TryRemoveNpc(Guid);
 
-        // Add to new zone/zonetile
-
         zone.TryAddMount(this);
-
-        // Teleport to new zone
 
         Visible = false;
 
@@ -66,7 +61,7 @@ public class Mount : Npc
             Seat = Seat,
             QueuePosition = QueuePosition,
             Unknown = 1,
-            CompositeEffectId = 0, // PFX_Teleport_Flash
+            CompositeEffectId = 0,
             NameVerticalOffset = Definition.NameVerticalOffset
         };
     }

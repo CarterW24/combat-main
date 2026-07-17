@@ -2,10 +2,6 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet.Common;
 
-/// <summary>A buff/debuff tag on a character — drives the buff-bar icon, tooltip and duration pie.
-/// Wire layout verified live (85 bytes): ClientUpdatePacketAddEffectTag wraps it in an
-/// [Id][blobLen=85] envelope; AddPc/AddNpc carry a plain list (tags do not survive zoning unless
-/// re-sent there). Remove by InstanceId via ClientUpdatePacketRemoveEffectTag.</summary>
 public class EffectTag : ISerializableType
 {
     public int InstanceId;
@@ -18,19 +14,18 @@ public class EffectTag : ISerializableType
 
     public float Magnitude;
 
-    public int Duration; // seconds; 0 = no duration pie
+    public int Duration;
 
     public bool Unknown8;
 
-    public ulong Guid; // affected character
+    public ulong Guid;
 
-    // Elapsed time already consumed, in ms — non-zero only when re-sending a running tag.
     public int ElapsedMs;
     public int ElapsedMs2;
 
     public int Unknown12 = 1;
 
-    public int CompositeEffectId; // optional looping PFX bound to the tag lifetime
+    public int CompositeEffectId;
 
     public int Unknown14a;
     public int Unknown14b;
@@ -42,7 +37,6 @@ public class EffectTag : ISerializableType
     public bool Unknown18;
     public bool Unknown19 = true;
 
-    // ClientEffectTag tail — the buff-bar UI trio.
     public int IconId;
     public byte TailByte;
     public int NameId;

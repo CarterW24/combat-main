@@ -1,4 +1,4 @@
-﻿using Sanctuary.Game.Resources;
+using Sanctuary.Game.Resources;
 
 namespace Sanctuary.Game;
 
@@ -37,7 +37,6 @@ public interface IResourceManager
     PointOfInterestDefinitionCollection PointOfInterests { get; }
     NpcVendorCollection NpcVendors { get; }
     NpcDefinitionCollection Npcs { get; }
-
 
     ConsumableCollection Consumables { get; }
 

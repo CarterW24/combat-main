@@ -18,10 +18,10 @@ public class InGamePurchaseMerchantListPacket : PacketBaseInGamePurchase, ISeria
     {
         using var writer = new PacketWriter();
 
-        Write(writer); // [66(2)][42(2)]
+        Write(writer);
 
-        writer.Write(MerchantGuid); // [guid(8)]
-        writer.Write(BundleIds);    // [count(4)][bundleId(4) × count]
+        writer.Write(MerchantGuid);
+        writer.Write(BundleIds);
 
         return writer.Buffer;
     }

@@ -6,7 +6,6 @@ Console.WriteLine();
 
 if (args.Length > 0)
 {
-    // Use command-line argument
     var password = args[0];
     var hash = BC.HashPassword(password);
 
@@ -18,7 +17,6 @@ if (args.Length > 0)
 }
 else
 {
-    // Interactive mode
     Console.Write("Enter new password: ");
     var password = Console.ReadLine();
 

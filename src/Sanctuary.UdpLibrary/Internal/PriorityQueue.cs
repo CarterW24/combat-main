@@ -1,29 +1,12 @@
-﻿using System.Numerics;
+using System.Numerics;
 
 namespace Sanctuary.UdpLibrary.Internal;
 
-// Classes that wish to be members of the priority queue below must derive themselves from this class
-// in order to pull in the two member variables.  Unlike normal priority queue classes which don't
-// have this restriction, it is required in order to support Remove and reprioritize functionality
-// in a timely manner (otherwise, in order to remove an entry that is not at the top, you would have
-// to linearly scan the entire queue).  This is accomplished by having the member itself contain
-// a pointer to it's position in the queue (PriorityQueuePosition).
-// Note: A restriction of this ability is that an object cannot participate in more than one priority
-// queue at a time.
 public class PriorityQueueMember
 {
-    // -1 = not in queue
     internal int PriorityQueuePosition = -1;
 }
 
-// This class provides a priority queue that is capable of reprioritizing/removing entries.
-// The compiler will ensure that objects stored in this class are derived from PriorityQueueMember.
-// We don't really need this to be a template class, since we could just treat everything as a
-// PriorityQueueMember, but then the application would lose some type checking.
-// We don't use references
-// in the api as most priority queue templates do as we can't support non pointer types anyways.
-// T: Entry type
-// P: Priority type
 internal class PriorityQueue<T, P> where T : PriorityQueueMember where P : INumber<P>
 {
     private struct QueueEntry
@@ -69,7 +52,6 @@ internal class PriorityQueue<T, P> where T : PriorityQueueMember where P : INumb
     {
         if (entry.PriorityQueuePosition == -1)
         {
-            // Not in queue, so add it to the bottom.
             if (QueueEnd >= QueueSize)
                 return null;
 
@@ -81,7 +63,6 @@ internal class PriorityQueue<T, P> where T : PriorityQueueMember where P : INumb
         }
         else
         {
-            // See if priority has actually changed, if not, just return, otherwise change priority and fall through to refloat it.
             if (Queue[entry.PriorityQueuePosition].priority == priority)
                 return entry;
 
@@ -98,13 +79,10 @@ internal class PriorityQueue<T, P> where T : PriorityQueueMember where P : INumb
         if (entry.PriorityQueuePosition == -1)
             return entry;
 
-        // Move end entry into place of one being removed.
         QueueEnd--;
 
         var spot = entry.PriorityQueuePosition;
 
-        // Don't remove last item in queue (bottom of tree), so no need to copy bottom
-        // one up and refloat it (we would be refloating our own removed entry).
         if (spot != QueueEnd)
         {
             Queue[spot] = Queue[QueueEnd];
@@ -130,7 +108,6 @@ internal class PriorityQueue<T, P> where T : PriorityQueueMember where P : INumb
 
     private void Refloat(T entry)
     {
-        // Float upward.
         var spot = entry.PriorityQueuePosition;
 
         var tryDown = true;
@@ -154,10 +131,8 @@ internal class PriorityQueue<T, P> where T : PriorityQueueMember where P : INumb
 
         if (tryDown)
         {
-            // If we didn't manage to float up at all, then we need to try floating down.
             while (true)
             {
-                // Pick smallest child.
                 var downSpot1 = spot * 2 + 1;
 
                 if (downSpot1 >= QueueEnd)

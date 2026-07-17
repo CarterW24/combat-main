@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -24,7 +24,6 @@ public static class PacketDismountRequestHandler
     {
         _logger.LogTrace("Received {name} packet.", nameof(PacketDismountRequest));
 
-        // If the player is in a transformation, dismount removes the transform instead.
         if (connection.Player.TemporaryAppearance != 0)
         {
             AbilityPacketClientRequestStartAbilityHandler.RemoveTransform(connection);

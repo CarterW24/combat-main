@@ -6,44 +6,33 @@ using Sanctuary.Packet;
 
 namespace Sanctuary.Game.Combat;
 
-// Job-agnostic front door for the combat kits. Everything routes through the active player's IJobKit (see
-// JobKits), so zone-load / job-swap / weapon-equip / ability-press don't care which job it is.
 public static class JobWeaponAbilities
 {
-    // Does the active job have a weapon-ability kit?
     public static bool HasKit(Player player) => JobKits.Has(player.ActiveProfileId);
 
-    // The active job's weapon toolbar (op36/5), or null.
     public static AbilityPacketSetDefinition? BuildToolbar(Player player, IResourceManager resources) =>
         JobKits.Active(player)?.BuildToolbar(player, resources);
 
-    // Resolve a pressed slot; jobs without a kit fall back to the ninja bare-hand strike.
     public static WeaponAbility ResolveAbility(Player player, int slot) =>
         JobKits.Active(player)?.ResolveAbility(player, slot) ?? NinjaWeaponAbilities.ResolveAbility(player, slot);
 
-    // A client AbilityDefinition request (op36/12) -> name/desc/icon for the AbilitiesScreen columns.
     public static (int NameId, int DescId, int IconId)? ResolveAbilityDefinition(Player player, int abilityDefId) =>
         JobKits.Active(player)?.ResolveDefinition(player, abilityDefId);
 
-    // Bow range for archers, melee envelope otherwise.
     public static float AutoTargetReach(Player player) => JobKits.Active(player)?.AutoTargetReach ?? 7f;
 
-    // Send the toolbar and warm its FX cache. False when the job has no kit.
     public static bool SendToolbarWithFxPreload(Player player, IResourceManager resources)
     {
         var toolbar = BuildToolbar(player, resources);
         if (toolbar is null)
             return false;
 
-        // Seed the def map BEFORE the toolbar — the client requests a def per slot the instant it reads the
-        // toolbar and won't re-check, so the defs must already be present for the columns to resolve.
         PreloadAbilityDefinitions(player);
         player.SendTunneled(toolbar);
         PreloadAbilityEffects(player);
         return true;
     }
 
-    // Push the equipped weapon's ability definitions up front, before the AbilitiesScreen opens.
     public static void PreloadAbilityDefinitions(Player player)
     {
         var kit = JobKits.Active(player);
@@ -66,8 +55,6 @@ public static class JobWeaponAbilities
         }
     }
 
-    // Warm the FX cache: most composite effects load on demand, so the first play renders nothing. Play each of
-    // the equipped weapon's effects once, far below the player, so the first real cast shows immediately.
     public static void PreloadAbilityEffects(Player player)
     {
         var ids = new HashSet<int>();
@@ -75,8 +62,6 @@ public static class JobWeaponAbilities
         {
             var ability = ResolveAbility(player, slot);
             ids.Add(ability.EffectId);
-            // Lingering trail loops (CastEffectStopMs > 0) have no stop when unattached, so warming them would
-            // leave one sitting under the map forever — they cache on their first tag-play instead.
             if (ability.CastEffectStopMs == 0)
                 ids.Add(ability.CastEffectId);
             ids.Add(ability.CasterEndEffectId);
@@ -93,16 +78,13 @@ public static class JobWeaponAbilities
 
             player.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
             {
-                Guid = 0, // world-positioned, not attached to an actor
+                Guid = 0,
                 CompositeEffectId = id,
                 Position = warmPos,
             });
         }
     }
 
-    // Toolbar with a held powerup pinned at SLOT INDEX 2 — the "3" key. The on-screen 1/2/3/4 keys are
-    // ability-bar (Id=1) slots 0-3 and slots are POSITIONAL in this packet (no index field), so the
-    // powerup sits at list index 2 behind Type-0 fillers when slots 0/1 are empty.
     public static AbilityPacketSetDefinition BuildToolbar(Player player, IResourceManager resources,
         AbilityPacketSetDefinition.Slot? heldPowerup)
     {
@@ -122,9 +104,6 @@ public static class JobWeaponAbilities
         return def;
     }
 
-    // A held-powerup toolbar slot (Flame Wave / Earth Shard / Super Shield). Reuses the proven-castable
-    // melee slot-def id so the client accepts the press; the server routes ability-bar slot 2 to the
-    // held-powerup use path.
     public static AbilityPacketSetDefinition.Slot MakePowerupSlot(int iconId, int nameId) => new()
     {
         Type = 3,

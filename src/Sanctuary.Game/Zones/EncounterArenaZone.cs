@@ -17,11 +17,6 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Zones;
 
-// GENERIC data-driven combat dungeon (battle instance). One class runs ANY dungeon defined in
-// DungeonCatalog: it reuses the proven Frostfang/Tormented-Spirits pipeline (world entry + ground
-// adoption, the combat gate + goals burst, the chase/claw pack AI, death -> win, loot wheel + score +
-// exit door, party co-op) but takes the world, arena center, enemy roster, text and XP from a
-// DungeonDefinition. Goal is always "defeat every enemy". See DungeonDefinition.cs for the data.
 public sealed class EncounterArenaZone : CombatEncounterZone
 {
     private sealed class EncounterArenaDefinition : BaseZoneDefinition { }
@@ -30,10 +25,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
     public int EncounterId => Dungeon.ActivityId;
     private const int EncounterInstanceId = 1;
 
-    private const int CombatMiniGameType = 4; // client MINI_GAME_TYPE_COMBAT — the goals-pane gate
-    // KnockoutLimit + the knockout/fail/revive lifecycle now live in CombatEncounterZone.
+    private const int CombatMiniGameType = 4;
 
-    // Enemy recipe (Frostfang pack-wolf / spirit recipe).
     private const int MobActiveProfile = 151;
     private const int SpawnPoofFxId = 46;
     private const int DeathPoofFxId = 5017;
@@ -42,10 +35,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
     private const int CharState_Charging = 0x8001;
     private const int MovementTypePhysics = 2;
 
-    // Chase/claw tuning lives in CombatEncounterZone now; only the approach-aggro range is per-zone here.
     private const float AggroRange = 16f;
 
-    // Exit door (Frostfang/Spirits recipe).
     private const int DoorModelId = 846;
     private const int DoorNameId = 4826;
     private const float DoorScale = 1.2f;
@@ -84,24 +75,15 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         _questManager = serviceProvider.GetRequiredService<Sanctuary.Game.Quests.IQuestManager>();
     }
 
-    // How far from center (as a fraction of the Bed radius) we place the FAR end of the walk-through. Kept
-    // conservative because the Bed sphere is a loose bounding volume — the real walkable cave is smaller,
-    // so staying well inside it keeps enemies + the exit on actual floor rather than in a wall / the void.
     private const float SafeReach = 0.38f;
 
-    // Maps with Radius above this are the big real dungeon worlds -> walk-through layout (enemies spread
-    // north from the centered spawn). At or below, it's a small scattered-encounter arena -> tight ring.
     private const float WalkThroughRadius = 120f;
 
     private static BaseZoneDefinition CreateDefinition(DungeonDefinition d)
     {
         const int tile = 64;
-        const float pad = 96f; // extra margin so entities near the edge always have a tile
+        const float pad = 96f;
 
-        // Scale the tile grid to the ACTUAL map bounds (center +/- radius). The old fixed -2..8 grid
-        // (coords -128..512) only fit the tiny arenas; the real dungeon worlds have centers up to ~670 and
-        // radii up to ~600, so their entities fell outside the grid and never rendered. longitude = X,
-        // latitude = Z.
         return new EncounterArenaDefinition
         {
             Id = d.ActivityId,
@@ -112,12 +94,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
             StartLatitude = (int)MathF.Floor((d.CenterZ - d.Radius - pad) / tile),
             EndLatitude = (int)MathF.Ceiling((d.CenterZ + d.Radius + pad) / tile),
             Sky = null,
-            // SPAWN AT THE BED CENTER (dropped ~20u so the client settles onto the floor via ground
-            // adoption). The client stores NO player-spawn point for these worlds, and the Bed sphere is
-            // only the bounding volume — an edge offset (my earlier south-edge spawn) lands OUTSIDE the
-            // actual cave geometry and the player falls through ("way below the map"). The center is the
-            // one point guaranteed to be inside the room, so we spawn there and keep enemies within a
-            // safe fraction of the radius. Per-dungeon spawns can be refined by measuring in-game.
             SpawnPosition = new Vector4(d.CenterX, d.GroundY + 20f, d.CenterZ, 1f),
             SpawnRotation = Quaternion.Identity,
         };
@@ -127,7 +103,7 @@ public sealed class EncounterArenaZone : CombatEncounterZone
 
     public override void OnClientIsReady(Player player)
     {
-        EnterAtFullVitals(player); // real max HP + mana so the bar matches the real-damage claw
+        EnterAtFullVitals(player);
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
         JobWeaponAbilities.SendToolbarWithFxPreload(player, _resourceManager);
@@ -241,14 +217,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         StartAi(player, _encounterRun);
     }
 
-    // Enemy spawn points, ordered to match the group iteration in StartEncounter
-    // (group 0's enemies first, then group 1's, ...).
-    // Small arenas (Radius <= WalkThroughRadius): the original tight two-ring cluster at center —
-    // an in-place arena brawl.
-    // Big dungeon worlds: each enemy GROUP is a "station" spread along the path from the entrance
-    // (south edge) to the far end (north), so the player walks through fighting cluster after cluster,
-    // with the last group (usually the boss) waiting at the far end. Enemies only aggro within
-    // AggroRange, so distant clusters stay put until you reach them.
     private List<Vector4> BuildDungeonSpawns()
     {
         var pts = new List<Vector4>(Math.Max(Dungeon.TotalEnemies, 1));
@@ -256,7 +224,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         var cz = Dungeon.CenterZ;
         var gy = Dungeon.GroundY;
 
-        // Small arena: concentric rings around center (unchanged behavior for the scattered encounters).
         if (Dungeon.Radius <= WalkThroughRadius)
         {
             var count = Math.Max(Dungeon.TotalEnemies, 1);
@@ -270,19 +237,14 @@ public sealed class EncounterArenaZone : CombatEncounterZone
             return pts;
         }
 
-        // Walk-through: spawn is at CENTER, so lay the stations out NORTH of it within SafeReach, closest
-        // group just ahead of the spawn and the last group (usually the boss) at the far end. You fight
-        // forward from the middle of the room toward the boss; distant clusters stay dormant until you
-        // reach them (AggroRange). Everything stays inside the safe radius so it lands on real floor.
         var groups = Dungeon.Enemies;
         var ng = groups.Length;
         var reach = Dungeon.Radius * SafeReach;
         for (var g = 0; g < ng; g++)
         {
             var group = groups[g];
-            var t = ng == 1 ? 0.5f : g / (float)(ng - 1);        // 0 = nearest .. 1 = far end
-            var stationZ = cz + (0.15f + 0.85f * t) * reach;     // north of center, within reach
-            // zig-zag the mid stations left/right so it isn't a straight line; boss station centered.
+            var t = ng == 1 ? 0.5f : g / (float)(ng - 1);
+            var stationZ = cz + (0.15f + 0.85f * t) * reach;
             var lateral = t >= 0.99f ? 0f : ((g % 2 == 0) ? -1f : 1f) * (reach * 0.35f);
             var stationX = cx + lateral;
             var c = Math.Max(group.Count, 1);
@@ -427,26 +389,20 @@ public sealed class EncounterArenaZone : CombatEncounterZone
             return null;
 
         npc.ModelId = group.ModelId;
-        // Boss shows the dungeon name; regular mobs show a NAMELESS plate so their HEALTH BAR still renders
-        // (the bar is a nameplate element — a hidden plate meant regular mobs had no bar, only a flash-on-hit,
-        // which read as "health bars sometimes pop up, sometimes not").
         npc.NameId = group.Boss ? Dungeon.TitleNameId : 0;
         npc.Name = null;
         npc.HideNamePlate = false;
         npc.ShowHealthBar = true;
         npc.Scale = group.Scale;
-        npc.Disposition = 0;              // hostile
+        npc.Disposition = 0;
         npc.ActiveProfile = MobActiveProfile;
         npc.CompositeEffectId = 0;
         npc.MaxHealth = group.Health;
         npc.Health = group.Health;
-        // A combat target, NOT an NPC: no "Press X to talk" interact prompt (they have no InteractAction, so
-        // the prompt did nothing anyway). Same recipe as the overworld training dummy / world hostiles —
-        // IsInteractable=false + the crossed-swords cursor keeps them attackable without the talk affordance.
         npc.IsInteractable = false;
         npc.InteractRange = 100;
         npc.Visible = true;
-        npc.CursorId = 11;                // attack cursor
+        npc.CursorId = 11;
         npc.WalkAnimId = -1;
         npc.RunAnimId = -1;
         npc.StandAnimId = -1;
@@ -501,10 +457,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                     if (run != _encounterRun)
                         return;
 
-                    // Target the whole GROUP, not a fixed anchor: each mob picks its nearest live player every
-                    // tick (see NearestLivePlayer), so the pack spreads across the party and re-targets when a
-                    // player falls. (Loop lifetime is the encounter run + any players remaining, not one anchor
-                    // — an anchor leaving used to kill AI for everyone.)
                     var players = ActivePlayers();
                     if (players.Length == 0)
                         return;
@@ -531,8 +483,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
 
                         var here = new Vector3(mob.Position.X, mob.Position.Y, mob.Position.Z);
 
-                        // Whole party down: disengage to the spawn post + idle (shared). Otherwise chase the
-                        // nearest player still standing.
                         var tgt = NearestLivePlayer(here, players);
                         if (tgt is null)
                         {
@@ -542,7 +492,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
 
                         var target = new Vector3(tgt.Position.X, tgt.Position.Y, tgt.Position.Z);
 
-                        // Aggro on approach, then run the shared chase/plant/attack tick.
                         if (!state.Charging)
                         {
                             var dx = target.X - here.X;
@@ -611,7 +560,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
             WinEncounter(killer, deathPos);
     }
 
-    // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.
     protected override int FailEncounterId => EncounterId;
     protected override int FailInstanceId => EncounterInstanceId;
     protected override string EncounterLogName => Dungeon.Comment;
@@ -689,9 +637,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         door.StandAnimId = -1;
         door.MovementType = MovementTypePhysics;
         door.RiderGuid = ulong.MaxValue;
-        // Arena: near center (by the spawn). Walk-through: at the FAR end, where the player finishes the
-        // last cluster — a portal out at the end of the dungeon (the arena's 125u interact range wouldn't
-        // reach the far end of a big map from center).
         var doorZ = Dungeon.Radius > WalkThroughRadius
             ? Dungeon.CenterZ + Dungeon.Radius * SafeReach
             : Dungeon.CenterZ - 12f;
@@ -738,7 +683,6 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         player.EncounterReturnPosition = null;
         player.TeleportToZone(home, returnPos, home.SpawnRotation, sky: null, geometryId: 0);
     }
-
 
     #endregion
 }

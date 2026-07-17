@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -47,9 +47,6 @@ public class ClientItemDefinitionCollection : ObservableConcurrentDictionary<int
             foreach (var entry in entries)
                 this[entry.Id] = entry;
 
-            // The AbilitiesScreen's Attack/Special columns come from the equipped weapon's own ability list. Our
-            // weapons ship with none, so seed each combat kit's weapons with their two ability entries (slot 0 =
-            // Attack, slot 1 = Special); without this the screen reads "undefined".
             foreach (var kit in Combat.JobKits.All)
                 foreach (var defId in kit.WeaponDefIds)
                     if (TryGetValue(defId, out var weapon))

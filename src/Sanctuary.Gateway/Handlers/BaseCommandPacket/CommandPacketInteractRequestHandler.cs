@@ -33,14 +33,9 @@ public static class CommandPacketInteractRequestHandler
 
         var player = connection.Player;
 
-        // Same guards as FreeInteractionNpc: the client can fire this on zone entry / from UI without a
-        // deliberate click. Ignore interacts within the spawn grace window.
         if (player.SpawnedAt is { } spawnedAt && DateTime.UtcNow - spawnedAt < TimeSpan.FromSeconds(2))
             return true;
 
-        // INSTANCE (Frostfang Fury): the victory EXIT DOOR (846 sg_exit_door_01, live-decoded) —
-        // clicking it releases the encounter and sends the player home. This replaced the old
-        // 6-second auto-kick; the player spins the loot wheel and leaves on their own time.
         if (player.Zone is FrostfangArenaZone arena && arena.IsExitDoor(packet.Guid))
         {
             arena.UseExitDoor(player);
@@ -53,7 +48,6 @@ public static class CommandPacketInteractRequestHandler
             return true;
         }
 
-        // Data-driven combat dungeons (DungeonCatalog) share one generic zone class.
         if (player.Zone is EncounterArenaZone encounterArena && encounterArena.IsExitDoor(packet.Guid))
         {
             encounterArena.UseExitDoor(player);
@@ -63,9 +57,6 @@ public static class CommandPacketInteractRequestHandler
         if (!player.Zone.TryGetEntity(packet.Guid, out var entity))
             return true;
 
-        // Enforce the NPC's interact range here too (this path resolves by guid and would otherwise
-        // let a click land from any distance), so the "must be next to the NPC" rule holds regardless
-        // of which interact packet the client sends.
         if (entity is Npc npc)
         {
             var playerPosition = new Vector3(player.Position.X, player.Position.Y, player.Position.Z);
@@ -81,9 +72,6 @@ public static class CommandPacketInteractRequestHandler
         player.LastInteractNpcGuid = packet.Guid;
         player.LastInteractAt = DateTime.UtcNow;
 
-        // INSTANCE WIP (Frostfang Fury): clicking the Frostfang Growler wolf opens the adventure offer popup
-        // (EncounterDetailsResponsePacket). The interaction provides the encounter context the cold "!offer"
-        // test lacked.
         if (player.Zone is StartingZone startingZone
             && startingZone.GrowlerWolf is { } growler
             && growler.Guid == packet.Guid)
@@ -91,8 +79,6 @@ public static class CommandPacketInteractRequestHandler
             _logger.LogInformation("InteractRequest: Frostfang Growler ({guid}) clicked -> sending offer popup.",
                 packet.Guid);
 
-            // Encounter state machine (op41/sub106, mirrored from the live 2014-04-01 capture): the
-            // real server steps 2 -> 3 -> 4 BEFORE the offer details, 5 with the ready ack, 6 in-zone.
             foreach (var state in new[] { 2, 3, 4 })
             {
                 connection.SendTunneled(new EncounterStatePacket
@@ -109,18 +95,11 @@ public static class CommandPacketInteractRequestHandler
                 // all share them).
                 Unknown = FrostfangArenaZone.EncounterId,
                 Unknown2 = FrostfangArenaZone.EncounterInstanceId,
-                // REAL ids from the team's minigame branch: Resources/ClientActivityDefinitions.json, activity
-                // Id 174 "Frostfang Growler!" (Category 99 = wandering combat encounter, ServerType 1 = world/arena
-                // launch).
-                NameId = 93276,                       // "Frostfang Growler!"  (ClientActivityDefinitions Id 174)
-                DescriptionId = 104171,               // Growler description
-                Difficulty = 1,                       // 1 of 5 pips (matches the def)
-                IconId = 1345,                        // wolf emblem ImageSetId (real launch used 28605; 1345 is live-proven here)
-                MiniGameType = 4,                     // COMBAT (matches the real packet; the launch copy already sends it)
-                // ★ PRIZES on the talk popup (2026-07-04): the popup's reward list renders from the
-                // PREVIEW reward bundle ("BaseClient.MiniGame.RewardPreview.Entries", up to 4 non-hidden
-                // rows). Set picked for the player's ACTIVE JOB server-side — live behavior; the packet
-                // carries only the job CATEGORY (ProfileType 2 = combat jobs).
+                NameId = 93276,
+                DescriptionId = 104171,
+                Difficulty = 1,
+                IconId = 1345,
+                MiniGameType = 4,
                 PreviewRewards = FrostfangArenaZone.GetPrizePreviewFor(player),
                 PreviewCoins = FrostfangArenaZone.PrizeCoins,
                 PreviewXp = FrostfangArenaZone.PrizeXp,
@@ -128,13 +107,10 @@ public static class CommandPacketInteractRequestHandler
                 ActivityId = FrostfangArenaZone.EncounterId,
             });
 
-            // Auto-complete the ready handshake (sub107 -> "HandlerMiniGameStart:setReady") shortly after the
-            // popup opens: the spinner flips to the green GO! without needing the "!ready" chat command.
             _ = Task.Run(async () =>
             {
                 await Task.Delay(600);
                 connection.SendTunneled(new EncounterZoneIsReadyPacket());
-                // Live order: state 5 lands right after the ready ack (04-01 seq 27148 -> 27150).
                 connection.SendTunneled(new EncounterStatePacket
                 {
                     EncounterId = FrostfangArenaZone.EncounterId,
@@ -146,10 +122,6 @@ public static class CommandPacketInteractRequestHandler
             return true;
         }
 
-        // INSTANCE (Tormented Spirits!): clicking THE single entrance spirit wandering the Blackspore
-        // graveyard opens the encounter 146 offer popup — the same wandering-encounter pattern as the
-        // Growler wolf. Only the one designated entrance spirit opens the offer; the other graveyard
-        // spirits are hostile world enemies (fought, not clicked-to-enter).
         if (player.Zone is StartingZone spiritZone
             && spiritZone.SpiritEntranceGuid != 0
             && packet.Guid == spiritZone.SpiritEntranceGuid)
@@ -171,11 +143,11 @@ public static class CommandPacketInteractRequestHandler
             {
                 Unknown = TormentedSpiritsArenaZone.EncounterId,
                 Unknown2 = TormentedSpiritsArenaZone.EncounterInstanceId,
-                NameId = TormentedSpiritsArenaZone.TitleNameId,           // "Tormented Spirits!"
-                DescriptionId = TormentedSpiritsArenaZone.DescriptionId,  // "...put them to rest!"
+                NameId = TormentedSpiritsArenaZone.TitleNameId,
+                DescriptionId = TormentedSpiritsArenaZone.DescriptionId,
                 Difficulty = TormentedSpiritsArenaZone.Difficulty,
                 IconId = TormentedSpiritsArenaZone.IconId,
-                MiniGameType = 4, // COMBAT
+                MiniGameType = 4,
                 PreviewRewards = FrostfangArenaZone.GetPrizePreviewFor(player),
                 PreviewCoins = FrostfangArenaZone.PrizeCoins,
                 PreviewXp = FrostfangArenaZone.PrizeXp,
@@ -183,7 +155,6 @@ public static class CommandPacketInteractRequestHandler
                 ActivityId = TormentedSpiritsArenaZone.EncounterId,
             });
 
-            // Same auto-ready handshake as the Growler popup (spinner -> green GO!).
             _ = Task.Run(async () =>
             {
                 await Task.Delay(600);

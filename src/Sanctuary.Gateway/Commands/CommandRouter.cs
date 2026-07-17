@@ -30,7 +30,6 @@ public static class CommandRouter
         _zoneManager = sp.GetRequiredService<IZoneManager>();
         _resourceManager = sp.GetRequiredService<IResourceManager>();
 
-        // Try to get the database path from configuration
         try
         {
             var dbPath = System.IO.Path.Combine(AppContext.BaseDirectory, "sanctuary.db");
@@ -43,17 +42,14 @@ public static class CommandRouter
         }
     }
 
-    // Entry point for all slash commands.
-    // Returns true if the message was handled as a command.
     public static bool TryHandle(GatewayConnection conn, string? message)
     {
         if (string.IsNullOrWhiteSpace(message))
             return false;
 
-        // Accept commands with or without slash
         bool isCommand = message[0] == '/';
         if (!isCommand && !message.StartsWith("!"))
-            return false; // Must start with / or !
+            return false;
 
         _logger.LogInformation("Command received: {Message} from {Player}", message, conn.Player.Name);
 
@@ -61,7 +57,6 @@ public static class CommandRouter
         if (parts.Length == 0)
             return false;
 
-        // Remove the prefix (/ or !)
         var verb = parts[0].Substring(1).ToLowerInvariant();
 
         switch (verb)
@@ -139,7 +134,6 @@ public static class CommandRouter
             case "lua":
                 return HandleLua(conn, message);
 
-            // PARTY (interim accept path until the native accept packet's byte format is captured).
             case "paccept":
                 BaseGroupPacketHandler.AcceptInvite(conn.Player);
                 return true;
@@ -147,9 +141,6 @@ public static class CommandRouter
                 BaseGroupPacketHandler.LeaveParty(conn.Player);
                 return true;
 
-            // PARTY UI RE (2026-07-11): "!ptest" sends the runner a candidate S2C GroupInvite so we
-            // can Frida-watch their OWN client parse it + (hopefully) raise the invite popup, then
-            // refine the wire format. Self-targeted so a single client can iterate.
             case "ptest":
                 conn.Player.SendTunneled(new GroupPacketGroupInvite
                 {
@@ -159,9 +150,6 @@ public static class CommandRouter
                 SendSystem(conn, "!ptest -> sent a candidate S2C GroupInvite to you (watch Frida).");
                 return true;
 
-            // PARTY UI RE: "!proster" sends the runner a candidate S2C GroupUpdate (sub-8 roster) with
-            // themselves + a fake member, so Frida can capture the sub-8 handler + how the client parses
-            // the member list, and (hopefully) show the group/combat-group window.
             case "proster":
                 conn.Player.SendTunneled(new GroupPacketGroupUpdate
                 {
@@ -181,11 +169,6 @@ public static class CommandRouter
         }
     }
 
-
-    // ================== BASIC HELP ==================
-
-    // Enter a data-driven combat dungeon (DungeonCatalog) directly by activity id — the test entry until
-    // each dungeon gets its world entry NPC. Pulls the party in (co-op), same as the GO! button.
     private static bool HandleDungeon(GatewayConnection conn, string[] parts)
     {
         var catalog = Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity;
@@ -244,9 +227,6 @@ public static class CommandRouter
         return true;
     }
 
-
-    // ================== ADMIN CHECK ==================
-
     private static bool RequireAdmin(GatewayConnection conn)
     {
         if (!IsAdmin(conn))
@@ -259,7 +239,6 @@ public static class CommandRouter
 
     private static bool IsAdmin(GatewayConnection conn)
     {
-        // Use the database character ID, not the runtime GUID
         long characterId = (long)conn.Player.CharacterId;
 
         try
@@ -344,10 +323,6 @@ public static class CommandRouter
         return true;
     }
 
-
-    // ================== /NPC COMMANDS ==================
-
-    // /npc spawn <NameId> <ModelId> [TextureAlias]
     private static bool HandleNpc(GatewayConnection conn, string[] parts)
     {
         if (!RequireAdmin(conn))
@@ -412,11 +387,6 @@ public static class CommandRouter
         return true;
     }
 
-    // ================== /ADMIN COMMANDS ==================
-
-    // /admin add <Username>
-    // /admin remove <Username>
-    // /admin list
     private static bool HandleAdmin(GatewayConnection conn, string[] parts)
     {
         if (!RequireAdmin(conn))
@@ -450,7 +420,6 @@ public static class CommandRouter
             return true;
         }
 
-        // Support multi-word usernames just in case
         string pattern = string.Join(' ', parts, 2, parts.Length - 2);
 
         if (!TryResolveUsernamePattern(pattern, out var resolvedUsername, out var error))
@@ -470,7 +439,6 @@ public static class CommandRouter
 
         return true;
     }
-
 
     private static bool HandleAdminRemove(GatewayConnection conn, string[] parts)
     {
@@ -502,7 +470,6 @@ public static class CommandRouter
 
         return true;
     }
-
 
     private static bool HandleAdminList(GatewayConnection conn)
     {
@@ -540,11 +507,8 @@ public static class CommandRouter
         return true;
     }
 
-    // ================== ENFORCER COMMANDS ==================
-
     private static bool IsEnforcer(GatewayConnection conn)
     {
-        // Only users with IsAdmin = 1 in the database can use Referee commands
         return IsAdmin(conn);
     }
 
@@ -679,7 +643,6 @@ public static class CommandRouter
             return true;
         }
 
-        // Don't allow kicking other admins
         if (IsPlayerAdmin(target))
         {
             SendSystem(conn, "You cannot kick other admins/Referees.");
@@ -691,7 +654,6 @@ public static class CommandRouter
 
         SendMessageToPlayer(target, $"You have been kicked from the server. Reason: {reason}");
 
-        // Give them a moment to see the message, then disconnect
         System.Threading.Tasks.Task.Delay(2000).ContinueWith(_ =>
         {
             target.Disconnect();
@@ -773,7 +735,6 @@ public static class CommandRouter
             return true;
         }
 
-        // Check if item exists
         if (!_resourceManager.ClientItemDefinitions.TryGetValue(itemId, out var itemDef))
         {
             SendSystem(conn, $"Item {itemId} not found in item definitions.");
@@ -782,9 +743,6 @@ public static class CommandRouter
 
         _logger.LogInformation("Referee {Referee} gifted {Quantity}x Item {ItemId} to {Player}",
             conn.Player.Name.FullName, quantity, itemId, target.Name.FullName);
-
-        // TODO: Actually add the item to player's inventory
-        // This requires inventory system implementation
 
         SendMessageToPlayer(target, $"[GIFT] A Referee has gifted you {quantity}x {itemDef.NameId}!");
         SendSystem(conn, $"Gifted {quantity}x Item {itemId} to {target.Name.FullName}");
@@ -807,7 +765,6 @@ public static class CommandRouter
 
         var target = conn.Player;
 
-        // /where <pattern>  → look up another player
         if (parts.Length >= 2)
         {
             string pattern = string.Join(' ', parts, 1, parts.Length - 1);
@@ -825,15 +782,13 @@ public static class CommandRouter
             }
 
             target = found;
-            zone = target.Zone ?? zone; // if target is in another zone, prefer that
+            zone = target.Zone ?? zone;
         }
 
         var pos = target.Position;
         SendSystem(conn, $"{target.Name.FullName} is at ({pos.X:0.0}, {pos.Y:0.0}, {pos.Z:0.0}) in zone {zone.Id}.");
         return true;
     }
-
-
 
     private static bool HandleTp(GatewayConnection conn, string[] parts)
     {
@@ -846,7 +801,6 @@ public static class CommandRouter
             return true;
         }
 
-        // Multi-word pattern: everything after /tp
         string pattern = string.Join(' ', parts, 1, parts.Length - 1);
 
         if (!TryResolvePlayerNamePattern(pattern, out var resolvedName, out var error))
@@ -855,10 +809,8 @@ public static class CommandRouter
             return true;
         }
 
-        // Now use the resolved *exact* name with ZoneManager
         if (!_zoneManager.TryGetPlayer(resolvedName, out var target))
         {
-            // This really shouldn't happen now, but just in case:
             SendSystem(conn, $"Player '{resolvedName}' not found (after resolving pattern).");
             return true;
         }
@@ -875,8 +827,6 @@ public static class CommandRouter
         SendSystem(conn, $"Teleported to {target.Name.FullName}.");
         return true;
     }
-
-
 
     private static bool HandleBring(GatewayConnection conn, string[] parts)
     {
@@ -916,8 +866,6 @@ public static class CommandRouter
         return true;
     }
 
-
-
     private static bool HandleGoto(GatewayConnection conn, string[] parts)
     {
         if (!RequireAdmin(conn))
@@ -947,8 +895,6 @@ public static class CommandRouter
         var newPos = new System.Numerics.Vector4(x, y, z, 1);
         var rot = conn.Player.Rotation;
 
-        // Use the same logic as zoning/teleporting between zones,
-        // but allow same-zone teleports now that we patched TeleportToZone.
         conn.Player.TeleportToZone(zone, newPos, rot);
 
         SendSystem(conn, $"Teleported to ({x:0.0}, {y:0.0}, {z:0.0}) in zone {zone.Id}.");
@@ -971,14 +917,13 @@ public static class CommandRouter
         var chatPacket = new PacketChat
         {
             Channel = ChatChannel.System,
-            FromGuid = 0,                    // system / anonymous
-            FromName = new NameData(),       // empty name
+            FromGuid = 0,
+            FromName = new NameData(),
             Message = "[ANNOUNCEMENT] " + msg
         };
 
         int sentCount = 0;
 
-        // Send to starting zone players
         foreach (var player in _zoneManager.StartingZone.Players)
         {
             player.SendTunneled(chatPacket);
@@ -989,8 +934,6 @@ public static class CommandRouter
         return true;
     }
 
-
-
     private static bool HandlePlayers(GatewayConnection conn, string[] parts)
     {
         if (!RequireAdmin(conn))
@@ -998,10 +941,8 @@ public static class CommandRouter
 
         var list = new List<string>();
 
-        // Get all players from starting zone
         foreach (var p in _zoneManager.StartingZone.Players)
         {
-            // Show GUID + Name so you can distinguish players
             list.Add($"{p.Guid} — {p.Name.FullName}");
         }
 
@@ -1011,18 +952,14 @@ public static class CommandRouter
             return true;
         }
 
-        // Build a nice readable list
         string msg = "Online players:\n" + string.Join("\n", list);
 
         SendSystem(conn, msg);
         return true;
     }
 
-    // ================== HOUSING COMMANDS ==================
-
     private static bool HandleCreateHouse(GatewayConnection conn, string[] parts)
     {
-        // Default house definition ID (you can change this based on your house definitions)
         int houseDefId = 1;
 
         if (parts.Length >= 2 && int.TryParse(parts[1], out var customDefId))
@@ -1030,7 +967,6 @@ public static class CommandRouter
             houseDefId = customDefId;
         }
 
-        // Validate the house definition exists
         if (!_resourceManager.Houses.TryGetValue(houseDefId, out var houseDef))
         {
             var availableIds = string.Join(", ", _resourceManager.Houses.Keys.OrderBy(k => k).Take(10));
@@ -1046,7 +982,6 @@ public static class CommandRouter
             using var db = new SqliteConnection(_dbConnectionString);
             db.Open();
 
-            // Create a new house for the player
             using var cmd = db.CreateCommand();
             cmd.CommandText = @"
                 INSERT INTO Houses (OwnerId, HouseDefinitionId, NameId, IsLocked, IsMembersOnly, IsFloraAllowed,
@@ -1144,7 +1079,6 @@ public static class CommandRouter
             using var db = new SqliteConnection(_dbConnectionString);
             db.Open();
 
-            // Verify the house exists and get its info
             using var cmd = db.CreateCommand();
             cmd.CommandText = @"
                 SELECT h.OwnerId, h.HouseDefinitionId
@@ -1165,18 +1099,15 @@ public static class CommandRouter
             var ownerId = reader.GetInt64(0);
             var houseDefId = reader.GetInt32(1);
 
-            // For now, only allow owners to enter (you can add permissions later)
             if (ownerId != characterId)
             {
                 SendSystem(conn, $"You don't have permission to enter house #{houseId}.");
                 return true;
             }
 
-            // Get the house definition from the resource manager
             if (!_resourceManager.Houses.TryGetValue(houseDefId, out var houseDef))
             {
                 SendSystem(conn, $"House definition {houseDefId} not found. Using default.");
-                // Fall back to default housing zone
                 var defaultPacket = new PacketClientBeginZoning
                 {
                     Name = "hsg_emptylot_seaside_beach_01",
@@ -1194,10 +1125,9 @@ public static class CommandRouter
                 return true;
             }
 
-            // Get the zone definition for this house
-            string zoneName = "hsg_emptylot_seaside_beach_01"; // Default fallback
-            string sky = "sky_seaside24.xml"; // Default sky
-            int geometryId = 214; // Default geometry
+            string zoneName = "hsg_emptylot_seaside_beach_01";
+            string sky = "sky_seaside24.xml";
+            int geometryId = 214;
             var spawnPosition = houseDef.SpawnPosition;
             var spawnRotation = new System.Numerics.Quaternion(
                 houseDef.SpawnRotation.X,
@@ -1209,12 +1139,11 @@ public static class CommandRouter
             if (_resourceManager.Zones.TryGetValue(houseDef.ZoneId, out var zoneDef))
             {
                 zoneName = zoneDef.Name;
-                // Use zone definition spawn position if available (more reliable)
                 if (zoneDef is Sanctuary.Game.Resources.Definitions.Zones.StartingZoneDefinition startingZone)
                 {
                     spawnPosition = new System.Numerics.Vector4(
                         startingZone.SpawnPosition.X,
-                        startingZone.SpawnPosition.Y + 2f, // Add 2 units height to prevent falling
+                        startingZone.SpawnPosition.Y + 2f,
                         startingZone.SpawnPosition.Z,
                         0
                     );
@@ -1235,7 +1164,6 @@ public static class CommandRouter
             }
             else
             {
-                // Add safety height to Houses.json position
                 spawnPosition = new System.Numerics.Vector4(
                     houseDef.SpawnPosition.X,
                     houseDef.SpawnPosition.Y + 2f,
@@ -1247,7 +1175,6 @@ public static class CommandRouter
                     houseDef.ZoneId, houseDefId);
             }
 
-            // Zone the player to the house
             var packetClientBeginZoning = new PacketClientBeginZoning
             {
                 Name = zoneName,
@@ -1256,7 +1183,7 @@ public static class CommandRouter
                 Rotation = spawnRotation,
                 Sky = sky,
                 Unknown = 1,
-                Id = (int)houseId, // Use house ID as zone ID
+                Id = (int)houseId,
                 GeometryId = geometryId,
                 OverrideUpdateRadius = true
             };
@@ -1276,7 +1203,6 @@ public static class CommandRouter
             return true;
         }
     }
-
 
     private static bool HandleSpawnHouse(GatewayConnection conn, string[] parts)
     {
@@ -1314,9 +1240,8 @@ public static class CommandRouter
         houseNpc.Name = $"House Model {modelId}";
         houseNpc.Scale = 1f;
         houseNpc.Visible = true;
-        houseNpc.HideNamePlate = false; // Show nameplate so you can see the model ID
+        houseNpc.HideNamePlate = false;
 
-        // Spawn at player's position
         houseNpc.UpdatePosition(conn.Player.Position, conn.Player.Rotation);
 
         var tile = zone.GetTileFromPosition(conn.Player.Position);
@@ -1345,14 +1270,12 @@ public static class CommandRouter
                 return;
             }
 
-            // Get the house definition to find its NameId
             if (!_resourceManager.Houses.TryGetValue(houseDefId, out var houseDef))
             {
                 _logger.LogError("House definition {HouseDefId} not found", houseDefId);
                 return;
             }
 
-            // Find the store bundle with matching NameId to get the GameItemId
             int gameItemId = 0;
             foreach (var store in _resourceManager.Stores.Values)
             {
@@ -1369,43 +1292,38 @@ public static class CommandRouter
                 if (gameItemId > 0) break;
             }
 
-            // House definition ID to model ID mapping
             var houseModelMapping = new Dictionary<int, int>
             {
-                { 1, 5001 },  // Small Seaside Beach House
-                { 2, 5002 },  // Medium Seaside Beach House
-                { 3, 5003 },  // Large Seaside Cliffs House
-                { 4, 5004 },  // Large Seaside Cliffs House (variant)
-                { 5, 5005 },  // Small Seaside Beach House (variant)
-                { 6, 5006 },  // Large Seaside House
-                { 7, 5007 },  // Large Wilds House
-                { 8, 5008 },  // Small Seaside Beach House
-                { 9, 5009 },  // Medium Seaside Beach House
-                { 10, 5010 }, // Large Seaside Beach House
-                // Add more mappings as you discover the correct model IDs
+                { 1, 5001 },
+                { 2, 5002 },
+                { 3, 5003 },
+                { 4, 5004 },
+                { 5, 5005 },
+                { 6, 5006 },
+                { 7, 5007 },
+                { 8, 5008 },
+                { 9, 5009 },
+                { 10, 5010 },
             };
 
             int houseModelId = 0;
 
-            // Try to use the mapping first
             if (houseModelMapping.TryGetValue(houseDefId, out var mappedModelId))
             {
                 houseModelId = mappedModelId;
                 _logger.LogInformation("Using mapped model {ModelId} for house def {HouseDefId}",
                     houseModelId, houseDefId);
             }
-            // Try to get the model ID from the item definition
             else if (gameItemId > 0 && _resourceManager.ClientItemDefinitions.TryGetValue(gameItemId, out var itemDef))
             {
-                houseModelId = itemDef.Param1; // Param1 contains the ModelId
+                houseModelId = itemDef.Param1;
                 _logger.LogInformation("Found house model {ModelId} for house def {HouseDefId} from item {GameItemId}",
                     houseModelId, houseDefId, gameItemId);
             }
 
-            // Fallback to placeholder model if item not found
             if (houseModelId == 0)
             {
-                houseModelId = 5000 + houseDefId; // Simple fallback
+                houseModelId = 5000 + houseDefId;
                 _logger.LogWarning("Could not find model for house def {HouseDefId} (NameId: {NameId}), using placeholder {ModelId}",
                     houseDefId, houseDef.NameId, houseModelId);
             }
@@ -1417,7 +1335,6 @@ public static class CommandRouter
             houseNpc.Visible = true;
             houseNpc.HideNamePlate = true;
 
-            // Position the house using the spawn position from the house definition
             var housePosition = houseDef.SpawnPosition;
             var houseRotation = new System.Numerics.Quaternion(
                 houseDef.SpawnRotation.X,
@@ -1431,7 +1348,6 @@ public static class CommandRouter
             var tile = zone.GetTileFromPosition(housePosition);
             tile.Entities.TryAdd(houseNpc.Guid, houseNpc);
 
-            // Send to player
             conn.Player.OnAddVisibleNpcs([houseNpc]);
 
             _logger.LogInformation("Spawned house structure with model {ModelId} at position {Pos}", houseModelId, housePosition);
@@ -1442,9 +1358,6 @@ public static class CommandRouter
         }
     }
 
-    // ================== TEST EFFECT COMMAND ==================
-
-    // /testeffect <effectId> [modelId] [animId] [standAnimId] - Spawns a boombox with the given effect, model and animation
     private static bool HandleTestEffect(GatewayConnection conn, string[] parts)
     {
         if (!RequireAdmin(conn))
@@ -1466,7 +1379,7 @@ public static class CommandRouter
             return true;
         }
 
-        int modelId = 2201; // Default to Tiki boombox
+        int modelId = 2201;
         if (parts.Length >= 3 && int.TryParse(parts[2], out var model))
         {
             modelId = model;
@@ -1512,10 +1425,8 @@ public static class CommandRouter
         var tile = zone.GetTileFromPosition(conn.Player.Position);
         tile.Entities.TryAdd(npc.Guid, npc);
 
-        // Send to player
         conn.Player.OnAddVisibleNpcs([npc]);
 
-        // Also send a PlayCompositeEffect packet to trigger the effect immediately
         var effectPacket = new PlayerUpdatePacketPlayCompositeEffect
         {
             Guid = npc.Guid,
@@ -1529,7 +1440,6 @@ public static class CommandRouter
         return true;
     }
 
-    // /playeffect <effectId> - Plays a composite effect directly on your character
     private static bool HandlePlayEffect(GatewayConnection conn, string[] parts)
     {
         if (!RequireAdmin(conn))
@@ -1553,8 +1463,6 @@ public static class CommandRouter
         SendSystem(conn, $"Playing effect {effectId} on your character.");
         return true;
     }
-
-    // ================== /GIVEITEM ==================
 
     private static bool HandleGiveItem(GatewayConnection conn, string[] parts)
     {
@@ -1584,14 +1492,12 @@ public static class CommandRouter
         defWriter.Write(new[] { def });
         conn.SendTunneled(new PlayerUpdatePacketItemDefinitions { Payload = defWriter.Buffer });
 
-        // Stack onto existing item if the player already has one with matching tint
         var existing = conn.Player.Items.FirstOrDefault(x => x.Definition == def.Id && x.Tint == 0);
         if (existing is not null)
         {
             existing.Count += count;
             conn.SendTunneled(new ClientUpdatePacketItemUpdate { ItemGuid = existing.Id, Count = existing.Count });
 
-            // Persist updated count
             try
             {
                 using var db = new Microsoft.Data.Sqlite.SqliteConnection(_dbConnectionString);
@@ -1629,10 +1535,6 @@ public static class CommandRouter
         return true;
     }
 
-    // ================== /LUA (debug: run client-side script) ==================
-
-    // /lua <script>  - sends an ExecuteScriptPacket so the client runs the given Lua.
-    // Debug/testing tool for reverse-engineering the client script API.
     private static bool HandleLua(GatewayConnection conn, string? message)
     {
         if (string.IsNullOrWhiteSpace(message))
@@ -1647,11 +1549,6 @@ public static class CommandRouter
 
         string script = message.Substring(sp + 1).Trim();
 
-        // There are TWO candidate "run this Lua" packets and it's not settled which one this client build
-        // actually honours, so fire both:
-        //   * ExecuteScriptPacket        (BaseUi op47/sub7)  string + List<int>
-        //   * AbilityPacketExecuteClientLua (op36/sub17)     string + 3 floats  (the layout EDITz specified)
-        // If a script has a visible effect, whichever landed is the working one.
         conn.SendTunneled(new ExecuteScriptPacket { Script = script });
         conn.SendTunneled(new AbilityPacketExecuteClientLua { Script = script });
 
@@ -1659,8 +1556,6 @@ public static class CommandRouter
         _logger.LogInformation("/lua from {Player}: {Script}", conn.Player.Name.FullName, script);
         return true;
     }
-
-    // ================== HELPERS ==================
 
     private static void SendMessageToPlayer(Player player, string message)
     {
@@ -1708,7 +1603,6 @@ public static class CommandRouter
                 return false;
             }
 
-            // PASS 1: exact match (case-insensitive)
             var exact = allUsernames
                 .Where(u => string.Equals(u, pattern, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -1724,7 +1618,6 @@ public static class CommandRouter
                 return false;
             }
 
-            // PASS 2: prefix match (case-insensitive)
             var prefix = allUsernames
                 .Where(u => u.StartsWith(pattern, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -1740,7 +1633,6 @@ public static class CommandRouter
                 return false;
             }
 
-            // PASS 3: contains match (case-insensitive)
             var contains = allUsernames
                 .Where(u => u.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
                 .ToList();
@@ -1767,7 +1659,6 @@ public static class CommandRouter
         }
     }
 
-
     private static bool TryResolvePlayerNamePattern(string pattern, out string resolvedName, out string error)
     {
         resolvedName = string.Empty;
@@ -1781,7 +1672,6 @@ public static class CommandRouter
 
         pattern = pattern.Trim();
 
-        // Get all player full names from starting zone
         var allNames = _zoneManager.StartingZone.Players
             .Select(p => p.Name.FullName)
             .Distinct()
@@ -1793,7 +1683,6 @@ public static class CommandRouter
             return false;
         }
 
-        // PASS 1: exact match (case-insensitive)
         var exact = allNames
             .Where(n => string.Equals(n, pattern, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -1809,7 +1698,6 @@ public static class CommandRouter
             return false;
         }
 
-        // PASS 2: prefix match (case-insensitive)
         var prefix = allNames
             .Where(n => n.StartsWith(pattern, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -1825,7 +1713,6 @@ public static class CommandRouter
             return false;
         }
 
-        // PASS 3: contains match (case-insensitive)
         var contains = allNames
             .Where(n => n.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
             .ToList();
@@ -1844,7 +1731,6 @@ public static class CommandRouter
         error = $"No player found matching '{pattern}'.";
         return false;
     }
-
 
     private static int ExecuteNonQuery(string sql, params (string name, object value)[] parameters)
     {
@@ -1880,20 +1766,17 @@ public static class CommandRouter
         {
             Channel = ChatChannel.System,
             FromGuid = conn.Player.Guid,
-            FromName = conn.Player.Name, // NameData, not string
+            FromName = conn.Player.Name,
             Message = text
         };
 
         conn.Player.SendTunneled(packet);
     }
 
-    // ================== PET COMMANDS ==================
-
     private static bool HandlePetSpawn(GatewayConnection conn, string[] parts)
     {
         if (parts.Length < 2)
         {
-            // List available pets
             if (conn.Player.Pets.Count == 0)
             {
                 SendSystem(conn, "You don't own any pets. Usage: /petspawn [DbPetId]");
@@ -1910,7 +1793,6 @@ public static class CommandRouter
             return true;
         }
 
-        // Find the pet in the player's collection by database ID (not Definition ID)
         var petInfo = conn.Player.Pets.FirstOrDefault(x => x.Id == (int)dbPetId);
         if (petInfo is null)
         {
@@ -1918,21 +1800,18 @@ public static class CommandRouter
             return true;
         }
 
-        // Check if a pet is already active
         if (conn.Player.Pet is not null)
         {
             SendSystem(conn, "You already have a pet active. Use /petdespawn first.");
             return true;
         }
 
-        // Get pet definition using the Definition ID from the pet info
         if (!_resourceManager.Pets.TryGetValue(petInfo.Definition, out var petDefinition))
         {
             SendSystem(conn, $"Pet definition not found (Definition ID: {petInfo.Definition}).");
             return true;
         }
 
-        // Create the pet in the zone
         if (!conn.Player.Zone.TryCreatePet(conn.Player, petDefinition, out var pet))
         {
             SendSystem(conn, "Failed to spawn pet in zone.");
@@ -1941,7 +1820,7 @@ public static class CommandRouter
 
         pet.Visible = true;
 
-        pet.Name = string.Empty; // Pet name not sent in PacketPetInfo (uses NameId for localization)
+        pet.Name = string.Empty;
         pet.NameId = petDefinition.NameId;
         pet.ModelId = petDefinition.ModelId;
 
@@ -1956,28 +1835,24 @@ public static class CommandRouter
 
         pet.ImageSetId = petDefinition.ImageSetId;
 
-        // Set MovementType=2 (Physics) - server controls position
         pet.MovementType = 2;
 
-        // Set walking animation
         pet.Animation = 1;
 
         conn.Player.Pet = pet;
 
         pet.UpdatePosition(conn.Player.Position, conn.Player.Rotation);
 
-        // First send PetSpawnResponsePacket to spawn the pet
         var petSpawnResponsePacket = new PetSpawnResponsePacket();
         petSpawnResponsePacket.OwnerGuid = conn.Player.Guid;
         petSpawnResponsePacket.PetGuid = pet.Guid;
         petSpawnResponsePacket.CompositeEffectId = 0;
         conn.Player.SendTunneledToVisible(petSpawnResponsePacket, true);
 
-        // Then send PetActivePacket to activate following behavior
         var petActivePacket = new PetActivePacket();
         petActivePacket.OwnerGuid = conn.Player.Guid;
         petActivePacket.PetGuid = pet.Guid;
-        petActivePacket.CompositeEffectId = 46; // PFX_Teleport_Flash
+        petActivePacket.CompositeEffectId = 46;
         conn.Player.SendTunneledToVisible(petActivePacket, true);
 
         SendSystem(conn, $"Pet spawned!");
@@ -1992,7 +1867,6 @@ public static class CommandRouter
             return true;
         }
 
-        // Send despawn response to all visible players
         var petDismountResponsePacket = new PetDismountResponsePacket
         {
             OwnerGuid = conn.Player.Guid,
@@ -2023,8 +1897,6 @@ public static class CommandRouter
         return true;
     }
 
-    // ================== RESPAWN (revive after death) ==================
-
     private static bool HandleRespawn(GatewayConnection conn)
     {
         if (!conn.Player.IsDead)
@@ -2033,20 +1905,11 @@ public static class CommandRouter
             return true;
         }
 
-        // Context-aware: overworld revives in place, dungeons revive at the dungeon spawn (see the zone
-        // overrides of OnPlayerRespawn).
         conn.Player.Zone.OnPlayerRespawn(conn.Player);
         SendSystem(conn, "You have been revived!");
         return true;
     }
 
-    // TEST: force a knockout so the death flow can be tested regardless of combat balance (world enemies
-    // are currently weak, so you rarely actually reach 0 HP).
-    // DEV PROBE for the floating "Dodge" hit-type text. Sends the dedicated combat sub-opcodes directly at the
-    // player (decoupled from the 5% dodge roll) so we can see which one the client actually renders as text:
-    //   !dodge        -> op32/6 AttackTargetDodged  (attacker = target = you)
-    //   !dodge self   -> op32/6 with a DISTINCT attacker guid (guid+1) in case the client needs attacker != target
-    //   !dodge miss   -> op32/5 AttackAttackerMissed (same 2-guid shape)
     private static bool HandleDodge(GatewayConnection conn, string[] parts)
     {
         var self = conn.Player.Guid;
@@ -2085,8 +1948,6 @@ public static class CommandRouter
         return true;
     }
 
-    // ================== HP (check/set hitpoints) ==================
-
     private static bool HandleHp(GatewayConnection conn, string[] parts)
     {
         if (parts.Length < 2)
@@ -2096,7 +1957,6 @@ public static class CommandRouter
             return true;
         }
 
-        // /hp set <value> — for testing
         if (parts[1].ToLower() == "set" && parts.Length >= 3 && int.TryParse(parts[2], out var newHp))
         {
             var maxHp = conn.Player.Stats[CharacterStatId.MaxHealth].Int;
@@ -2112,7 +1972,6 @@ public static class CommandRouter
             return true;
         }
 
-        // /hp full — heal to full
         if (parts[1].ToLower() == "full")
         {
             var maxHp = conn.Player.Stats[CharacterStatId.MaxHealth].Int;
@@ -2140,8 +1999,6 @@ public static class CommandRouter
         SendSystem(conn, "Usage: /hp | /hp set <value> | /hp full");
         return true;
     }
-
-    // ================== XP (check / grant job XP) ==================
 
     private static bool HandleXp(GatewayConnection conn, string[] parts)
     {
@@ -2171,14 +2028,11 @@ public static class CommandRouter
         return true;
     }
 
-    // ================== SPAWN ENEMY (combat NPC) ==================
-
     private static bool HandleSpawnEnemy(GatewayConnection conn, string[] parts)
     {
         if (!RequireAdmin(conn))
             return true;
 
-        // /spawnenemy <ModelId> [Level] [Name]
         if (parts.Length < 2 || !int.TryParse(parts[1], out var modelId))
         {
             SendSystem(conn, "Usage: /spawnenemy <ModelId> [Level] [Name]");
@@ -2199,15 +2053,13 @@ public static class CommandRouter
         combatNpc.ModelId = modelId;
         combatNpc.Name = name;
         combatNpc.Scale = 1.0f;
-        combatNpc.Disposition = 0; // Hostile
+        combatNpc.Disposition = 0;
         combatNpc.IsInteractable = true;
         combatNpc.InteractRange = 100;
         combatNpc.Speed = 6.0f;
 
-        // Set combat stats based on level
         combatNpc.InitializeFromLevel(level);
 
-        // Position slightly in front of the player
         var forward = new System.Numerics.Vector3(
             2.0f * (conn.Player.Rotation.X * conn.Player.Rotation.Z + conn.Player.Rotation.W * conn.Player.Rotation.Y),
             0f,
@@ -2228,9 +2080,6 @@ public static class CommandRouter
         combatNpc.Visible = true;
         combatNpc.UpdateZoneTile();
 
-        // Explicitly send the AddNpc packet to the spawning player
-        // so they see it immediately (tile system also handles visibility
-        // for other nearby players)
         var addPacket = combatNpc.GetAddNpcPacket();
         conn.Player.SendTunneled(addPacket);
         conn.Player.VisibleNpcs.TryAdd(combatNpc.Guid, combatNpc);
@@ -2239,10 +2088,6 @@ public static class CommandRouter
         return true;
     }
 
-    // ================== TEST TRANSFORM ==================
-
-    // /spawntest <field> <value>
-    // Fields: nameplate, imageset, profile, u67, u68, effect
     private static bool HandleSpawnTest(GatewayConnection conn, string[] parts)
     {
         if (parts.Length < 3)
@@ -2294,7 +2139,6 @@ public static class CommandRouter
                 npc.NameScale = fvalue;
                 break;
             case "clone":
-                // Spawn an exact copy of vendor GUID <value> to see if badge follows
                 if (zone.TryGetNpc((ulong)value, out var src))
                 {
                     npc.ModelId      = src.ModelId;
@@ -2329,7 +2173,6 @@ public static class CommandRouter
         return true;
     }
 
-    // /testsubtext [start] [end]  — spawns a row of NPCs with SubTextNameId from start to end (default 2910-2940)
     private static bool HandleTestSubText(GatewayConnection conn, string[] parts)
     {
         var zone = conn.Player.Zone;
@@ -2386,8 +2229,6 @@ public static class CommandRouter
         return true;
     }
 
-    // /testtransform <modelId>  — triggers the NPC overlay transform for all nearby players to see.
-    // /testtransform 0          — removes the active transform.
     private static bool HandleTestIcons(GatewayConnection conn)
     {
         var zone = conn.Player.Zone;
@@ -2442,7 +2283,7 @@ public static class CommandRouter
     private static bool HandleFly(GatewayConnection conn)
     {
         var guid = conn.Player.Guid;
-        bool enabling = _flyingPlayers.Add(guid); // returns false if already present → toggle off
+        bool enabling = _flyingPlayers.Add(guid);
         if (!enabling)
             _flyingPlayers.Remove(guid);
 

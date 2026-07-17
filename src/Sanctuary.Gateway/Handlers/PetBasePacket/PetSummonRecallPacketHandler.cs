@@ -28,8 +28,6 @@ public static class PetSummonRecallPacketHandler
 
     public static bool HandlePacket(GatewayConnection connection, ReadOnlySpan<byte> data)
     {
-        // NOTE: PetBasePacketHandler already consumed the Pet sub-opcode byte.
-        // 'data' starts at the PetSummonRecallPacket body. Read only the payload here.
         var reader = new Sanctuary.Core.IO.PacketReader(data);
         PetSummonRecallPacket packet = new();
         if (!reader.TryRead(out packet.Id))
@@ -48,7 +46,6 @@ public static class PetSummonRecallPacketHandler
             return true;
         }
 
-        // If pet is already spawned, recall it
         if (connection.Player.Pet is not null)
         {
             connection.Player.Pet.Dispose();
@@ -56,7 +53,6 @@ public static class PetSummonRecallPacketHandler
             return true;
         }
 
-        // Otherwise, spawn the pet
         SpawnPet(connection, petInfo);
 
         return true;
@@ -83,7 +79,7 @@ public static class PetSummonRecallPacketHandler
 
         pet.Scale = petDefinition.Scale;
         pet.Disposition = 1;
-        pet.Speed = 4.5f; // Default walking speed
+        pet.Speed = 4.5f;
 
         pet.HideNamePlate = false;
 
@@ -98,7 +94,7 @@ public static class PetSummonRecallPacketHandler
         petActivePacket.OwnerGuid = connection.Player.Guid;
         petActivePacket.PetGuid = pet.Guid;
 
-        petActivePacket.CompositeEffectId = 46; // PFX_Teleport_Flash
+        petActivePacket.CompositeEffectId = 46;
 
         connection.Player.SendTunneledToVisible(petActivePacket, true);
     }

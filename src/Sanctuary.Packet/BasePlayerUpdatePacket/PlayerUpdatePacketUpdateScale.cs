@@ -2,7 +2,6 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// Updates an entity's scale (OpCode 35, SubOpCode 13).
 public class PlayerUpdatePacketUpdateScale : BasePlayerUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 13;

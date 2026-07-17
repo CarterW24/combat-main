@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -38,10 +38,9 @@ public class GatewayConnection : UdpConnection
 
     private ICipher _cipher;
 #pragma warning disable CS0649
-    private bool _useEncryption; // Hardcoded in the client.
+    private bool _useEncryption;
 #pragma warning restore CS0649
 
-    // Player will only be null during login.
     public Player Player { get; private set; } = null!;
 
     public string Locale { get; set; } = "en_US";
@@ -73,13 +72,9 @@ public class GatewayConnection : UdpConnection
 
         _logger.LogInformation("{connection} disconnected. {reason}", this, reason);
 
-        // Just in case check if player is null.
         if (Player is null)
             return;
 
-        // Leaving the world leaves any party: a member auto-leaves (roster refreshes for the rest), and
-        // if the leader logs off the whole party is disbanded. Guarded so a send to this dying connection
-        // can't derail the rest of the disconnect cleanup.
         try
         {
             BaseGroupPacketHandler.LeaveParty(Player);
@@ -206,9 +201,7 @@ public class GatewayConnection : UdpConnection
         }
 
         Player = player;
-        Player.CharacterId = dbCharacter.Id; // Store database character ID
-
-        // Start - ClientPcData
+        Player.CharacterId = dbCharacter.Id;
 
         Player.Model = dbCharacter.Model;
 
@@ -230,11 +223,6 @@ public class GatewayConnection : UdpConnection
         Player.ModelCustomization = dbCharacter.ModelCustomization;
         Player.ModelCustomizationId = dbCharacter.ModelCustomizationId ?? 0;
 
-        // Restore the player's saved overworld position on login so they log back in where they logged out.
-        // SavePlayerToDatabase (on disconnect) only ever persists a valid overworld position — the live
-        // position when in the starting zone, or the pre-instance entry point (StartingZonePosition) if they
-        // logged out inside an instance — so the restored spot is always solid ground, never a floorless
-        // instance/probe coord. A brand-new character with no saved position falls back to the spawn.
         Vector4 position;
         Quaternion rotation;
 
@@ -286,8 +274,8 @@ public class GatewayConnection : UdpConnection
 
             clientPcProfile.ItemClasses = profileData.ItemClasses;
 
-            clientPcProfile.Rank = Math.Max(1, dbProfile.Level); // fresh characters persist Level 0
-            clientPcProfile.LevelXpRaw = dbProfile.LevelXP;      // raw XP into the current level
+            clientPcProfile.Rank = Math.Max(1, dbProfile.Level);
+            clientPcProfile.LevelXpRaw = dbProfile.LevelXP;
             clientPcProfile.RankPercent = Sanctuary.Game.Leveling.JobLeveling.RankPercent(clientPcProfile.Rank, clientPcProfile.LevelXpRaw);
 
             var equippedWeaponDefId = 0;
@@ -297,7 +285,7 @@ public class GatewayConnection : UdpConnection
                 if (!_resourceManager.ClientItemDefinitions.TryGetValue(dbItem.Definition, out var clientItemDefinition))
                     continue;
 
-                if (clientItemDefinition.Slot == 7) // weapon slot — drives the archer's active ability rows
+                if (clientItemDefinition.Slot == 7)
                     equippedWeaponDefId = dbItem.Definition;
 
                 if (clientPcProfile.Items.TryGetValue(clientItemDefinition.Slot, out var profileItem))
@@ -314,28 +302,21 @@ public class GatewayConnection : UdpConnection
                 }
             }
 
-            // COMBAT WIP: combat jobs (Type 2) ship with an empty ability list, so the client shows
-            // no ability bar. Populate the first few slots with functional TEST abilities (Type 3 =
-            // AbilityDefinition) so the bar renders and clicking one fires a StartAbility packet our
-            // handler logs. IconId/NameId reuse known-valid resource ids; AbilityDefinitionId is a
-            // placeholder until we mine real ids. (See docs/STATUS.md.)
             if (profileData.Type == 2)
             {
                 for (var i = 0; i < clientPcProfile.Abilities.Count; i++)
                 {
                     clientPcProfile.Abilities[i] = new Ability
                     {
-                        Type = i < 4 ? 3 : 0,          // first 4 slots populated, rest empty
-                        ManaCost = 0,                  // 0 cost so the client's energy check passes & it actually sends StartAbility
+                        Type = i < 4 ? 3 : 0,
+                        ManaCost = 0,
                         IconId = 1334,
                         NameId = 2836,
-                        AbilityDefinitionId = i + 1,   // placeholder ids 1..4
+                        AbilityDefinitionId = i + 1,
                     };
                 }
             }
 
-            // Fill the AbilitiesScreen (Traits section + Attack/Special columns) from the job's kit. No-op for a
-            // job that hasn't data'd its screen yet.
             var jobKit = Sanctuary.Game.Combat.JobKits.For(profileData.Id);
             if (jobKit is not null)
                 Sanctuary.Game.Combat.JobKits.ConfigureAbilitiesScreen(jobKit, clientPcProfile, equippedWeaponDefId);
@@ -422,11 +403,11 @@ public class GatewayConnection : UdpConnection
                 TintAlias = petDefinition.TintAlias ?? string.Empty,
                 TextureAlias = petDefinition.TextureAlias ?? string.Empty,
                 MembersOnly = petDefinition.MembersOnly,
-                IsNameable = petDefinition.IsNameable, // Server-side only
+                IsNameable = petDefinition.IsNameable,
                 Name = dbPet.Name,
-                IsUpgradable = false, // Match mount structure - pets don't upgrade
-                IsUpgraded = false, // Match mount structure
-                Guid = 0 // Keep at 0 in ClientPcData (like mounts), calculate only when needed for world spawning
+                IsUpgradable = false,
+                IsUpgraded = false,
+                Guid = 0
             };
 
             Player.Pets.Add(petInfo);
@@ -446,15 +427,9 @@ public class GatewayConnection : UdpConnection
 
         _logger.LogInformation("Pets loaded and will be sent via PetListPacket. TotalPetsCount={count}", Player.Pets.Count);
 
-        // Note: Pets are sent via PetListPacket (OpCode 5) in StartingZone.cs after zone initialization
-        // PetListPacket is also sent after purchase or when client explicitly requests it
-
-        // TODO
-
-        // Start - Store on DB
         var clientActionBar = new ClientActionBar();
 
-        clientActionBar.Id = 2; // ItemActionBar
+        clientActionBar.Id = 2;
 
         clientActionBar.Slots.Add(0, new ActionBarSlot() { IsEmpty = true });
         clientActionBar.Slots.Add(1, new ActionBarSlot() { IsEmpty = true });
@@ -462,7 +437,6 @@ public class GatewayConnection : UdpConnection
         clientActionBar.Slots.Add(3, new ActionBarSlot() { IsEmpty = true });
 
         Player.ActionBars.Add(clientActionBar.Id, clientActionBar);
-        // End - Store on DB
 
         foreach (var dbTitle in dbCharacter.Titles)
         {
@@ -475,8 +449,6 @@ public class GatewayConnection : UdpConnection
         Player.ActiveTitle = dbCharacter.ActiveTitleId ?? 0;
 
         Player.VipRank = dbCharacter.VipRank;
-
-        // End ClientPcData
 
         Player.ChatBubbleForegroundColor = dbCharacter.ChatBubbleForegroundColor;
         Player.ChatBubbleBackgroundColor = dbCharacter.ChatBubbleBackgroundColor;
@@ -546,8 +518,6 @@ public class GatewayConnection : UdpConnection
                 return;
             }
 
-            // Start - ClientPcData
-
             Vector4 position;
             Quaternion rotation;
 
@@ -573,20 +543,17 @@ public class GatewayConnection : UdpConnection
 
             dbCharacter.ActiveTitleId = Player.ActiveTitle;
 
-            // End ClientPcData
-
             dbCharacter.ChatBubbleForegroundColor = Player.ChatBubbleForegroundColor;
             dbCharacter.ChatBubbleBackgroundColor = Player.ChatBubbleBackgroundColor;
             dbCharacter.ChatBubbleSize = Player.ChatBubbleSize;
 
-            // Save profile levels/XP
             foreach (var profile in Player.Profiles)
             {
                 var dbProfile = dbCharacter.Profiles.FirstOrDefault(p => p.Id == profile.Id);
                 if (dbProfile is not null)
                 {
                     dbProfile.Level = profile.Rank;
-                    dbProfile.LevelXP = profile.LevelXpRaw; // persist raw XP into the current level
+                    dbProfile.LevelXP = profile.LevelXpRaw;
                 }
             }
 
@@ -670,12 +637,9 @@ public class GatewayConnection : UdpConnection
 
         SendTunneled(packetSendSelfToClient);
 
-        // Send PetListPacket immediately after ClientPcData, mimicking how mounts are sent.
-        // Guid is left untouched (like PacketMountInfo) - only assigned when spawned in world.
         var petListPacket = new PetListPacket { Pets = Player.Pets };
         Player.SendTunneled(petListPacket);
 
-        // Send housing list immediately after pets
         SendHousingList();
     }
 
@@ -685,7 +649,6 @@ public class GatewayConnection : UdpConnection
 
         var playerId = GuidHelper.GetPlayerId(Player.Guid);
 
-        // Load all houses owned by this player
         var dbHouses = dbContext.Houses
             .Where(h => h.OwnerId == playerId)
             .ToList();
@@ -697,7 +660,6 @@ public class GatewayConnection : UdpConnection
 
         foreach (var dbHouse in dbHouses)
         {
-            // Get house definition to populate display info
             var houseDefinition = _resourceManager.Houses.TryGetValue(dbHouse.HouseDefinitionId, out var def) ? def : null;
 
             var instanceInfo = new PlayerHousingInstanceInfo
@@ -708,8 +670,8 @@ public class GatewayConnection : UdpConnection
                 OwnerName = Player.Name.FirstName,
                 HouseName = dbHouse.CustomName,
                 IconId = dbHouse.IconId,
-                FixtureCount = dbHouse.MaxFixtureCount, // Current fixture count
-                FurnitureScore = 0, // TODO: Calculate furniture score
+                FixtureCount = dbHouse.MaxFixtureCount,
+                FurnitureScore = 0,
                 LastVisited = dbHouse.LastVisited.DateTime,
                 IsLocked = dbHouse.IsLocked,
                 IsMembersOnly = dbHouse.IsMembersOnly,

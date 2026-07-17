@@ -28,23 +28,19 @@ builder.WebHost.UseUrls();
 if (!builder.Environment.IsDevelopment())
     ((IConfigurationBuilder)builder.Configuration).AddJsonFile("database.json", optional: true);
 
-// Proxy Server / Load Balancer
 var forwardedHeaderSection = builder.Configuration.GetSection("ForwardedHeadersOptions");
 
 if (forwardedHeaderSection is not null)
     builder.Services.Configure<ForwardedHeadersOptions>(forwardedHeaderSection);
 
-// Options
 builder.Services.AddOptionsWithValidateOnStart<DatabaseOptions>()
     .BindConfiguration(DatabaseOptions.Section);
 
 builder.Services.AddOptionsWithValidateOnStart<WebAPIOptions>()
     .BindConfiguration(WebAPIOptions.Section);
 
-// Database
 builder.Services.AddDatabase(builder.Configuration);
 
-// Logging
 builder.Logging.ClearProviders();
 
 #if DEBUG
@@ -72,20 +68,17 @@ app.UseHttpLogging();
 
 #endif
 
-// Configure the HTTP request pipeline.
-
 app.MapAuthEndpoints();
 app.MapPortraitEndpoints();
 app.MapManifestEndpoints();
 
-// Server manifest for the OSFR Launcher (GET /servermanifest.xml). Added for local hosting.
 app.MapGet("/servermanifest.xml", () => Microsoft.AspNetCore.Http.Results.Content(
     """
     <?xml version="1.0"?>
     <ServerManifest version="2">
       <Name>Local Dev</Name>
       <Description>Local Sanctuary combat dev server</Description>
-      <WebApiUrl>http://127.0.0.1:20040</WebApiUrl>
+      <WebApiUrl>http:
       <LoginServer>127.0.0.1:20042</LoginServer>
     </ServerManifest>
     """, "text/xml"));

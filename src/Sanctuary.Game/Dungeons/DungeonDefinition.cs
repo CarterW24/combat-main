@@ -3,34 +3,19 @@ using System.Linq;
 
 namespace Sanctuary.Game.Dungeons;
 
-// One enemy type in a dungeon: a real client model + how many, how tough. Model IDs come from
-// NpcSpawns.txt (Model File Name -> Model Id) or live-captured instance mobs (wolves 176/177, spirits 10).
 public sealed class DungeonEnemy
 {
     public required int ModelId;
     public int Count = 1;
     public int Health = 1000;
     public float Scale = 1f;
-    // Boss: shows a health bar + name plate; regular mobs use the hidden-plate pack recipe.
     public bool Boss;
 }
 
-// A data-driven combat dungeon (battle instance) for the generic EncounterArenaZone. Worlds +
-// centers come from the client packs' *Areas.xml ("Bed" sphere); text IDs from ClientActivityDefinitions;
-// enemy model IDs from NpcSpawns.txt. Goal is always "defeat every enemy". Batch 2 (2026-07-11): the full
-// combat-encounter set, assigned worlds + enemies by theme (some approximate; tune per dungeon later).
 public sealed class DungeonDefinition
 {
-    // The REAL client activity id (ClientActivityDefinitions). This is the id the client sends in
-    // JoinActivityRequest when you click the dungeon in the minigames menu's "Battles" section (Category 10)
-    // AND the id the atlas entrance / GO! button routes on — so it must match the client's own definition,
-    // or the join falls through and nothing launches.
     public required int ActivityId;
 
-    // For the BIG walk-through dungeons: the overworld atlas POI id (NotificationType=3 marker) that
-    // this dungeon hangs off, used by StartingZone.SpawnDungeonEntrances to place the clickable entrance.
-    // 0 for the small arena encounters (they have no atlas marker — they're entered via the wandering
-    // "Battle Starter" NPCs instead). Non-zero is therefore also the "is an atlas dungeon" discriminator.
     public int PoiId;
 
     public required string World;
@@ -43,10 +28,6 @@ public sealed class DungeonDefinition
     public int IconId = 1345;
     public int Xp = 12;
 
-    // Playable radius of the map (from the world's Areas.xml "Bed" sphere). Drives the zone's
-    // tile grid size AND enemy placement: small (arena encounters, ~64) = a tight ring at center; large
-    // (the real walk-through dungeon worlds, 100-600) = enemies spread from the entrance edge toward the
-    // far end so you fight your way through. Default = small arena.
     public float Radius = 64f;
 
     public required DungeonEnemy[] Enemies;
@@ -55,13 +36,10 @@ public sealed class DungeonDefinition
     public int TotalEnemies => Enemies.Sum(e => e.Count);
 }
 
-// All data-driven dungeons, keyed by activity id (excludes the bespoke Frostfang 145/174 +
-// Tormented Spirits 146 zones). Each maps 1:1 to an atlas-map combat encounter.
 public static class DungeonCatalog
 {
     public static readonly IReadOnlyDictionary<int, DungeonDefinition> ByActivity = new Dictionary<int, DungeonDefinition>
     {
-        // 93 Band of Robgoblins!
         [93] = new()
         {
             ActivityId = 93, Comment = "Band of Robgoblins!",
@@ -75,7 +53,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 94 Robgoblin Adept Trouble!
         [94] = new()
         {
             ActivityId = 94, Comment = "Robgoblin Adept Trouble!",
@@ -89,7 +66,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 95 Explosive Robgoblins!
         [95] = new()
         {
             ActivityId = 95, Comment = "Explosive Robgoblins!",
@@ -103,7 +79,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 96 Troll Summoner Madness!
         [96] = new()
         {
             ActivityId = 96, Comment = "Troll Summoner Madness!",
@@ -117,7 +92,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 97 Robgoblin Camp!
         [97] = new()
         {
             ActivityId = 97, Comment = "Robgoblin Camp!",
@@ -131,7 +105,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 110 Robgoblin Geomancer!
         [110] = new()
         {
             ActivityId = 110, Comment = "Robgoblin Geomancer!",
@@ -145,7 +118,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 111 Robgoblin Creek!
         [111] = new()
         {
             ActivityId = 111, Comment = "Robgoblin Creek!",
@@ -159,7 +131,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 112 Hooligan Brawling Club!
         [112] = new()
         {
             ActivityId = 112, Comment = "Hooligan Brawling Club!",
@@ -173,7 +144,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 114 Treasure of the Bone Shaman!
         [114] = new()
         {
             ActivityId = 114, Comment = "Treasure of the Bone Shaman!",
@@ -187,7 +157,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 130 Nettleseed Nibblers!
         [130] = new()
         {
             ActivityId = 130, Comment = "Nettleseed Nibblers!",
@@ -200,7 +169,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 131 Moldy Shamblers!
         [131] = new()
         {
             ActivityId = 131, Comment = "Moldy Shamblers!",
@@ -213,7 +181,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 132 The Mushroom Gigas!
         [132] = new()
         {
             ActivityId = 132, Comment = "The Mushroom Gigas!",
@@ -226,7 +193,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 133 Cray Marauders
         [133] = new()
         {
             ActivityId = 133, Comment = "Cray Marauders",
@@ -240,7 +206,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 134 Thugawug Bumbler!
         [134] = new()
         {
             ActivityId = 134, Comment = "Thugawug Bumbler!",
@@ -253,7 +218,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 135 Mushroom Mania!
         [135] = new()
         {
             ActivityId = 135, Comment = "Mushroom Mania!",
@@ -266,7 +230,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 136 Stealthy Despoilers
         [136] = new()
         {
             ActivityId = 136, Comment = "Stealthy Despoilers",
@@ -280,7 +243,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 137 Hooligan Bullies!
         [137] = new()
         {
             ActivityId = 137, Comment = "Hooligan Bullies!",
@@ -294,7 +256,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 140 Thugawug Sneak!
         [140] = new()
         {
             ActivityId = 140, Comment = "Thugawug Sneak!",
@@ -307,7 +268,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 141 Thugawug Thug!
         [141] = new()
         {
             ActivityId = 141, Comment = "Thugawug Thug!",
@@ -320,7 +280,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 142 Fleetfoot Ninja!
         [142] = new()
         {
             ActivityId = 142, Comment = "Fleetfoot Ninja!",
@@ -334,7 +293,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 143 Bixies Gone Wild!
         [143] = new()
         {
             ActivityId = 143, Comment = "Bixies Gone Wild!",
@@ -348,7 +306,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 149 Frostfang Snarlers!
         [149] = new()
         {
             ActivityId = 149, Comment = "Frostfang Snarlers!",
@@ -361,7 +318,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 150 Bergram Stumpfinger's Ghost
         [150] = new()
         {
             ActivityId = 150, Comment = "Bergram Stumpfinger's Ghost",
@@ -375,7 +331,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 151 Mudshell
         [151] = new()
         {
             ActivityId = 151, Comment = "Mudshell",
@@ -389,7 +344,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 152 Snatching Snappers!
         [152] = new()
         {
             ActivityId = 152, Comment = "Snatching Snappers!",
@@ -403,7 +357,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 153 Seaside Swoopers
         [153] = new()
         {
             ActivityId = 153, Comment = "Seaside Swoopers",
@@ -417,7 +370,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 155 Shady Smugglers
         [155] = new()
         {
             ActivityId = 155, Comment = "Shady Smugglers",
@@ -431,7 +383,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 161 Vulture Watch!
         [161] = new()
         {
             ActivityId = 161, Comment = "Vulture Watch!",
@@ -444,7 +395,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 162 Eight-Legged Monstrosities!
         [162] = new()
         {
             ActivityId = 162, Comment = "Eight-Legged Monstrosities!",
@@ -457,7 +407,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 163 Chugawump!
         [163] = new()
         {
             ActivityId = 163, Comment = "Chugawump!",
@@ -470,7 +419,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 164 Snakes in a Maze!
         [164] = new()
         {
             ActivityId = 164, Comment = "Snakes in a Maze!",
@@ -482,7 +430,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 165 When Plants Attack!
         [165] = new()
         {
             ActivityId = 165, Comment = "When Plants Attack!",
@@ -495,7 +442,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 168 Robgoblin Troublemakers!
         [168] = new()
         {
             ActivityId = 168, Comment = "Robgoblin Troublemakers!",
@@ -509,7 +455,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 169 Thugawug Bandits!
         [169] = new()
         {
             ActivityId = 169, Comment = "Thugawug Bandits!",
@@ -522,7 +467,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 171 Alpha Wolf!
         [171] = new()
         {
             ActivityId = 171, Comment = "Alpha Wolf!",
@@ -535,7 +479,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 172 Oasis of Peril!
         [172] = new()
         {
             ActivityId = 172, Comment = "Oasis of Peril!",
@@ -549,7 +492,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 173 Petty Yetis!
         [173] = new()
         {
             ActivityId = 173, Comment = "Petty Yetis!",
@@ -562,7 +504,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 175 Ice Troll Scout!
         [175] = new()
         {
             ActivityId = 175, Comment = "Ice Troll Scout!",
@@ -576,7 +517,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 176 Robgoblin Pondblasters!
         [176] = new()
         {
             ActivityId = 176, Comment = "Robgoblin Pondblasters!",
@@ -590,7 +530,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 182 Thugamug
         [182] = new()
         {
             ActivityId = 182, Comment = "Thugamug",
@@ -603,7 +542,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 184 Cursed Graveyard!
         [184] = new()
         {
             ActivityId = 184, Comment = "Cursed Graveyard!",
@@ -617,7 +555,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 186 Prince of Low Tide!
         [186] = new()
         {
             ActivityId = 186, Comment = "Prince of Low Tide!",
@@ -631,7 +568,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 187 Brutus the Brute!
         [187] = new()
         {
             ActivityId = 187, Comment = "Brutus the Brute!",
@@ -645,7 +581,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 188 Call of the Wildest!
         [188] = new()
         {
             ActivityId = 188, Comment = "Call of the Wildest!",
@@ -658,7 +593,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 190 Spawn of Necrosis!
         [190] = new()
         {
             ActivityId = 190, Comment = "Spawn of Necrosis!",
@@ -672,7 +606,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 215 Grave Danger!
         [215] = new()
         {
             ActivityId = 215, Comment = "Grave Danger!",
@@ -686,7 +619,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 216 Wraiths of Wrath!
         [216] = new()
         {
             ActivityId = 216, Comment = "Wraiths of Wrath!",
@@ -700,7 +632,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 217 Pixie Hunters!
         [217] = new()
         {
             ActivityId = 217, Comment = "Pixie Hunters!",
@@ -714,7 +645,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 218 Feisty Floren!
         [218] = new()
         {
             ActivityId = 218, Comment = "Feisty Floren!",
@@ -727,7 +657,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 219 Return to Sender!
         [219] = new()
         {
             ActivityId = 219, Comment = "Return to Sender!",
@@ -741,7 +670,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 220 Venomous Frogs!
         [220] = new()
         {
             ActivityId = 220, Comment = "Venomous Frogs!",
@@ -753,7 +681,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 349 Village in distress!
         [349] = new()
         {
             ActivityId = 349, Comment = "Village in distress!",
@@ -767,7 +694,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 351 Twilight Ritual
         [351] = new()
         {
             ActivityId = 351, Comment = "Twilight Ritual",
@@ -781,7 +707,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 371 Crafty Robgoblins
         [371] = new()
         {
             ActivityId = 371, Comment = "Crafty Robgoblins",
@@ -795,12 +720,6 @@ public static class DungeonCatalog
             ],
         },
 
-
-        // ========== ATLAS BIG WALK-THROUGH DUNGEONS (42, ids 900000+poiId) — the real dungeon
-        // worlds behind the NotificationType=3 atlas markers. Radius = the world's Bed sphere; the zone
-        // scales its grid + spreads enemies across the map (walk-through) for these. ==========
-
-        // 900052  ATLAS DUNGEON (POI 52) Arachnia's Lair -> bw_spider_lair
         [12] = new()
         {
             ActivityId = 12, PoiId = 52, Comment = "Arachnia's Lair",
@@ -813,7 +732,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900053  ATLAS DUNGEON (POI 53) Hot Springs Haven -> sh_yeti_cave
         [31] = new()
         {
             ActivityId = 31, PoiId = 53, Comment = "Hot Springs Haven",
@@ -826,7 +744,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900054  ATLAS DUNGEON (POI 54) Bandit Hideout -> sg_bandit_hideout
         [29] = new()
         {
             ActivityId = 29, PoiId = 54, Comment = "Bandit Hideout",
@@ -840,7 +757,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900055  ATLAS DUNGEON (POI 55) Tavern Cellar -> sg_tavern_cellar
         [30] = new()
         {
             ActivityId = 30, PoiId = 55, Comment = "Tavern Cellar",
@@ -854,7 +770,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900056  ATLAS DUNGEON (POI 56) The Snarling Hedges -> bw_snarling_hedges
         [17] = new()
         {
             ActivityId = 17, PoiId = 56, Comment = "The Snarling Hedges",
@@ -867,7 +782,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900057  ATLAS DUNGEON (POI 57) Snowy Canyon -> sh_canyon_combat
         [15] = new()
         {
             ActivityId = 15, PoiId = 57, Comment = "Snowy Canyon",
@@ -880,7 +794,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900058  ATLAS DUNGEON (POI 58) The Bat Cave! -> sh_bat_cave
         [27] = new()
         {
             ActivityId = 27, PoiId = 58, Comment = "The Bat Cave!",
@@ -894,7 +807,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900059  ATLAS DUNGEON (POI 59) Frostfang Caverns -> sh_frostfang_cavern
         [33] = new()
         {
             ActivityId = 33, PoiId = 59, Comment = "Frostfang Caverns",
@@ -907,7 +819,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900060  ATLAS DUNGEON (POI 60) Robgoblin Treasure Trove -> sg_robgoblin_trove
         [32] = new()
         {
             ActivityId = 32, PoiId = 60, Comment = "Robgoblin Treasure Trove",
@@ -921,7 +832,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900061  ATLAS DUNGEON (POI 61) Deep Mines -> sh_deep_mines
         [34] = new()
         {
             ActivityId = 34, PoiId = 61, Comment = "Deep Mines",
@@ -935,7 +845,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900062  ATLAS DUNGEON (POI 62) Bixie Hive -> sg_bixie_hive
         [37] = new()
         {
             ActivityId = 37, PoiId = 62, Comment = "Bixie Hive",
@@ -949,7 +858,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900063  ATLAS DUNGEON (POI 63) Forgotten Caves -> sg_changeling_caverns
         [38] = new()
         {
             ActivityId = 38, PoiId = 63, Comment = "Forgotten Caves",
@@ -963,7 +871,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900064  ATLAS DUNGEON (POI 64) Danger Peaks -> sh_howling_hills
         [46] = new()
         {
             ActivityId = 46, PoiId = 64, Comment = "Danger Peaks",
@@ -976,7 +883,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900065  ATLAS DUNGEON (POI 65) Forest Troll Fort -> sg_troll_fort
         [43] = new()
         {
             ActivityId = 43, PoiId = 65, Comment = "Forest Troll Fort",
@@ -990,7 +896,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900066  ATLAS DUNGEON (POI 66) Briarheart Caverns -> bw_briarheart_caverns
         [42] = new()
         {
             ActivityId = 42, PoiId = 66, Comment = "Briarheart Caverns",
@@ -1003,7 +908,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900067  ATLAS DUNGEON (POI 67) Trail of Betrayal -> bw_trail_of_betrayal
         [41] = new()
         {
             ActivityId = 41, PoiId = 67, Comment = "Trail of Betrayal",
@@ -1017,7 +921,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900068  ATLAS DUNGEON (POI 68) Highroad Hijinx -> sg_highroad_hijinx
         [45] = new()
         {
             ActivityId = 45, PoiId = 68, Comment = "Highroad Hijinx",
@@ -1031,7 +934,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900069  ATLAS DUNGEON (POI 69) Floren Forest -> sg_floren_forest
         [40] = new()
         {
             ActivityId = 40, PoiId = 69, Comment = "Floren Forest",
@@ -1044,7 +946,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900070  ATLAS DUNGEON (POI 70) Mugwort's Hollow -> sg_mugworts_hollow
         [39] = new()
         {
             ActivityId = 39, PoiId = 70, Comment = "Mugwort's Hollow",
@@ -1057,7 +958,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900071  ATLAS DUNGEON (POI 71) Briar Patch -> bw_briar_patch
         [23] = new()
         {
             ActivityId = 23, PoiId = 71, Comment = "Briar Patch",
@@ -1070,7 +970,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900072  ATLAS DUNGEON (POI 72) Croaking Vale -> bw_vale_of_thorns
         [59] = new()
         {
             ActivityId = 59, PoiId = 72, Comment = "Croaking Vale",
@@ -1082,7 +981,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900073  ATLAS DUNGEON (POI 73) Howling Hills -> sh_howling_hills
         [21] = new()
         {
             ActivityId = 21, PoiId = 73, Comment = "Howling Hills",
@@ -1095,7 +993,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900074  ATLAS DUNGEON (POI 74) Dark Spore Depths -> bw_mushroom_cave
         [19] = new()
         {
             ActivityId = 19, PoiId = 74, Comment = "Dark Spore Depths",
@@ -1108,7 +1005,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900075  ATLAS DUNGEON (POI 75) Mushroom Cavern -> bw_mushroom_cave
         [25] = new()
         {
             ActivityId = 25, PoiId = 75, Comment = "Mushroom Cavern",
@@ -1121,7 +1017,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900076  ATLAS DUNGEON (POI 76) Bristlewood Glade -> bw_bristlewood_glade
         [36] = new()
         {
             ActivityId = 36, PoiId = 76, Comment = "Bristlewood Glade",
@@ -1134,7 +1029,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900077  ATLAS DUNGEON (POI 77) Vale of the Ancients -> bw_vale_of_thorns
         [52] = new()
         {
             ActivityId = 52, PoiId = 77, Comment = "Vale of the Ancients",
@@ -1147,7 +1041,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900078  ATLAS DUNGEON (POI 78) Treeleaf's Retreat -> bw_treeleaf_retreat
         [28] = new()
         {
             ActivityId = 28, PoiId = 78, Comment = "Treeleaf's Retreat",
@@ -1160,7 +1053,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900079  ATLAS DUNGEON (POI 79) Grexan's Camp -> sg_bandit_hideout
         [26] = new()
         {
             ActivityId = 26, PoiId = 79, Comment = "Grexan's Camp",
@@ -1174,7 +1066,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900080  ATLAS DUNGEON (POI 80) Darvon's Descent -> sg_changeling_caverns
         [58] = new()
         {
             ActivityId = 58, PoiId = 80, Comment = "Darvon's Descent",
@@ -1188,7 +1079,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900082  ATLAS DUNGEON (POI 82) Sweetwater Climb -> wc_sweetwater_climb
         [116] = new()
         {
             ActivityId = 116, PoiId = 82, Comment = "Sweetwater Climb",
@@ -1202,7 +1092,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900083  ATLAS DUNGEON (POI 83) Den of Secrets -> mv_den_of_secrets
         [117] = new()
         {
             ActivityId = 117, PoiId = 83, Comment = "Den of Secrets",
@@ -1216,7 +1105,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900084  ATLAS DUNGEON (POI 84) Cray Caves -> ss_cray_caves
         [115] = new()
         {
             ActivityId = 115, PoiId = 84, Comment = "Cray Caves",
@@ -1230,7 +1118,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900085  ATLAS DUNGEON (POI 85) Cracked Claw Caverns -> bs_cracked_claw_caverns
         [118] = new()
         {
             ActivityId = 118, PoiId = 85, Comment = "Cracked Claw Caverns",
@@ -1244,7 +1131,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900086  ATLAS DUNGEON (POI 86) Tanglewood Fort -> bw_tanglewood_fort
         [158] = new()
         {
             ActivityId = 158, PoiId = 86, Comment = "Tanglewood Fort",
@@ -1258,7 +1144,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900087  ATLAS DUNGEON (POI 87) Sheep Watch -> sg_sheep_watch
         [119] = new()
         {
             ActivityId = 119, PoiId = 87, Comment = "Sheep Watch",
@@ -1271,7 +1156,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900088  ATLAS DUNGEON (POI 88) Haunted Mines -> sg_haunted_mines
         [91] = new()
         {
             ActivityId = 91, PoiId = 88, Comment = "Haunted Mines",
@@ -1285,7 +1169,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900089  ATLAS DUNGEON (POI 89) Hewey's Escape -> sg_bandit_hideout
         [900089] = new()
         {
             ActivityId = 900089, PoiId = 89, Comment = "Hewey's Escape",
@@ -1299,7 +1182,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900090  ATLAS DUNGEON (POI 90) Misty Mountain -> gl_misty_mountain
         [159] = new()
         {
             ActivityId = 159, PoiId = 90, Comment = "Misty Mountain",
@@ -1312,7 +1194,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900119  ATLAS DUNGEON (POI 119) Bone Bog Cemetery -> bs_bone_bog_cemetery
         [339] = new()
         {
             ActivityId = 339, PoiId = 119, Comment = "Bone Bog Cemetery",
@@ -1326,7 +1207,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900121  ATLAS DUNGEON (POI 121) Cursed Graveyard! -> bs_bone_bog_cemetery
         [900121] = new()
         {
             ActivityId = 900121, PoiId = 121, Comment = "Cursed Graveyard!",
@@ -1340,7 +1220,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900146  ATLAS DUNGEON (POI 146) The Rumbledome -> gw_rumbledome
         [900146] = new()
         {
             ActivityId = 900146, PoiId = 146, Comment = "The Rumbledome",
@@ -1354,7 +1233,6 @@ public static class DungeonCatalog
             ],
         },
 
-        // 900148  ATLAS DUNGEON (POI 148) Sandscale Oasis -> ss_cray_caves
         [900148] = new()
         {
             ActivityId = 900148, PoiId = 148, Comment = "Sandscale Oasis",
@@ -1367,97 +1245,71 @@ public static class DungeonCatalog
         },
     };
 
-    // Extra hostile creature models that roam the OVERWORLD but aren't used by any instanced dungeon.
-    // These creatures are already placed across every region in NpcSpawns.txt/Npcs.json at their real retail
-    // coordinates — listing their model here flips those placements from neutral scenery to fightable
-    // CombatNpcs, so each region's roaming mobs (cross-referenced with
-    // the EQ Allakhazam "Mobs by Place (FR)" bestiary) become enemies right where they stand.
-    // Curated to HOSTILE species only: friendly-role models (robgoblin cook/banker/elder/jester, farmers,
-    // Greenwood soldier/archer allies, Blackspore miners = robbery victims, the friendly Croaking Vale frog
-    // village, mounts, ranch/pet dragons, named racing NPCs) are deliberately excluded. Quest givers/targets
-    // and vendors are already filtered out at spawn time (see StartingZone.SpawnNpcs), so a named story boss
-    // that reuses one of these models keeps its interactive path.
     public static readonly IReadOnlySet<int> WorldEnemyModelIds = new HashSet<int>
     {
-        // Robgoblin raiders (Sunstone Valley junk-camps + mechanics)
-        190,  // robgoblin_f_basic
-        786,  // robgoblin_m_brute (Brutus the Brute)
-        1681, // robgoblin_m_gogglesgears (Robgoblin Mechanic/Shinyseeker)
-        1682, // robgoblin_m_master (Robgoblin Tinkerer/Scrapsmith Crackle)
-        3967, // robgoblin_mech (Scrapmaster Fizzbang)
-        4202, // robgoblin_m_junkmaster (Robgoblin Kaboomer)
+        190,
+        786,
+        1681,
+        1682,
+        3967,
+        4202,
 
-        // Trolls (Snowhill / Sunstone)
-        77,   // troll_forest
-        166,  // troll_peasant_01
-        167,  // troll_peasant_02
-        314,  // troll_hogosh_m (Brugo / Hogosh)
-        408,  // troll_queenverda_f (Zumwalt)
-        739,  // troll_f
+        77,
+        166,
+        167,
+        314,
+        408,
+        739,
 
-        // Cray crabs (Seaside / Sunstone oasis)
-        471,  // cray_arctic_swamp (Cray Bubbler / Cray Marauder)
-        754,  // cray_m_crabcake (Crabcake)
+        471,
+        754,
 
-        // Wolves & fungal beasts (Bristlewood / Wilds)
-        142,  // wolf_vinegolum (Snapwolf Fungus)
-        1521, // wolf_coyote
-        3284, // wolf_generic (Alpha Wolf / Hooligan Wolf)
-        62,   // bear_vinegolem
-        91,   // bear_normal
-        92,   // bear_fierce
-        235,  // bear_vinegolem_fungus (Ursine Vine)
-        121,  // shroomgiant (The Mushroom Gigas)
-        2140, // beetle_rhino
+        142,
+        1521,
+        3284,
+        62,
+        91,
+        92,
+        235,
+        121,
+        2140,
 
-        // Blackspore Swamp thieves + undead (graveyard / Pumpkin Prince Halloween mobs)
-        669,  // human_blackspore_thief_m (Hennessey/Judd/Ned)
-        685,  // human_blackspore_thief_f (Rumor Duskveil)
-        730,  // dwarf_blackspore_thief_m (Oswald)
-        1054, // dwarf_m_blacksporethiefghost
-        767,  // graveelemental_m_skullwgraves (Grave Elemental)
-        751,  // wraith_m_cloakedskelly (Pumpkin Prince Ghost)
-        1701, // pumpkinprince_m
-        1702, // pumpkinprince_m_boss (The Pumpkin Prince)
-        3217, // necrowartzombie_01 (Necrowart / Monsterous Necrowart)
-        4220, // necronomicus_m (Necronomicus)
-        4563, // human_m_wraith (Three of Three)
-        4564, // human_m_wraith_white (One of Three)
-        4565, // human_m_wraith_gray (Two of Three)
-        1694, // dog_large_zombie
-        353,  // fairy_darkthorne_f (Darkthorne)
+        669,
+        685,
+        730,
+        1054,
+        767,
+        751,
+        1701,
+        1702,
+        3217,
+        4220,
+        4563,
+        4564,
+        4565,
+        1694,
+        353,
 
-        // Sunstone Valley ninja invaders — Shadowtalon ninjas
-        393,  // human_m_ninja_shadowtalon_05 (Ninja Ambusher)
-        394,  // human_m_ninja_shadowtalon_02 (Ninja Deceiver)
-        395,  // human_m_ninja_shadowtalon_03 (Ninja Apprentice)
-        397,  // human_m_ninja_shadowtalon_04
-        945,  // human_m_ninja_ghost (Ghost Ninja / Stealthy Despoiler)
-        4094, // human_m_ninja_shadowtalon_jintaka (Jintaka)
+        393,
+        394,
+        395,
+        397,
+        945,
+        4094,
 
-        // Sunstone Valley ninja invaders — Ninjawugs + gloamed bixies
-        4464, // chugawug_m_ninja_archer_01 (Ninjawug Archer)
-        4465, // chugawug_m_ninja_blademaster_01 (Ninjawug Blademaster)
-        4466, // chugawug_m_ninja_general_01
-        4467, // chugawug_m_ninjawug_bixie_rider_01 (Ninjawug Bixie-rider)
-        4468, // chugawug_m_ninjawug_bixie_rider_general_01 (General Wugashima)
-        4473, // bixie_f_mage_gloamed (Bixie Magus)
-        4474, // bixie_m_elite_guard_gloamed (Bixie Guardian)
+        4464,
+        4465,
+        4466,
+        4467,
+        4468,
+        4473,
+        4474,
     };
 
-    // Every distinct enemy ModelId that spawns as hostile in the overworld: the models used by
-    // instanced dungeons PLUS the curated WorldEnemyModelIds roaming set. StartingZone matches
-    // overworld NPCs against this to spawn them as aggressive CombatNpcs
-    // instead of neutral scenery — so the same creatures you fight in the instances, and every region's
-    // bestiary mob, are fightable out in the world.
     public static readonly IReadOnlySet<int> EnemyModelIds =
         ByActivity.Values.SelectMany(d => d.Enemies).Select(e => e.ModelId)
             .Concat(WorldEnemyModelIds).ToHashSet();
 
-    // The BIG walk-through (atlas) dungeons keyed by their overworld atlas POI id. These are now
-    // keyed in ByActivity by their REAL client activity id (so the minigames menu's "Battles"
-    // section can launch them), which means StartingZone can no longer derive the catalog key from the POI id
-    // — it looks the dungeon up here instead.
     public static readonly IReadOnlyDictionary<int, DungeonDefinition> ByAtlasPoi =
         ByActivity.Values.Where(d => d.PoiId != 0).ToDictionary(d => d.PoiId);
 }

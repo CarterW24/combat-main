@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -91,8 +91,6 @@ public static class CharacterLoginRequestHandler
             return true;
         }
 
-        // TODO: Client currently doesn't let the user pick a server so default to the first one.
-
         var gatewayServer = _gatewayServer.Gateways.FirstOrDefault();
 
         if (gatewayServer is null)
@@ -104,7 +102,6 @@ public static class CharacterLoginRequestHandler
             return true;
         }
 
-        // Character is already logged in.
         if (gatewayServer.OnlineCharacters.Contains(character.Id))
         {
             characterLoginReply.Status = 8;
@@ -122,7 +119,7 @@ public static class CharacterLoginRequestHandler
         {
             ServerAddress = gatewayServer.ServerAddress,
             ServerTicket = serverTicket,
-            CryptoKey = serverTicket, // Use ticket as key.
+            CryptoKey = serverTicket,
             Guid = GuidHelper.GetPlayerGuid(character.Id)
         };
 

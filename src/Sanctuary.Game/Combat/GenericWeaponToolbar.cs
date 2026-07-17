@@ -3,8 +3,6 @@ using Sanctuary.Packet;
 
 namespace Sanctuary.Game.Combat;
 
-// The 2-slot weapon toolbar for kits without a bespoke builder (wizard/brawler): slot 0 = the
-// weapon's basic attack, slot 1 = its special, both on the proven-castable ninja slot-def ids.
 public static class GenericWeaponToolbar
 {
     public static AbilityPacketSetDefinition? Build(Player player, IResourceManager resources, NinjaWeapon? weapon)

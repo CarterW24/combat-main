@@ -16,91 +16,48 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Zones;
 
-// INSTANCE (Tormented Spirits!): the Blackspore graveyard combat encounter — activity id 146, the
-// direct sibling of the Frostfang Growler (174): same Category 99 "wandering combat encounter",
-// same launch pipeline, Difficulty 2. Entered by clicking a Tormented Spirit wandering near the
-// sinking graveyard south of Blackspore (the ninja job quest 31442 "That's the Spirit" targets it).
-//
-// The world comes from the CLIENT'S OWN DATA (pack extract 2026-07-10):
-//   world  = bs_random_encounter_01 (the graveyard clearing; fog/bats/fireflies + its own combat
-//            music are baked into the world's own Areas.xml)
-//   center = (141, y≈2, 160) radius 100, from bs_random_encounter_01Areas.xml ("Bed" AreaDefinition)
-//
-// ENCOUNTER SPEC (no live capture exists for this one — reference videos 0yGtjJBzmGw + zyWxEY1AcmY
-// and the user's frame audit 2026-07-10):
-//   * the spirits are PRE-SPAWNED — no waves. The player fights the whole graveyard.
-//   * 3 destroyable TOMBSTONES are scattered among the graves; all 3 must be destroyed. Destroying
-//     one materializes an extra spirit — the client string for the beat is 139366 "The bones crumble
-//     and a tormented spirit materializes!".
-//   * win when every tombstone is destroyed and every spirit is defeated; then the same win flow as
-//     Frostfang: goal complete + loot wheel + score card + exit door (user-confirmed from the videos).
-//
-// TEXT IDS (reversed from en_us_data via the Jenkins lookup2 CID map, 2026-07-10 — the tight id
-// cluster 75999/76190/76354/76363/76373 validates them as this encounter's own block):
-//   75999  "Tormented Spirits!"                                              (activity title)
-//   76190  "Tormented Spirit"                                                (the enemy NPC name)
-//   76354  "Evil spirits are haunting this swamp, banish them from the land!" (the Goals-pane row)
-//   76363  "Tormented spirits are attacking travelers! Go in and put them to rest!" (description)
-//   76373  "Tombstone"                                                       (the destroyable's name)
-//   139366 "The bones crumble and a tormented spirit materializes!"          (tombstone-destroyed)
 public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 {
     private sealed class TormentedSpiritsArenaDefinition : BaseZoneDefinition
     {
     }
 
-    // Bed area y1=2 in the world's Areas.xml — WRONG (first live run 2026-07-10: the player spawned
-    // slightly below the mesh, so the real ground is above 2). The zone SELF-CALIBRATES: the player
-    // spawns high (the client settle-drops onto the real terrain — Frostfang-proven), and ~3s later
-    // the measured player Y is adopted as the ground level for every idle spirit/tombstone/door
-    // (see the ground-adoption task in StartEncounter). GroundY stays the initial-guess constant.
     private const float GroundY = 2f;
     private const float CenterX = 141f;
     private const float CenterZ = 160f;
 
-    // The adopted real ground height (starts at the GroundY guess; overwritten by the
-    // ground-adoption measurement each run).
     private float _groundY = GroundY;
 
-    public const int EncounterId = 146;   // ClientActivityDefinitions "Tormented Spirits!"
+    public const int EncounterId = 146;
     public const int EncounterInstanceId = 1;
 
     public const int TitleNameId = 75999;
     public const int DescriptionId = 76363;
-    public const int Difficulty = 2;      // matches the activity definition
-    public const int IconId = 1345;       // the combat-encounter swords emblem (live-proven on 174)
+    public const int Difficulty = 2;
+    public const int IconId = 1345;
 
-    // World NPCs with this NameId ("Tormented Spirit") are the wandering encounter
-    // entries — clicking one in the overworld opens the offer popup (the Growler-wolf pattern).
     public const int EntryNpcNameId = 76190;
 
-    private const int CombatMiniGameType = 4; // client MINI_GAME_TYPE_COMBAT — the goals-pane gate
+    private const int CombatMiniGameType = 4;
 
-    // ── Enemy identities ─────────────────────────────────────────────────────────────────────────────
-    private const int SpiritModelId = 10;        // ghostdwarf_m_miner_01.adr (the world spirits' model)
+    private const int SpiritModelId = 10;
     private const int SpiritNameId = EntryNpcNameId;
-    private const int SpiritActiveProfile = 151; // non-zero -> the client re-runs the red-name resolver
-                                                 // (same value our Frostfang pack uses)
+    private const int SpiritActiveProfile = 151;
 
-    private const int SpiritHealth = 1500;       // Difficulty 2: ~2 ninja basic hits (Frostfang wolves = 1)
-    private const float SpiritAggroRange = 14f;  // pre-spawned mobs engage on approach (no charge-at-spawn)
+    private const int SpiritHealth = 1500;
+    private const float SpiritAggroRange = 14f;
 
-    private const int SpawnPoofFxId = 46;        // the live wave-wolf spawn poof — reused for materializing
-    private const int DeathPoofFxId = 5017;      // the standard death poof
-    private const int SpiritDeathHoldMs = 2000;  // death clip plays before the poof
+    private const int SpawnPoofFxId = 46;
+    private const int DeathPoofFxId = 5017;
+    private const int SpiritDeathHoldMs = 2000;
 
     private const int CharState_Baseline = 0x1;
-    private const int CharState_Charging = 0x8001; // spirits have no overhead plates, so bit15 is safe
+    private const int CharState_Charging = 0x8001;
 
-    // ── Tombstones (the 3 destroyables) ─────────────────────────────────────────────────────────────
-    private const int TombstoneNameId = 76373;   // "Tombstone"
+    private const int TombstoneNameId = 76373;
     private const int TombstoneHealth = 1500;
-    private static readonly int[] TombstoneModelIds = [893, 894, 896]; // bs_gravestone_01/02/04.adr
+    private static readonly int[] TombstoneModelIds = [893, 894, 896];
 
-    // Chase-and-claw AI tuning lives in CombatEncounterZone now (shared by all encounter zones).
-
-    // Pre-spawned spirit positions — scattered through the graveyard around center (141, 160).
-    // Hand-placed (no capture): a loose ring through the graves, none on the player's south approach.
     private static readonly Vector3[] SpiritSpawns =
     [
         new(120f, GroundY, 148f), new(158f, GroundY, 145f), new(130f, GroundY, 175f),
@@ -109,14 +66,12 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         new(170f, GroundY, 180f), new(112f, GroundY, 182f), new(147f, GroundY, 161f),
     ];
 
-    // The 3 tombstones — spread across the graveyard so the player sweeps the whole field.
     private static readonly Vector3[] TombstoneSpawns =
     [
         new(125f, GroundY, 155f), new(155f, GroundY, 170f), new(140f, GroundY, 185f),
     ];
 
-    // ── Exit door — same live-decoded recipe as the Frostfang arena's ───────────────────────────────
-    private const int DoorModelId = 846;         // sg_exit_door_01.adr
+    private const int DoorModelId = 846;
     private const int DoorNameId = 4826;
     private const float DoorScale = 1.2f;
     private const int DoorInteractRange = 125;
@@ -125,10 +80,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     private const int DoorMinimapImageId = 186;
     private const int DoorBadgeType = 7;
     private const int DoorBadgeUnknown3 = 102;
-    private static readonly Vector4 DoorSpawn = new(141f, GroundY, 148f, 1f); // near the south approach
+    private static readonly Vector4 DoorSpawn = new(141f, GroundY, 148f, 1f);
 
-    // Coin pop + hearts — the shared combat-encounter pickups (see FrostfangArenaZone for the
-    // heart's full decode; params verbatim from that work).
     private const int CoinsModelId = 841;
     private const int CoinsNameId = 139649;
     private const int CoinsPopFxId = 5192;
@@ -143,18 +96,11 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     private int _healTagCounter = 300;
     private readonly List<Npc> _hearts = [];
 
-    private const int WolfMovementTypePhysics = 2; // client op125 gate: PHYSICS auto-plays locomotion
+    private const int WolfMovementTypePhysics = 2;
 
-    // THE Goals-window goal. NO live capture for this encounter, so the OBJECTIVE ID is ours (any
-    // unique int works — the client uses it purely as a row key); the TEXT is the client's own
-    // 76354 "Evil spirits are haunting this swamp, banish them from the land!".
     private const int GoalBanishSpirits = 12646;
     private const int GoalBanishSpiritsNameId = 76354;
 
-    // KnockoutLimit + the knockout/fail/revive lifecycle now live in CombatEncounterZone.
-
-    // Job XP at the win. No capture; Frostfang (Difficulty 1) grants 10, so Difficulty 2
-    // grants a bit more.
     public const int EncounterXp = 15;
 
     private sealed class SpiritState : EncounterMobState { }
@@ -167,11 +113,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
     private bool _won;
     private int _encounterRun;
 
-    // PARTY CO-OP (mirrors FrostfangArenaZone): the players currently in this arena instance. The
-    // encounter runs ONCE (started by the first entrant = the party leader who pressed GO!); co-entrants
-    // join the running fight rather than resetting it. Every shared encounter packet is Broadcast to all
-    // of them, so a solo player (party of one) behaves exactly as before. The AI anchors on the first
-    // entrant (_anchor) for spirit targeting + ground adoption.
     private readonly List<Player> _activePlayers = [];
     private Player? _anchor;
 
@@ -190,18 +131,14 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
     private static BaseZoneDefinition CreateDefinition() => new TormentedSpiritsArenaDefinition
     {
-        Id = EncounterId, // traceability; the runtime zone Id is assigned by the manager
+        Id = EncounterId,
         Name = "bs_random_encounter_01",
         TileSize = 64,
         StartLongitude = -2,
         EndLongitude = 8,
         StartLatitude = -2,
         EndLatitude = 8,
-        Sky = null, // the world's own gloomy Areas.xml ambience (fog/bats) does the mood
-        // South edge of the graveyard clearing, walking north into the fog (no capture — mirrors the
-        // Frostfang long-approach feel; center is (141, 160) r100). Spawn HIGH: the GroundY guess put
-        // the player under the mesh (live 2026-07-10); dropping from above lets the client settle
-        // onto the real terrain, and the ground-adoption pass then reads the settled Y.
+        Sky = null,
         SpawnPosition = new Vector4(141f, GroundY + 12f, 118f, 1f),
         SpawnRotation = Quaternion.Identity,
     };
@@ -210,20 +147,16 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
     public override void OnClientIsReady(Player player)
     {
-        // Same zone-in tail as the Frostfang arena (see that class for the full derivation).
-        EnterAtFullVitals(player); // real max HP + mana so the bar doesn't jump on the first claw
+        EnterAtFullVitals(player);
 
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
 
-        // Any kit job (ninja/archer) gets its weapon toolbar + FX cache warm-up.
         JobWeaponAbilities.SendToolbarWithFxPreload(player, _resourceManager);
     }
 
-    // The load screen has dropped — the client accepts AddNpc from here (Frostfang LIVE TESTS 8+9).
     public override void OnClientFinishedLoading(Player player)
     {
-        // Prune anyone who has already left (so a solo re-entry resets a stale instance cleanly).
         ActivePlayers();
 
         bool first;
@@ -236,14 +169,11 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
         if (first)
         {
-            // First entrant (the party leader who pressed GO!) — spawn the encounter + start the AI.
             _anchor = player;
             StartEncounter(player);
         }
         else
         {
-            // A party member joining the running fight: don't reset it — deliver the combat gate +
-            // goals to THEM, and push the currently-alive spirits/tombstones so they see the fight.
             _logger.LogInformation("Spirit arena: {name} joined the party fight (member #{n}).",
                 player.Name, _activePlayers.Count);
             DeliverEntrySequence(player, _encounterRun);
@@ -251,17 +181,12 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         }
     }
 
-    // Broadcast a shared encounter packet to every player currently in this arena instance.
-    // For a solo player this is exactly the old per-player send; for a party it drives everyone.
     protected override void Broadcast(ISerializablePacket packet)
     {
         foreach (var p in ActivePlayers())
             p.SendTunneled(packet);
     }
 
-    // Snapshot of the players currently in this arena instance (co-op recipients). Prunes any
-    // who have left (teleported away) so a departed member never receives encounter packets and the
-    // instance can reset once it truly empties.
     private Player[] ActivePlayers()
     {
         lock (_stateLock)
@@ -273,8 +198,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         }
     }
 
-    // Push the currently-alive encounter NPCs (spirits/tombstones/hearts/door) to a player
-    // who just joined mid-fight, so the running encounter is visible to them.
     private void PushLiveEncounterTo(Player player)
     {
         List<Npc> live = [];
@@ -315,11 +238,9 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             SetExitDoor(null);
             _killedSpirits = 0;
             _won = false;
-            _groundY = GroundY; // re-measured by this run's ground-adoption pass
+            _groundY = GroundY;
             _encounterRun++;
 
-            // PRE-SPAWNED: the whole graveyard is up before the player takes a step (the videos show
-            // spirits already wandering as the player loads in — no waves).
             var guids = new List<ulong>(SpiritSpawns.Length + TombstoneSpawns.Length);
             foreach (var pt in SpiritSpawns)
             {
@@ -343,18 +264,12 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             SendCombatMinimapMarkers(player, guids);
         }
 
-        // The combat gate + goals — delivered per-player (each member needs their own MiniGameState).
         DeliverEntrySequence(player, _encounterRun);
 
         _logger.LogInformation(
             "Spirit arena: encounter start for {name} — {spirits} spirits + {tombs} tombstones pre-spawned.",
             player.Name, SpiritSpawns.Length, TombstoneSpawns.Length);
 
-        // GROUND ADOPTION: no capture ground-truths this world's terrain height, so measure it. The
-        // player spawns ~12u up and the client settles them onto the real mesh; ~3s later their Y IS
-        // the ground. Adopt it and snap every idle actor (spirits/tombstones) onto it — the AddNpc
-        // heights used the GroundY guess and may be under/over the terrain. (Charging spirits already
-        // converge to the player's Y in the AI loop; the exit door spawns later using _groundY.)
         var groundRun = _encounterRun;
         _ = Task.Run(async () =>
         {
@@ -370,7 +285,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                     measured, GroundY);
 
                 if (MathF.Abs(measured - GroundY) < 0.75f)
-                    return; // the guess was good enough; leave the actors where they are
+                    return;
 
                 Npc[] spirits;
                 Npc[] tombstones;
@@ -387,7 +302,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                     lock (_stateLock)
                         idle = _spiritStates.TryGetValue(actor.Guid, out var s) && !s.Charging;
                     if (!idle)
-                        continue; // chasers converge to the player's Y on their own
+                        continue;
 
                     var p = actor.Position;
                     var lifted = new Vector4(p.X, measured, p.Z, p.W);
@@ -418,10 +333,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         StartSpiritAi(player, _encounterRun);
     }
 
-    // The per-player combat gate + goals burst, sent a beat after the load settles. Called for
-    // the anchor at StartEncounter AND for every party member who joins the running fight, so each gets
-    // their own MiniGameState (without which op45 goal packets are dropped and the goals pane never shows).
-    // Structure is the exact live Frostfang entry sequence (launch twice with a PlayerEnter between).
     private void DeliverEntrySequence(Player player, int run)
     {
         _ = Task.Run(async () =>
@@ -503,34 +414,26 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         });
     }
 
-    // ── Spawning ─────────────────────────────────────────────────────────────────────────────────────
-
     private Npc? CreateSpirit(Player player, Vector4 pos, int spawnFx)
     {
         if (!TryCreateNpc(out var npc))
             return null;
 
-        // The Frostfang pack-wolf recipe (no overhead plates, red minimap dot, clickable attack
-        // target); the model/name are the world spirits' own.
         npc.ModelId = SpiritModelId;
-        // NAMELESS plate so the HEALTH BAR renders (the bar is a nameplate element — a hidden plate meant no
-        // bar, only a flash-on-hit = "health bars sometimes pop up, sometimes not").
         npc.NameId = 0;
         npc.Name = null;
         npc.HideNamePlate = false;
         npc.ShowHealthBar = true;
         npc.Scale = 1f;
-        npc.Disposition = 0;             // hostile
+        npc.Disposition = 0;
         npc.ActiveProfile = SpiritActiveProfile;
-        npc.CompositeEffectId = spawnFx; // 46 = materialize poof (tombstone spawns); 0 pre-spawned
+        npc.CompositeEffectId = spawnFx;
         npc.MaxHealth = SpiritHealth;
         npc.Health = SpiritHealth;
-        // A combat target, NOT an NPC: no "Press X to talk" prompt (spirits have no InteractAction — the
-        // prompt was dead UI that just made enemies look clickable). Attackable via the swords cursor.
         npc.IsInteractable = false;
         npc.InteractRange = 100;
         npc.Visible = true;
-        npc.CursorId = 11;               // crossed-swords attack cursor
+        npc.CursorId = 11;
 
         npc.WalkAnimId = -1;
         npc.RunAnimId = -1;
@@ -541,7 +444,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
         npc.UpdatePosition(pos, Quaternion.Identity);
 
-        // Push to EVERY party member so all see the spirit spawn (solo = one recipient = old behavior).
         foreach (var p in ActivePlayers())
         {
             p.OnAddVisibleNpcs(npc);
@@ -565,23 +467,21 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         if (!TryCreateNpc(out var npc))
             return null;
 
-        npc.ModelId = modelId;           // bs_gravestone variant
-        npc.NameId = TombstoneNameId;    // "Tombstone"
+        npc.ModelId = modelId;
+        npc.NameId = TombstoneNameId;
         npc.Name = null;
-        npc.HideNamePlate = false;       // named + health-barred: it must read as a destroyable
+        npc.HideNamePlate = false;
         npc.ShowHealthBar = true;
         npc.Scale = 1f;
-        npc.Disposition = 0;             // hostile = attackable
-        npc.ActiveProfile = 1;           // non-default -> red name resolve (the quest-hostile recipe)
+        npc.Disposition = 0;
+        npc.ActiveProfile = 1;
         npc.MaxHealth = TombstoneHealth;
         npc.Health = TombstoneHealth;
-        // DESTROYABLE, not clickable: the tombstone is broken by ATTACKING it (1500 HP), so it gets the same
-        // combat-target recipe — no "Press X to talk" prompt, swords cursor, still damageable.
         npc.IsInteractable = false;
         npc.InteractRange = 100;
         npc.Visible = true;
         npc.CursorId = 11;
-        npc.Static = true;               // it's a grave — nothing should try to move it
+        npc.Static = true;
 
         npc.WalkAnimId = -1;
         npc.RunAnimId = -1;
@@ -591,7 +491,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
         npc.UpdatePosition(new Vector4(pos.X, pos.Y, pos.Z, 1f), Quaternion.Identity);
 
-        // Push to EVERY party member so all see + can destroy the tombstone.
         foreach (var p in ActivePlayers())
         {
             p.OnAddVisibleNpcs(npc);
@@ -610,9 +509,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         return npc;
     }
 
-    // Red enemy dots on the minimap — one combat notification per encounter actor. Broadcast
-    // so every party member's minimap shows the pack (the player arg kept for
-    // call-site symmetry).
     private void SendCombatMinimapMarkers(Player player, IReadOnlyList<ulong> guids)
     {
         if (guids.Count == 0)
@@ -623,8 +519,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             badge.Notifications.Add(new NotificationInfo { Guid = guid, Combat = true, Type = 3, Unknown10 = true });
         Broadcast(badge);
     }
-
-    // ── AI ───────────────────────────────────────────────────────────────────────────────────────────
 
     private void StartSpiritAi(Player player, int run)
     {
@@ -645,9 +539,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                         return;
                     }
 
-                    // Target the whole GROUP: each spirit picks its nearest live player every tick, so the pack
-                    // spreads across the party and re-targets when a player falls. Loop lifetime is the run + any
-                    // players remaining (not one anchor leaving).
                     var players = ActivePlayers();
                     if (players.Length == 0)
                     {
@@ -681,8 +572,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
                         var here = new Vector3(spirit.Position.X, spirit.Position.Y, spirit.Position.Z);
 
-                        // Whole party down: disengage to the spawn post + idle (shared). Otherwise chase the
-                        // nearest player still standing.
                         var tgt = NearestLivePlayer(here, players);
                         if (tgt is null)
                         {
@@ -692,7 +581,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
                         var target = new Vector3(tgt.Position.X, tgt.Position.Y, tgt.Position.Z);
 
-                        // Pre-spawned mobs engage on APPROACH (or when damaged), then run the shared combat tick.
                         if (!state.Charging)
                         {
                             var dx = target.X - here.X;
@@ -715,7 +603,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         });
     }
 
-    // The aggro burst (Frostfang live order): ExpectedSpeed low -> high -> charging state.
     private void BeginCharge(Player player, Npc spirit, SpiritState state)
     {
         state.Charging = true;
@@ -730,7 +617,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         });
     }
 
-    // Damaging an idle spirit provokes it even outside aggro range.
     public override void OnNpcDamaged(Player player, Npc npc)
     {
         lock (_stateLock)
@@ -739,8 +625,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                 BeginCharge(player, npc, state);
         }
     }
-
-    // ── Hearts (shared combat pickup — decode lives in FrostfangArenaZone) ──────────────────────────
 
     private void SpawnHeart(Player player, Vector4 pos)
     {
@@ -835,8 +719,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         }
     }
 
-    // ── Kills / victory ─────────────────────────────────────────────────────────────────────────────
-
     public override void OnNpcKilled(Player killer, Npc npc)
     {
         bool wasTombstone;
@@ -856,7 +738,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             }
             else
             {
-                return; // not an encounter NPC
+                return;
             }
 
             allClear = !_won && _tombstones.Count == 0 && _spirits.Count == 0;
@@ -867,10 +749,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
         if (wasTombstone)
         {
-            // "The bones crumble and a tormented spirit materializes!" (client string 139366): the
-            // grave breaks apart (no death clip — it's a prop) and an extra spirit poofs in on the
-            // spot, already provoked. (TODO: find the packet that shows 139366 as an on-screen
-            // announce — the materialize poof carries the beat visually for now.)
             npc.GracefulRemoval = (false, 0, 0, DeathPoofFxId, 1000);
             npc.Dispose();
 
@@ -885,7 +763,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
                         var state = new SpiritState { SlotAngle = (float)(_rng.NextDouble() * Math.Tau), Home = spirit.Position };
                         _spiritStates[spirit.Guid] = state;
                         BeginCharge(killer, spirit, state);
-                        allClear = false; // the materialized spirit keeps the fight alive
+                        allClear = false;
                     }
                     SendCombatMinimapMarkers(killer, [spirit.Guid]);
                     _logger.LogInformation("Spirit arena: tombstone destroyed -> a spirit materializes ({left} tombs left).",
@@ -895,7 +773,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         }
         else
         {
-            // Spirits die with the standard death flow: clip + poof.
             npc.GracefulRemoval = (true, SpiritDeathHoldMs, 0, DeathPoofFxId, 1000);
             npc.Dispose();
 
@@ -907,19 +784,14 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             WinEncounter(killer, deathPos);
     }
 
-    // The win moment — the Frostfang burst minus the alpha theater: parting drops, goal
-    // complete, XP + quest credit, loot wheel + score, exit door. NO auto-return.
     private void WinEncounter(Player player, Vector4 lastKillPos)
     {
         lock (_stateLock)
             _won = true;
 
-        // Parting drops at the final kill's spot (heart + coin pop — the shared victory beat).
         SpawnHeart(player, lastKillPos);
         SpawnCoinPop(player, lastKillPos);
 
-        // ★ CO-OP: award the win to EVERY party member (each gets their own goal complete, XP, quest
-        // credit, loot-wheel prize, and score). For a solo player this loops once.
         var enemies = _killedSpirits;
         var knockoutsLeft = KnockoutLimit;
         MiniGameGameEndScorePacket MakeScore()
@@ -939,10 +811,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             member.AwardXp(EncounterXp);
             member.SendTunneled(new RewardBundlePacket { Xp = EncounterXp });
 
-            // Credit any quest whose active goal is "win THIS encounter" — e.g. Ninja: That's the Spirit.
             _questManager.OnEncounterComplete(member, EncounterId);
 
-            // Loot wheel — each member spins their OWN prize (server picks it; the spin is theater).
             var prizes = FrostfangArenaZone.GetPrizePreviewFor(member);
             var slice = _rng.Next(prizes.Count + 1);
             var wheel = new MiniGameLootWheelSetItemToLandOnPacket();
@@ -1049,7 +919,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         door.StandAnimId = -1;
         door.MovementType = WolfMovementTypePhysics;
         door.RiderGuid = ulong.MaxValue;
-        // The door spawns at the win, well after ground adoption — use the measured height.
         door.UpdatePosition(new Vector4(DoorSpawn.X, _groundY, DoorSpawn.Z, 1f), Quaternion.Identity);
 
         var badge = new PlayerUpdatePacketAddNotifications();
@@ -1068,14 +937,12 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             Unknown10 = true
         });
 
-        // CO-OP: the door must be visible + clickable to EVERY party member so each can leave.
         foreach (var p in ActivePlayers())
         {
             p.OnAddVisibleNpcs(door);
             door.OnAddVisiblePlayers(p);
 
             p.SendTunneled(new PlayerUpdatePacketUpdateDisposition { Guid = door.Guid, Disposition = 1 });
-            // NO vitals for the door (it renders an overhead bar regardless of value — Frostfang finding).
             p.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
             {
                 Guid = door.Guid,
@@ -1088,7 +955,6 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         SetExitDoor(door);
     }
 
-    // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.
     protected override int FailEncounterId => EncounterId;
     protected override int FailInstanceId => EncounterInstanceId;
     protected override string EncounterLogName => "Spirit arena";
@@ -1106,14 +972,11 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
         var home = _zoneManager.StartingZone;
 
-        // Back to where the player clicked the entry spirit (the Blackspore graveyard), not the
-        // world spawn — the GO! handler stashes the pre-teleport position.
         var returnPos = player.EncounterReturnPosition ?? home.SpawnPosition;
         player.EncounterReturnPosition = null;
 
         player.TeleportToZone(home, returnPos, home.SpawnRotation, sky: null, geometryId: 0);
     }
-
 
     #endregion
 }

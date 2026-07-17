@@ -1,4 +1,4 @@
-﻿using Sanctuary.Core.IO;
+using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
@@ -20,8 +20,6 @@ public class MiniGameGroupInfo
 
     public int SettingsIconId;
 
-    // public List<MiniGameGroupElementInfo> Elements;
-
     public byte[] Serialize()
     {
         using var writer = new PacketWriter();
@@ -37,7 +35,6 @@ public class MiniGameGroupInfo
 
         writer.Write(PreselectedGameId);
 
-        // TODO: Elements
         writer.Write(0);
 
         writer.Write(StageProgression);

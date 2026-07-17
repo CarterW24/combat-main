@@ -6,17 +6,12 @@ using Sanctuary.Packet;
 
 namespace Sanctuary.Game.Entities;
 
-// The retail "Battle Starter": a peaceful wandering creature that's the entry to a combat encounter. Clicking it
-// opens the encounter's start panel; unlike a CombatNpc it never aggros or takes damage — it just ambles around
-// its post so the encounter feels like a live creature you walk up to. Grounded broadcast like CombatNpc
-// (MovementType=2 + ExpectedSpeed), kept a slow amble in a small radius so it stays on its post.
 public sealed class EncounterEntryNpc : Npc
 {
     public EncounterEntryNpc(IZone zone) : base(zone)
     {
     }
 
-    // The "Battle Starter" badge (img-24: red crossed-swords + red minimap dot) over the head.
     public override int CombatEncounterBadgeImageId => 24;
 
     private const float WanderRadius = 7f;
@@ -28,7 +23,6 @@ public sealed class EncounterEntryNpc : Npc
     private float _lastSentSpeed = -1f;
     private DateTime _pauseUntil;
 
-    // Anchor the roam at a post; stagger the first move so a field of them doesn't step in lockstep.
     public void StartWander(Vector4 origin)
     {
         _origin = origin;
@@ -39,7 +33,6 @@ public sealed class EncounterEntryNpc : Npc
 
     public override void UpdateEveryTick()
     {
-        // No observers -> nothing to animate for (and moving unseen just drifts the post out of sync).
         if (!Visible || VisiblePlayers.IsEmpty)
             return;
 
@@ -53,7 +46,6 @@ public sealed class EncounterEntryNpc : Npc
 
         if (dist < 0.5f)
         {
-            // Reached the spot — plant (speed 0 + idle-state position) and idle a beat before the next move.
             SendExpectedSpeed(0f);
             BroadcastPosition(0);
             _lastSentPosition = Position;
@@ -64,7 +56,7 @@ public sealed class EncounterEntryNpc : Npc
 
         SendExpectedSpeed(WanderSpeed);
 
-        var step = MathF.Min(WanderSpeed * 0.1f, dist); // ~10 ticks/sec
+        var step = MathF.Min(WanderSpeed * 0.1f, dist);
         var nx = dx / dist;
         var nz = dz / dist;
         var frac = step / dist;
@@ -82,7 +74,7 @@ public sealed class EncounterEntryNpc : Npc
         var sdz = newPos.Z - _lastSentPosition.Z;
         if (MathF.Sqrt(sdx * sdx + sdz * sdz) >= 0.3f)
         {
-            BroadcastPosition(2); // run state
+            BroadcastPosition(2);
             _lastSentPosition = newPos;
         }
     }

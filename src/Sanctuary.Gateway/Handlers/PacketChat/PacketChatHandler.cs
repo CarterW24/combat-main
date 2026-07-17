@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Numerics;
 
@@ -13,6 +13,7 @@ using Sanctuary.Database.Entities;
 using Sanctuary.Game;
 using Sanctuary.Game.Combat;
 using Sanctuary.Game.Entities;
+using Sanctuary.Game.Zones;
 using Sanctuary.Gateway.Commands;
 using Sanctuary.Packet;
 using Sanctuary.Packet.Common;
@@ -41,7 +42,6 @@ public static class PacketChatHandler
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
         _dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<DatabaseContext>>();
 
-        // Initialize CommandRouter
         if (!_commandRouterInitialized)
         {
             CommandRouter.Initialize(serviceProvider);
@@ -79,34 +79,24 @@ public static class PacketChatHandler
         _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(PacketChat), packet);
         _logger.LogInformation("Chat message from {Player}: {Message}", connection.Player.Name, packet.Message);
 
-        // Check if this is a command
         if (CommandRouter.TryHandle(connection, packet.Message))
         {
             _logger.LogInformation("Command was handled by CommandRouter");
-            return true; // Command was handled
+            return true;
         }
 
-        // COMBAT WIP: live trial tool. Type "!cast [Unknown Unknown2 CompositeEffectId Animation
-        // AbilityId ActionTime HasActionProgress]" in chat to fire a server->client StartCasting and
-        // watch how the client reacts -> verifies the packet's field order/meaning. (See docs/STATUS.md.)
         if (packet.Message is { } chatMsg && chatMsg.StartsWith("!cast"))
         {
             HandleCastTest(connection, chatMsg);
             return true;
         }
 
-        // COMBAT WIP: "!anim <id> [actionTime]" plays animation <id> on the caster via a StartCasting
-        // (the confirmed packet) with a near-zero cast bar. Lets us brute-force the sword-swing /
-        // attack animation id: type !anim 1, !anim 2, ... and watch the character. (See docs/STATUS.md.)
         if (packet.Message is { } animMsg && animMsg.StartsWith("!anim"))
         {
             HandleAnimTest(connection, animMsg);
             return true;
         }
 
-        // COMBAT WIP: "!fight [0/1]" puts the client into "fighting" state (EncounterPacketIsFighting,
-        // op41/sub133 -> SetIsFighting). This opens the gate that lets floating damage numbers / MISS!
-        // text render. Default 1.
         if (packet.Message is { } fightMsg && fightMsg.StartsWith("!fight"))
         {
             var parts2 = fightMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -117,76 +107,48 @@ public static class PacketChatHandler
             return true;
         }
 
-        // COMBAT WIP: fire the REAL combat packet CombatPacketAttackProcessed (op32/sub7) at the nearest
-        // hostile NPC. This one packet should produce the damage number + health bar + hit effect + recoil.
-        // "!atk [dmg] [maxHp] [effectId] [b1] [b2] [i4] [i5]"  (defaults: 250 5000 7 0 0 0 0)
-        // Guid1=you (attacker), Guid2/Guid3=the NPC (target).
         if (packet.Message is { } atkMsg && atkMsg.StartsWith("!atk"))
         {
             HandleAtkTest(connection, atkMsg);
             return true;
         }
 
-        // COMBAT WIP: brute-force the damage NUMBER live. "!dmg <u2> <u3> <u4> [u1] [u5]" fires a
-        // HitPointModification at the nearest hostile NPC (Guid=you, Guid2=npc). The number comes from
-        // PlayerHitpointDeltaEvent: amount>=0 -> "+N" (heal), <0 -> "N"/"N!!" (damage), 0 -> nothing.
-        // So find which int is the amount and try NEGATIVE values, e.g. "!dmg -50 0 0", "!dmg 0 -50 0".
         if (packet.Message is { } dmgMsg && dmgMsg.StartsWith("!dmg"))
         {
             HandleDmgTest(connection, dmgMsg);
             return true;
         }
 
-        // COMBAT WIP: brute-force the NPC health bar live.
-        //   "!hp <cur> <max> [u3]"  -> UpdateHitpoints (op35/sub5) at the nearest hostile NPC.
-        //   "!hpme <cur> <max> [u3]" -> same packet but targeting YOURSELF (diagnostic: does op35/sub5
-        //                               move any bar at all?).
-        // Try value orders, e.g. "!hp 100 5000 0" then "!hp 5000 100 0", and watch the bar.
         if (packet.Message is { } hpMsg && hpMsg.StartsWith("!hp"))
         {
             HandleHpTest(connection, hpMsg);
             return true;
         }
 
-        // COMBAT WIP: "!slot [barId]" fills slots 0-3 of an action bar via UpdateActionBarSlot, using the
-        // values from a real captured ability slot (icon 543, name 422910, Unknown5=1, Unknown6=2). Lets us
-        // find which bar/slot drives the left ability UI. Default barId=2 (try 0/1 too). (See docs/STATUS.md.)
         if (packet.Message is { } chatMsg2 && chatMsg2.StartsWith("!slot"))
         {
             HandleSlotTest(connection, chatMsg2);
             return true;
         }
 
-        // COMBAT WIP: "!give" grants the ACTIVE JOB's kit weapons (ninja Shadow Blades 75110-75119, or
-        // the 30 archer bows 75000-75029 when played as an Archer) to the character's inventory
-        // (DB + in-memory) so you can equip them and watch the ability toolbar change per weapon.
         if (packet.Message is { } giveMsg && giveMsg.StartsWith("!give"))
         {
             HandleGiveJobWeapons(connection);
             return true;
         }
 
-        // COMBAT WIP: "!ticon [melee] [special]" probes ability-slot ICON ids live. No args clears the override
-        // (back to the weapon icon). One arg sets both slots; two sets melee + special. Re-sends the toolbar so
-        // the new icons show immediately. Use to discover which icon ids actually render in THIS client build.
         if (packet.Message is { } iconMsg && iconMsg.StartsWith("!ticon"))
         {
             HandleIconProbe(connection, iconMsg);
             return true;
         }
 
-        // RECOVERY: "!home" (or "!spawn") re-zones the client back to the starting zone (FabledRealms) at the
-        // spawn near the training dummy. Use to escape a broken instance test (e.g. falling through Frostfang).
         if (packet.Message is { } homeMsg && (homeMsg.StartsWith("!home") || homeMsg.StartsWith("!spawn")))
         {
             HandleHome(connection);
             return true;
         }
 
-        // LOOT TEST: "!pack [count]" opens 1..25 Battle Item Mystery Packs on the spot — same code path
-        // as the loot-wheel payout (random sphere table, real inventory grant, contents banner). Each
-        // roll logs "Mystery Pack -> 3x sphere def NNNN" — spam it to sample the distribution without
-        // replaying the encounter.
         if (packet.Message is { } packMsg && packMsg.StartsWith("!pack"))
         {
             var parts = packMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -196,8 +158,6 @@ public static class PacketChatHandler
             return true;
         }
 
-        // NAMECOLOR PROOF: "!namecolor [AARRGGBB hex]" spawns a dummy clone with a STATIC nameplate color
-        // (default purple FFA020F0) — live evidence for the AddNpc NameColor float->int fix.
         if (packet.Message is { } ncMsg && ncMsg.StartsWith("!namecolor"))
         {
             var ncParts = ncMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -216,9 +176,6 @@ public static class PacketChatHandler
             return true;
         }
 
-        // POWERUP TUNING (no wire ground truth for held-powerup use — FX/anim found by eye):
-        //   "!pufx <flame|quake|shield> <fxId> [animId]" retargets that powerup's use-FX (and optionally
-        //   the player use-animation) live, then "!pu <kind>" + press "3" to view.
         if (packet.Message is { } pufxMsg && pufxMsg.StartsWith("!pufx"))
         {
             var fxParts = pufxMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -232,8 +189,6 @@ public static class PacketChatHandler
             return true;
         }
 
-        // "!puspawn" drops the four pickup models in a ring with real walk-over collection — the whole
-        // drop→pickup→"3" flow, testable in ANY zone.
         if (packet.Message is { } puSpawnMsg && puSpawnMsg.StartsWith("!puspawn"))
         {
             if (connection.Player.Zone is BaseZone puZone)
@@ -244,8 +199,6 @@ public static class PacketChatHandler
             return true;
         }
 
-        // "!ko" — force a knockout through the real damage path: exercises the whole KO -> respawn-window
-        // -> revive loop (pool bump, fail at the limit) without grinding a full HP bar of bites.
         if (packet.Message is { } koMsg && koMsg.StartsWith("!ko"))
         {
             connection.Player.Knockout();
@@ -253,10 +206,6 @@ public static class PacketChatHandler
             return true;
         }
 
-        // STATUS-EFFECT TEST BED: "!status <kind> [seconds] [dummy]" applies a wiki status (stun/sleep/
-        // silence/root/fear/confuse/freeze/berserk/poison) — to YOURSELF by default (client gates the
-        // ability bar + shows the buff-bar icon, body FX, NoCast* messages), or to the nearest NPC
-        // with "dummy" (visual flags + FX; poison ticks real damage there). "!status clear" cleanses.
         if (packet.Message is { } stMsg && stMsg.StartsWith("!status"))
         {
             HandleStatusTest(connection, stMsg);
@@ -277,30 +226,19 @@ public static class PacketChatHandler
             return true;
         }
 
-        // INSTANCE WIP (Frostfang Fury): "!offer" sends the EncounterDetailsResponsePacket (op41/sub114) — the
-        // adventure OFFER POPUP (title/difficulty/description + GO!). Wire format RE'd from the client's
-        // Unserialize fns. Tests whether the panel renders before we wire it to the wolf interaction.
         if (packet.Message is { } offerMsg && offerMsg.StartsWith("!offer"))
         {
-            // Popup strings resolve via the client's SERVER-FED string table (POI-populated), not local en_us_data.
-            // Use ids the client already knows: 5698 "Frostfang Caverns" + 382845 (POI desc) DO resolve; the
-            // en_us_data "Frostfang Growler!" id (3078903256) is unknown to the client -> blank. (See interact handler.)
             connection.SendTunneled(new EncounterDetailsResponsePacket
             {
-                // REAL ids from minigame branch ClientActivityDefinitions.json activity Id 174 "Frostfang Growler!".
-                NameId = 93276,                       // "Frostfang Growler!"
-                DescriptionId = 104171,               // Growler description
-                Difficulty = 1,                       // 1 of 5 pips
-                IconId = 1345,                        // wolf emblem ImageSetId
+                NameId = 93276,
+                DescriptionId = 104171,
+                Difficulty = 1,
+                IconId = 1345,
             });
             _logger.LogInformation("!offer -> EncounterDetailsResponsePacket (Frostfang) sent.");
             return true;
         }
 
-        // INSTANCE WIP (Frostfang Fury): "!ready" sends EncounterZoneIsReadyPacket (op41/sub107) — the handshake
-        // that the client (sub_9B0CC0) turns into "HandlerMiniGameStart:setReady", flipping the offer popup's
-        // loading SPINNER into the green GO! button (and rendering the title/desc/prizes). Open the offer first,
-        // then "!ready". If GO! appears, the handshake works and we move it into the click/entrance flow.
         if (packet.Message is { } readyMsg && readyMsg.StartsWith("!ready"))
         {
             connection.SendTunneled(new EncounterZoneIsReadyPacket());
@@ -308,10 +246,6 @@ public static class PacketChatHandler
             return true;
         }
 
-
-        // INSTANCE (Frostfang Fury): "!arena" logs your current position (coordinate scouting);
-        // "!arena set" pins the arena SPAWN to exactly where you're standing (do it while standing in the
-        // arena world to fine-tune where GO! drops players this server run).
         if (packet.Message is { } arenaMsg && arenaMsg.StartsWith("!arena"))
         {
             var pos = connection.Player.Position;
@@ -329,9 +263,6 @@ public static class PacketChatHandler
             return true;
         }
 
-        // INSTANCE WIP (Frostfang Fury, Phase 0): "!frostfang [worldName]" sends PacketClientBeginZoning (op31)
-        // to re-zone the client INTO the Frostfang Caverns instance world mid-session. Smoke test to resolve
-        // the world-name string the client expects + validate op31. (See drafts/frostfang-instance-build.md.)
         if (packet.Message is { } ffMsg && ffMsg.StartsWith("!frostfang"))
         {
             HandleFrostfangTest(connection, ffMsg);
@@ -457,7 +388,6 @@ public static class PacketChatHandler
         return true;
     }
 
-    // STATUS-EFFECT TEST BED — see note above. "!status <kind> [seconds] [dummy]" / "!status clear".
     private static void HandleStatusTest(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -487,7 +417,6 @@ public static class PacketChatHandler
 
         if (onDummy)
         {
-            // Nearest living NPC within 15u — the starting-zone training dummy / a !namecolor clone.
             Npc? nearest = null;
             var bestDistSq = 15f * 15f;
             if (player.Zone is BaseZone zone)
@@ -523,7 +452,6 @@ public static class PacketChatHandler
         }
     }
 
-    // COMBAT WIP — see note above. Builds a StartCasting from optional chat args and sends it.
     private static void HandleCastTest(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -535,7 +463,7 @@ public static class PacketChatHandler
             CompositeEffectId = 0,
             Animation = -1,
             AbilityId = 1,
-            ActionTime = 5f,                    // 5s cast bar so it's obvious if ActionTime is right
+            ActionTime = 5f,
             HasActionProgress = true,
         };
 
@@ -554,13 +482,10 @@ public static class PacketChatHandler
         connection.SendTunneled(p);
     }
 
-    // COMBAT WIP — see note above. TOGGLE: "!anim <id>" sets an animation override so every ability key-press
-    // plays that animation (spam your keys, no chat flood, replays in sequence). "!anim" / "!anim 0" clears it.
     private static void HandleAnimTest(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-        // Clear the override (no id, "0", or "off").
         if (parts.Length <= 1 || parts[1] == "0" || parts[1].Equals("off", StringComparison.OrdinalIgnoreCase))
         {
             AbilityPacketClientRequestStartAbilityHandler.DebugAnimationOverride = null;
@@ -571,11 +496,9 @@ public static class PacketChatHandler
         if (!int.TryParse(parts[1], out var animId))
             return;
 
-        // Set the override: pressing ANY ability key now plays this animation. Press repeatedly to see it.
         AbilityPacketClientRequestStartAbilityHandler.DebugAnimationOverride = animId;
         _logger.LogInformation("!anim -> animation override = {anim}. Press an ability key (1/2) to play it.", animId);
 
-        // Also fire it once immediately for instant feedback.
         connection.SendTunneled(new AbilityPacketStartCasting
         {
             Unknown = connection.Player.Guid,
@@ -588,7 +511,6 @@ public static class PacketChatHandler
         });
     }
 
-    // COMBAT WIP — see note above. Fires the real CombatPacketAttackProcessed at the nearest hostile NPC.
     private static void HandleAtkTest(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -599,8 +521,6 @@ public static class PacketChatHandler
         var b1 = parts.Length > 4 && parts[4] == "1";
         var b2 = parts.Length > 5 && parts[5] == "1";
         var i4 = parts.Length > 6 && int.TryParse(parts[6], out var d) ? d : 0;
-        // i5 defaults to maxHp: the client uses it as the starting HP when it doesn't yet know the NPC's
-        // current HP (handler: if currentHP==0 && i5>0 -> hp = i5 - damage), so the bar starts from full.
         var i5 = parts.Length > 7 && int.TryParse(parts[7], out var e) ? e : maxHp;
 
         var npc = connection.Player.Zone.Npcs.FirstOrDefault(n => n.IsHostile && n.IsDamageable);
@@ -630,7 +550,6 @@ public static class PacketChatHandler
         connection.SendTunneled(p);
     }
 
-    // COMBAT WIP — see note above. Fires HitPointModification (op35/sub35) to brute-force the damage number.
     private static void HandleDmgTest(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -651,8 +570,8 @@ public static class PacketChatHandler
 
         var p = new PlayerUpdatePacketHitPointModification
         {
-            Guid = connection.Player.Guid, // source
-            Guid2 = npc.Guid,              // victim
+            Guid = connection.Player.Guid,
+            Guid2 = npc.Guid,
             Unknown = u1,
             Unknown2 = u2,
             Unknown3 = u3,
@@ -666,7 +585,6 @@ public static class PacketChatHandler
         connection.SendTunneled(p);
     }
 
-    // COMBAT WIP — see note above. Fires UpdateHitpoints (op35/sub5) to brute-force the health bar.
     private static void HandleHpTest(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -710,7 +628,6 @@ public static class PacketChatHandler
         connection.SendTunneled(p);
     }
 
-    // COMBAT WIP — see note above. Probes ability-slot icon ids live so we can find which ids render correctly.
     private static void HandleIconProbe(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -734,9 +651,6 @@ public static class PacketChatHandler
         connection.SendTunneled(NinjaWeaponAbilities.BuildToolbar(connection.Player, _resourceManager));
     }
 
-    // COMBAT WIP — see note above. Grants the active job's kit weapons so they can be equipped to test
-    // the item-driven ability toolbar. Adds each missing weapon to the DB + in-memory inventory and
-    // pushes an ItemAdd so it appears immediately. Equip one -> the toolbar refreshes to its abilities.
     private static void HandleGiveJobWeapons(GatewayConnection connection)
     {
         var characterId = GuidHelper.GetPlayerId(connection.Player.Guid);
@@ -763,7 +677,7 @@ public static class PacketChatHandler
         foreach (var defId in weaponDefIds)
         {
             if (dbCharacter.Items.Any(i => i.Definition == defId))
-                continue; // already owned
+                continue;
 
             if (!_resourceManager.ClientItemDefinitions.ContainsKey(defId))
                 continue;
@@ -803,34 +717,21 @@ public static class PacketChatHandler
             granted, characterId, connection.Player.ActiveProfileId);
     }
 
-    // INSTANCE WIP — see note above. Re-zones the client into Frostfang Caverns via PacketClientBeginZoning
-    // (op31). worldName arg lets us try candidates live: sh_frostfang_cavern (default) / frostfang_cavern /
-    // FrostfangCavern. Spawn from PointOfInterests.json id 59 "Frostfang Caverns". WaitForZoneReadyPacket=false
-    // for the smoke test (immediate load) — if the client hangs waiting, we add the zone-ready handshake next.
-    // RECOVERY — see note above. Re-zones the client to the starting zone spawn (where the dummy is) and
-    // syncs the player's server-side position to match, so a broken instance state (falling) is escapable
-    // without a full relaunch.
     private static void HandleHome(GatewayConnection connection)
     {
         var zone = _zoneManager.StartingZone;
 
         if (connection.Player.Zone != zone)
         {
-            // Leaving the arena mid-encounter: release the client's minigame/combat state FIRST
-            // (op39/sub19 + op62 defaults), or it stays InCombat forever (stuck job changes).
             if (connection.Player.Zone is Sanctuary.Game.Zones.FrostfangArenaZone arena)
                 arena.EndEncounterForPlayer(connection.Player);
 
-            // In another zone (e.g. the Frostfang arena): do the PROPER server-side transfer so
-            // tiles/visibility/zone registration all move with the player (a raw BeginZoning here
-            // would desync client world vs server zone — the "invisible NPCs" class of bug).
             connection.Player.TeleportToZone(zone, zone.SpawnPosition, zone.SpawnRotation, sky: null, geometryId: 0);
 
             _logger.LogInformation("!home -> TeleportToZone back to {name} ({id}).", zone.Name, zone.Id);
             return;
         }
 
-        // Already in the starting zone: just reposition + re-zone the client to the spawn.
         connection.Player.UpdatePosition(zone.SpawnPosition, zone.SpawnRotation);
 
         connection.SendTunneled(new PacketClientBeginZoning
@@ -848,12 +749,6 @@ public static class PacketChatHandler
 
     private static void HandleFrostfangTest(GatewayConnection connection, string msg)
     {
-        // "!frostfang [x] [y] [z] [worldName]" — probe the in-cavern spawn live. The POI overworld coords were
-        // wrong (entrance in FabledRealms, not inside the cavern world). From Phase-0 logs: world name
-        // sh_frostfang_cavern is confirmed (client requested its tiles); TileSize ~64; failed edge tiles
-        // (Tile_000_008) at Z~550 => the ~12-tile (~768²) map's valid area is the lower tiles, center ~ (350,350).
-        // Default spawn = map center, dropped from above so we land on the cave floor. Sky=null (the overworld
-        // sends no Sky; "frostfang_cavern" logged "Bad sky definition" — let the world define its own).
         var parts = msg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
         var x = parts.Length > 1 && float.TryParse(parts[1], out var px) ? px : 350f;
@@ -876,7 +771,6 @@ public static class PacketChatHandler
         connection.SendTunneled(beginZoning);
     }
 
-    // COMBAT WIP — see note above. Fills slots 0-3 of an action bar with a captured ability slot template.
     private static void HandleSlotTest(GatewayConnection connection, string msg)
     {
         var parts = msg.Split(' ', System.StringSplitOptions.RemoveEmptyEntries);
@@ -888,9 +782,9 @@ public static class PacketChatHandler
             p.Data.Id = barId;
             p.Data.Slot = slot;
             p.Slot.IsEmpty = false;
-            p.Slot.IconId = 543;        // from capture
+            p.Slot.IconId = 543;
             p.Slot.IconTintId = 0;
-            p.Slot.NameId = 422910;     // from capture
+            p.Slot.NameId = 422910;
             p.Slot.Unknown5 = 1;        // from capture
             p.Slot.Unknown6 = 2;        // from capture
             p.Slot.Unknown7 = 0;

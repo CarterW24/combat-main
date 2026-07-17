@@ -4,7 +4,6 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// Plays the same looping animation on every listed entity in sync.
 public class PlayerUpdatePacketSetSynchronizedAnimations : BasePlayerUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 63;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -39,7 +39,6 @@ public class LoginService : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        // Test we can connect to the database.
         using var dbContext = _dbContextFactory.CreateDbContext();
 
         try
@@ -55,7 +54,6 @@ public class LoginService : BackgroundService
             return Task.CompletedTask;
         }
 
-        // Load resources.
         if (!_resourceManager.Load())
         {
             _logger.LogCritical("Cannot start {server}. Failed to load resource(s).", nameof(LoginService));
@@ -65,13 +63,11 @@ public class LoginService : BackgroundService
             return Task.CompletedTask;
         }
 
-        // Register services on static packet handlers.
         _serviceProvider.ConfigurePacketHandlers();
 
         _logger.LogInformation($"{nameof(LoginServer)} started and is listening on port '{_options.Port}'.");
         _logger.LogInformation($"{nameof(GatewayServer)} started and is connecting to address '{_options.LoginGatewayPort}'.");
 
-        // Main server loop.
         while (!cancellationToken.IsCancellationRequested)
         {
             var hadData = false;

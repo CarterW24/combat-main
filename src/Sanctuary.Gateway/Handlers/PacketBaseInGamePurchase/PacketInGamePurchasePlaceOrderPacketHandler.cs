@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -196,7 +196,7 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
                     connection.SendTunneled(clientUpdatePacketItemUpdate);
                 }
             }
-            else if (clientItemDefinition.Type == 19) // Mounts
+            else if (clientItemDefinition.Type == 19)
             {
                 if (!_resourceManager.Mounts.TryGetValue(clientItemDefinition.Param1, out var mountDefinition))
                 {
@@ -226,7 +226,7 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
 
                     Tint = orderDetailTint,
                     Definition = mountDefinition.Id,
-                    IsUpgraded = mountDefinition.IsUpgradable // TODO: Implement training
+                    IsUpgraded = mountDefinition.IsUpgradable
                 };
 
                 dbCharacter.Mounts.Add(dbMount);
@@ -251,7 +251,7 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
 
                 connection.Player.SendTunneled(packetMountList);
             }
-            else if (clientItemDefinition.Type == 2) // Pets
+            else if (clientItemDefinition.Type == 2)
             {
                 _logger.LogInformation("Attempting to purchase pet. Item ID: {ItemId}, Param1 (Pet Def ID): {Param1}", clientItemDefinition.Id, clientItemDefinition.Param1);
 
@@ -308,10 +308,10 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
                     TintAlias = petDefinition.TintAlias ?? string.Empty,
                     TextureAlias = petDefinition.TextureAlias ?? string.Empty,
                     MembersOnly = petDefinition.MembersOnly,
-                    IsNameable = petDefinition.IsNameable, // Server-side only
-                    IsUpgradable = false, // Match mount structure - pets don't upgrade
-                    IsUpgraded = false, // Match mount structure
-                    Guid = 0 // Keep at 0 in ClientPcData (like mounts), calculate only when needed for world spawning
+                    IsNameable = petDefinition.IsNameable,
+                    IsUpgradable = false,
+                    IsUpgraded = false,
+                    Guid = 0
                 };
 
                 connection.Player.Pets.Add(petInfo);
@@ -324,7 +324,7 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
                     petListPacket.Pets.Count, PetBasePacket.OpCode, PetListPacket.OpCode);
                 connection.Player.SendTunneled(petListPacket);
             }
-            else if (clientItemDefinition.Type == 16) // Houses
+            else if (clientItemDefinition.Type == 16)
             {
                 _logger.LogInformation("Attempting to purchase house. Item ID: {ItemId}, Param1 (House Def ID): {Param1}", clientItemDefinition.Id, clientItemDefinition.Param1);
 
@@ -338,7 +338,6 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
                     return true;
                 }
 
-                // Check if player already owns this house type
                 var existingHouse = dbContext.Houses.FirstOrDefault(h => h.OwnerId == dbCharacter.Id && h.HouseDefinitionId == houseDefinition.Id);
                 if (existingHouse != null)
                 {
@@ -350,7 +349,6 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
                     return true;
                 }
 
-                // Create new house for player
                 var dbHouse = new DbHouse
                 {
                     OwnerId = dbCharacter.Id,
@@ -387,7 +385,6 @@ public static class PacketInGamePurchasePlaceOrderPacketHandler
             }
             else
             {
-                // TODO: Implement other item types
 
                 packetInGamePurchasePlaceOrderResponse.Result = 2;
 

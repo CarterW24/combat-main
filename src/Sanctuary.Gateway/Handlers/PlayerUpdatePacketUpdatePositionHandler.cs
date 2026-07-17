@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -28,26 +28,20 @@ public static class PlayerUpdatePacketUpdatePositionHandler
             return false;
         }
 
-        // _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(PlayerUpdatePacketUpdatePosition), packet);
-
         connection.Player.Mount?.UpdatePosition(packet.Position, packet.Rotation);
 
-        // Update pet position to follow owner
         if (connection.Player.Pet is not null)
         {
             var pet = connection.Player.Pet;
 
-            // Check if owner is moving
             var ownerMoveDx = packet.Position.X - pet.OwnerLastPosition.X;
             var ownerMoveDz = packet.Position.Z - pet.OwnerLastPosition.Z;
             var ownerMoveDistance = System.MathF.Sqrt(ownerMoveDx * ownerMoveDx + ownerMoveDz * ownerMoveDz);
-            const float ownerMovementThreshold = 0.05f; // Consider owner stationary if moved less than this
+            const float ownerMovementThreshold = 0.05f;
             bool ownerIsMoving = ownerMoveDistance > ownerMovementThreshold;
 
-            // Update owner's last position for next iteration
             pet.OwnerLastPosition = packet.Position;
 
-            // Calculate forward direction from player rotation
             var rotation = packet.Rotation;
             var forward = new System.Numerics.Vector3(
                 2.0f * (rotation.X * rotation.Z + rotation.W * rotation.Y),
@@ -55,7 +49,6 @@ public static class PlayerUpdatePacketUpdatePositionHandler
                 1.0f - 2.0f * (rotation.X * rotation.X + rotation.Y * rotation.Y)
             );
 
-            // Target position: 3 units behind and slightly to the side of the player
             const float followDistance = 3.0f;
             var targetPetPosition = new System.Numerics.Vector4(
                 packet.Position.X - forward.X * followDistance,
@@ -66,70 +59,59 @@ public static class PlayerUpdatePacketUpdatePositionHandler
 
             var currentPetPosition = pet.Position;
 
-            // Calculate distance to target
             var dx = targetPetPosition.X - currentPetPosition.X;
             var dz = targetPetPosition.Z - currentPetPosition.Z;
             var distance = System.MathF.Sqrt(dx * dx + dz * dz);
 
-            // Calculate distance from pet to owner (not target position)
             var ownerDx = packet.Position.X - currentPetPosition.X;
             var ownerDz = packet.Position.Z - currentPetPosition.Z;
             var distanceToOwner = System.MathF.Sqrt(ownerDx * ownerDx + ownerDz * ownerDz);
 
-            // Movement thresholds
-            const float teleportDistance = 20.0f;  // Teleport if too far
-            const float stopDistance = 1.5f;       // Stop if close enough to target
-            const float runDistance = 8.0f;        // Run if farther than this
-            const float idleRange = 6.0f;          // Stay idle if within this range of owner when they're not moving
+            const float teleportDistance = 20.0f;
+            const float stopDistance = 1.5f;
+            const float runDistance = 8.0f;
+            const float idleRange = 6.0f;
 
-            // Movement speeds
-            const float walkSpeed = 4.5f;          // Walk speed
-            const float runSpeed = 9.0f;           // Run speed when catching up
-            const float smoothingFactor = 0.15f;   // Lower = smoother (0.1-0.3 works well)
+            const float walkSpeed = 4.5f;
+            const float runSpeed = 9.0f;
+            const float smoothingFactor = 0.15f;
 
             System.Numerics.Vector4 newPetPosition;
             byte movementState;
 
             if (distance > teleportDistance)
             {
-                // Pet is too far - teleport to owner
                 newPetPosition = targetPetPosition;
-                movementState = 0; // Idle state after teleport
+                movementState = 0;
 
                 _logger.LogDebug("Pet teleported to owner. Distance was {distance}", distance);
             }
             else if (!ownerIsMoving && distanceToOwner < idleRange)
             {
-                // Owner is stationary and pet is close enough - stay idle
                 newPetPosition = currentPetPosition;
-                movementState = 0; // Idle state
+                movementState = 0;
             }
             else if (distance < stopDistance)
             {
-                // Pet is close enough to target position - stop moving
                 newPetPosition = currentPetPosition;
-                movementState = 0; // Idle state
+                movementState = 0;
             }
             else
             {
-                // Pet is at a reasonable distance - move smoothly
                 var speed = distance > runDistance ? runSpeed : walkSpeed;
-                movementState = distance > runDistance ? (byte)2 : (byte)1; // 2 = running, 1 = walking
+                movementState = distance > runDistance ? (byte)2 : (byte)1;
 
-                // Smooth interpolation towards target
                 newPetPosition = new System.Numerics.Vector4(
                     currentPetPosition.X + dx * smoothingFactor * (speed / walkSpeed),
-                    targetPetPosition.Y, // Match player Y position
+                    targetPetPosition.Y,
                     currentPetPosition.Z + dz * smoothingFactor * (speed / walkSpeed),
                     currentPetPosition.W
                 );
             }
 
-            // Calculate rotation to face movement direction
             var petRotation = rotation;
             if (movementState > 0 && distance > 0.1f)
             {
-                // Make pet face the direction it's moving
                 var angle = System.MathF.Atan2(dx, dz);
                 var halfAngle = angle / 2.0f;
                 petRotation = new System.Numerics.Quaternion(
@@ -142,14 +124,13 @@ public static class PlayerUpdatePacketUpdatePositionHandler
 
             pet.UpdatePosition(newPetPosition, petRotation);
 
-            // Send ExpectedSpeed packet when movement state changes
             if (movementState != pet.Animation)
             {
                 var newSpeed = movementState switch
                 {
-                    0 => 0f,        // Idle - no movement
-                    1 => walkSpeed, // Walking
-                    2 => runSpeed,  // Running
+                    0 => 0f,
+                    1 => walkSpeed,
+                    2 => runSpeed,
                     _ => walkSpeed
                 };
 
@@ -164,13 +145,12 @@ public static class PlayerUpdatePacketUpdatePositionHandler
                 connection.Player.SendTunneledToVisible(speedPacket, true);
             }
 
-            // Send position updates only if pet moved significantly
             var lastSentPos = pet.LastSentPosition;
             var sendDx = newPetPosition.X - lastSentPos.X;
             var sendDz = newPetPosition.Z - lastSentPos.Z;
             var sendDistance = System.MathF.Sqrt(sendDx * sendDx + sendDz * sendDz);
 
-            const float minSendDistance = 0.1f; // Reduced from 0.2f for smoother updates
+            const float minSendDistance = 0.1f;
             if (sendDistance >= minSendDistance || movementState != pet.Animation)
             {
                 var petUpdate = new PlayerUpdatePacketUpdatePosition
@@ -183,7 +163,7 @@ public static class PlayerUpdatePacketUpdatePositionHandler
                 };
 
                 pet.LastSentPosition = newPetPosition;
-                pet.Animation = movementState; // Track current animation state
+                pet.Animation = movementState;
                 connection.Player.SendTunneledToVisible(petUpdate, true);
             }
         }

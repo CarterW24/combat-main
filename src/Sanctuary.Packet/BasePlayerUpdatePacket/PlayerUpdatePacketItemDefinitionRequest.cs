@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Sanctuary.Core.IO;
 
@@ -10,7 +10,6 @@ public class PlayerUpdatePacketItemDefinitionRequest : BasePlayerUpdatePacket, I
 
     public int Id;
 
-    // This is a server-side only field.
     public byte[] Payload = Array.Empty<byte>();
 
     public PlayerUpdatePacketItemDefinitionRequest() : base(OpCode)

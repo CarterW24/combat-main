@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 
 using Microsoft.Extensions.Configuration;
@@ -39,7 +39,6 @@ builder.ConfigureAppConfiguration((hostBuilderContext, configurationBuilder) =>
 
 builder.ConfigureServices((hostBuilderContext, serviceCollection) =>
 {
-    // Options
     serviceCollection.AddOptions<DatabaseOptions>()
         .BindConfiguration(DatabaseOptions.Section)
         .ValidateOnStart();
@@ -48,15 +47,12 @@ builder.ConfigureServices((hostBuilderContext, serviceCollection) =>
         .BindConfiguration(ServerOptions.Section)
         .ValidateOnStart();
 
-    // Database
     serviceCollection.AddDatabase(hostBuilderContext.Configuration);
 
-    // Server Options
     var serverOptions = hostBuilderContext.Configuration.GetSection(ServerOptions.Section).Get<GatewayServerOptions>();
 
     ArgumentNullException.ThrowIfNull(serverOptions);
 
-    // LoginGateway UDP Client
     serviceCollection.AddSingleton(serviceProvider =>
     {
         var udpParams = new UdpParams(ManagerRole.ExternalClient)
@@ -68,7 +64,6 @@ builder.ConfigureServices((hostBuilderContext, serviceCollection) =>
         return ActivatorUtilities.CreateInstance<LoginClient>(serviceProvider, udpParams);
     });
 
-    // Gateway UDP Server
     serviceCollection.AddSingleton(serviceProvider =>
     {
         var udpParams = new UdpParams
@@ -83,7 +78,6 @@ builder.ConfigureServices((hostBuilderContext, serviceCollection) =>
 
         for (int i = 0; i < udpParams.Reliable.Length; i++)
         {
-            // DO NOT INCREASE; latent client bug when larger than socket buffer size
             udpParams.Reliable[i].MaxOutstandingBytes = 64 * 1024;
         }
 
@@ -98,7 +92,6 @@ builder.ConfigureServices((hostBuilderContext, serviceCollection) =>
 
     serviceCollection.AddHostedService<GatewayService>();
 
-    // Managers
     serviceCollection.AddSingleton<IZoneManager, ZoneManager>();
     serviceCollection.AddSingleton<IResourceManager, ResourceManager>();
     serviceCollection.AddSingleton<IInteractionManager, InteractionManager>();

@@ -5,8 +5,8 @@ namespace Sanctuary.Packet.Common;
 public class MerchantItemEntry : ISerializableType
 {
     public int ItemId;
-    public int Qty = -1;  // -1 = unlimited stock
-    public int Cost;      // coin price
+    public int Qty = -1;
+    public int Cost;
 
     public void Serialize(PacketWriter writer)
     {

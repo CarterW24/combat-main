@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 using Sanctuary.Core.IO;
 using Sanctuary.Packet.Common;
@@ -9,7 +9,6 @@ public class PacketLoadWelcomeScreen : ISerializablePacket
 {
     public const short OpCode = 93;
 
-    // This has to be sent to true or the client won't render the rest of the UI.
     public bool ShowWelcomeScreen = true;
 
     public List<ContentInfo> Contents = new();

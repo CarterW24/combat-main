@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 
@@ -22,27 +22,16 @@ public interface IZone
     void OnClientFinishedLoading(Player entity);
     void RefreshPlayerCustomizations(Player player);
 
-    // COMBAT: called when an NPC in this zone is killed, so the zone decides the consequence
-    // (training dummy resets; encounter wolves despawn and advance the encounter; etc.).
     void OnNpcKilled(Player killer, Npc npc);
 
-    // COMBAT: called after every non-fatal hit lands on an NPC (post-ApplyDamage, when it did
-    // NOT die), so the zone can react to HP thresholds — e.g. the Frostfang Alpha flees at low health
-    // instead of dying. Default: no-op.
     void OnNpcDamaged(Player attacker, Npc npc);
 
-    // DEATH: the player's HP hit 0 (knocked out). Overworld = client shows its KO UI + revive in
-    // place; combat instances count the knockout and fail the encounter at the limit.
     void OnPlayerKnockedOut(Player player);
 
-    // DEATH: the player pressed respawn — revive them (in place for the overworld, at the dungeon
-    // spawn for instances).
     void OnPlayerRespawn(Player player);
 
-    // COMBAT: push an NPC's cursor (attack/talk) to a player so it is selectable as a target.
     void SendNpcRelevance(Player player, Npc npc);
 
-    // COMBAT: push an NPC's current/max health to a player so its nameplate health bar renders.
     void SendNpcHealth(Player player, Npc npc);
 
     #endregion

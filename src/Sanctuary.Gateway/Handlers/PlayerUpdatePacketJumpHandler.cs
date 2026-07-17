@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -26,8 +26,6 @@ public static class PlayerUpdatePacketJumpHandler
             _logger.LogError("Failed to deserialize {packet}.", nameof(PlayerUpdatePacketJump));
             return false;
         }
-
-        // _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(PlayerUpdatePacketJump), packet);
 
         connection.Player.Mount?.UpdatePosition(packet.Position, packet.Rotation);
         connection.Player.Pet?.UpdatePosition(packet.Position, packet.Rotation);

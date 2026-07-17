@@ -2,9 +2,6 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// BaseCombatPacket (op 32) sub-opcode 5 = "AttackAttackerMissed" — the "Miss" twin of AttackTargetDodged.
-// Same wire shape (reader sub_A2A7A0): [op16][sub16] ulong Attacker ulong Target (20 bytes). The handler
-// (sub_A2B360) renders the floating "Miss" text over the target.
 public class CombatPacketAttackAttackerMissed : ISerializablePacket
 {
     public const short OpCode = 32;

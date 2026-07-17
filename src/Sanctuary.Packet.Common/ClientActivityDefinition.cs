@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 using Sanctuary.Core.IO;
 
@@ -17,8 +17,6 @@ public class ClientActivityDefinition : ISerializableType
     public int ImageSetId { get; set; }
     public int ImagePositionId { get; set; }
 
-    // 1 - PacketTunneledClientWorldPacket
-    // 2 - PacketTunneledClientPacket
     public int ServerType { get; set; }
 
     public int DisplayNameId { get; set; }

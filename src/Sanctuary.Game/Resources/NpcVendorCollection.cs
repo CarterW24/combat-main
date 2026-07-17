@@ -57,13 +57,11 @@ public class NpcVendorCollection : ConcurrentDictionary<ulong, NpcVendorDefiniti
 
                 if (value.ValueKind == JsonValueKind.Array)
                 {
-                    // Legacy format: "GUID": [item1, item2, ...]
                     var items = JsonSerializer.Deserialize<List<int>>(value.GetRawText());
                     def = new NpcVendorDefinition { Items = items ?? [] };
                 }
                 else
                 {
-                    // New format: "GUID": { "Items": [...], "SubTextNameId": 12345 }
                     def = JsonSerializer.Deserialize<NpcVendorDefinition>(value.GetRawText()) ?? new NpcVendorDefinition();
                 }
 

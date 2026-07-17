@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net;
@@ -15,7 +15,6 @@ using Sanctuary.UdpLibrary.Statistics;
 
 namespace Sanctuary.UdpLibrary;
 
-// The purpose of the UdpConnection is to manage a single logical connection
 public class UdpConnection : PriorityQueueMember
 {
     private readonly Lock _guard = new();
@@ -49,7 +48,7 @@ public class UdpConnection : PriorityQueueMember
         public int EncryptCode;
         public byte CrcBytes;
         public EncryptMethod[] EncryptMethod = new EncryptMethod[Constants.EncryptPasses];
-        public int MaxRawPacketSize; // negotiated maxRawPacketSize (ie. smaller of what two sides are set to)
+        public int MaxRawPacketSize;
     }
 
     internal Configuration ConnectionConfig = new();
@@ -100,7 +99,6 @@ public class UdpConnection : PriorityQueueMember
     private CryptFunction[] DecryptFunction = new CryptFunction[Constants.EncryptPasses];
     private CryptFunction[] EncryptFunction = new CryptFunction[Constants.EncryptPasses];
 
-    // Client-side initialization
     public UdpConnection(IUdpManager udpManager, SocketAddress socketAddress, UdpClockStamp timeout) : this(udpManager, socketAddress)
     {
         lock (_guard)
@@ -115,7 +113,6 @@ public class UdpConnection : PriorityQueueMember
         }
     }
 
-    // Server-side initialization
     public UdpConnection(IUdpManager udpManager, SocketAddress socketAddress, int connectCode) : this(udpManager, socketAddress)
     {
         lock (_guard)
@@ -149,7 +146,6 @@ public class UdpConnection : PriorityQueueMember
 
         FlaggedPortUnreachable = false;
 
-        // makes it send out the first connect packet immediately (if we are in negotiating mode)
         LastPortAliveTime = LastSendTime = 0;
         LastReceiveTime = UdpManager.CachedClock;
         LastClockSyncTime = 0;
@@ -164,7 +160,6 @@ public class UdpConnection : PriorityQueueMember
         MultiBufferData = GC.AllocateArray<byte>(UdpManager.Params.MaxRawPacketSize, true);
         MultiBufferOffset = 0;
 
-        // when the timer started for ICMP error retry delay (gets reset on a successful packet receive)
         IcmpErrorRetryStartStamp = 0;
         PortRemapRequestStartStamp = 0;
 
@@ -203,7 +198,6 @@ public class UdpConnection : PriorityQueueMember
 
         if (!UdpManager.Params.ProcessIcmpErrorsDuringNegotiating)
         {
-            // during negotiating phase, ignore port unreachable errors, since it may be a case of the client starting up first
             if (Status == Status.Negotiating)
                 return;
         }
@@ -212,14 +206,13 @@ public class UdpConnection : PriorityQueueMember
         {
             if (IcmpErrorRetryStartStamp == 0)
             {
-                // start timer on how long we will ignore ICMP errors
                 IcmpErrorRetryStartStamp = UdpManager.CachedClock;
                 return;
             }
 
             if (UdpManager.CachedClockElapsed(IcmpErrorRetryStartStamp) < UdpManager.Params.IcmpErrorRetryPeriod)
             {
-                return;        // ignoring ICMP errors for a period of time
+                return;
             }
         }
 
@@ -233,7 +226,6 @@ public class UdpConnection : PriorityQueueMember
             if (DisconnectReason == DisconnectReason.None)
                 DisconnectReason = reason;
 
-            // if we are in a negotiating state, then you can't have a flushTimeout, any disconnect will occur immediately
             if (Status == Status.Negotiating)
                 flushTimeout = 0;
 
@@ -258,10 +250,6 @@ public class UdpConnection : PriorityQueueMember
                 return;
             }
 
-            // send a termination packet to the other side
-            // do not send a termination packet if we are still negotiating (we are not allowed to send any packets while negotiating)
-            // if you attempt to send a packet while negotiating, then it will potentially attempt to encrypt it before an encryption
-            // method is determined, resulting in a function call through an invalid pointer
             if (!SilentDisconnect)
             {
                 if (Status is Status.Connected or Status.DisconnectPending)
@@ -298,15 +286,12 @@ public class UdpConnection : PriorityQueueMember
         {
             Debug.Assert(data.Length >= 0);
 
-            // if we are no longer connected (not allowed to send more when we are pending disconnect either)
             if (Status != Status.Connected)
                 return false;
 
-            // zero length packets are ignored
             if (data.IsEmpty)
                 return false;
 
-            // zero-escape application packets that start with 0
             if (data[0] == 0)
             {
                 Span<byte> hold = [0];
@@ -321,7 +306,6 @@ public class UdpConnection : PriorityQueueMember
     {
         lock (_guard)
         {
-            // if we are no longer connected
             if (Status != Status.Connected)
                 return false;
 
@@ -329,7 +313,6 @@ public class UdpConnection : PriorityQueueMember
             if (dataLen == 0)
                 return false;
 
-            // zero-escape application packets that start with 0
             var data = packet.GetDataPtr();
             if (data[0] == 0)
             {
@@ -349,7 +332,6 @@ public class UdpConnection : PriorityQueueMember
         UdpManager.IncrementApplicationPacketsSent();
         ConnectionStats.ApplicationPacketsSent++;
 
-        // promote unreliable packets that are larger than maxRawPacketSize to be reliable
         var totalDataLen = dataLen + dataLen2;
 
         var rawDataBytesMax = ConnectionConfig.MaxRawPacketSize - ConnectionConfig.CrcBytes - EncryptExpansionBytes;
@@ -446,7 +428,6 @@ public class UdpConnection : PriorityQueueMember
     {
         lock (_guard)
         {
-            // tells it to resync the clock pronto
             LastClockSyncTime = 0;
 
             SyncStatMasterFixupTime = 0;
@@ -494,7 +475,6 @@ public class UdpConnection : PriorityQueueMember
         {
             if (data.Length == 0)
             {
-                // length 0 packet indicates an ICMP dest-unreachable error packet on this connection (the driver puts these errors inline as 0 byte packets)
                 PortUnreachable();
                 return;
             }
@@ -509,14 +489,9 @@ public class UdpConnection : PriorityQueueMember
 
             if (zeroByte != 0 || packetType != UdpPacketType.UnreachableConnection)
             {
-                // if we get any type of packet other than an unreachable-connection packet, then we can assume that our remapping
-                // request succeeded, and clear the timer for how long we should attempt to do the remapping.  The reason we need
-                // to send requests for a certain amount of time, is the server may already have dozens of unreachable-connection packets
-                // on the wire on the way to us, before we manage to request that the remapping occur.
                 PortRemapRequestStartStamp = 0;
             }
 
-            // we received a packet successfully, so assume we have recovered from any ICMP error state we may have been in, so we can reset the timer
             IcmpErrorRetryStartStamp = 0;
 
             LastReceiveTime = UdpManager.CachedClock;
@@ -524,51 +499,25 @@ public class UdpConnection : PriorityQueueMember
             ConnectionStats.TotalPacketsReceived++;
             ConnectionStats.TotalBytesReceived += data.Length;
 
-            // TODO
-            // track incoming data rate
-
             if (zeroByte == 0 && packetType == UdpPacketType.KeepAlive)
             {
-                // encryption can't mess up the first two bytes of an internal packet, so this is safe to check
-                // if it is a keep alive packet, then we don't need to do any more processing beyond setting
-                // the mLastReceiveTime.  We do this check here instead of letting it pass on through harmlessly
-                // like we used to do in order to avoid getting rescheduled in the priority queue.  There is absolutely
-                // no reason to reschedule us due to an incoming keep alive packet since the keep-alive packet has the
-                // longest rescheduling of anything that needs time, so the worst thing that might happen is we might
-                // end up getting sheduled time sooner than we might otherwise need to.  And obviously scheduling
-                // ourselves for immediate-time is even sooner than that, so there is no point.
-                // This turns out to be important for applications that have lots of connections (tens of thousands)
-                // that rarely talk but send keep alives...no reason to make the server do a lot work over these things.
                 return;
             }
 
-            // whenever we receive a packet, it could potentially change when we want time scheduled again
-            // so effectively we should reprioritize ourself to the top.  By doing it this way instead of
-            // simply giving time and recalculating, we can effectively avoid giving ourself time and reprioritizing
-            // ourself over and over again as more and more packets arrive in rapid succession
-            // note: this cannot happen while we are in our UdpConnection::GiveTime function, so there is no need to squeltch check 
-            // it like we do the others.
-            // note: this was moved to the top of the function from the bottom.  This doesn't effect anything as it doesn't matter
-            // when we schedule ourself for future processing.  Moving it to the top allowed us to get scheduled even if the packet
-            // we processed got rejected for some reason (crc mismatch or bad size).
             ScheduleTimeNow();
 
-            // invalid packet len
             if (data.Length < 1)
             {
                 CallbackCorruptPacket(data, UdpCorruptionReason.ZeroLengthPacket);
                 return;
             }
 
-            // first see if we are a special connect/confirm/unreachable packet, if so, process us immediately
             if (zeroByte == 0 && IsNonEncryptPacket(packetType))
             {
                 ProcessCookedPacket(data);
             }
             else
             {
-                // if we are still awaiting confirmation packet, then we must ignore any other incoming data packets
-                // this can happen if the confirm packet is lost and the server has dumped a load of data on the newly created connection
                 if (Status == Status.Negotiating)
                     return;
 
@@ -579,7 +528,6 @@ public class UdpConnection : PriorityQueueMember
                 {
                     if (finalLen < ConnectionConfig.CrcBytes)
                     {
-                        // invalid packet len
                         CallbackCorruptPacket(data, UdpCorruptionReason.PacketShorterThanCrcBytes);
                         return;
                     }
@@ -637,7 +585,6 @@ public class UdpConnection : PriorityQueueMember
                     {
                         if (finalLen < 2)
                         {
-                            // invalid packet len
                             CallbackCorruptPacket(data, UdpCorruptionReason.InternalPacketTooShort);
                             return;
                         }
@@ -648,7 +595,6 @@ public class UdpConnection : PriorityQueueMember
 
                         if (len == -1)
                         {
-                            // decrypt failed, throw away packet
                             CallbackCorruptPacket(data, UdpCorruptionReason.DecryptFailed);
                             return;
                         }
@@ -661,7 +607,6 @@ public class UdpConnection : PriorityQueueMember
 
                         if (len == -1)
                         {
-                            // decrypt failed, throw away packet
                             CallbackCorruptPacket(data, UdpCorruptionReason.DecryptFailed);
                             return;
                         }
@@ -686,7 +631,6 @@ public class UdpConnection : PriorityQueueMember
 
         ConnectionStats.ApplicationPacketsReceived++;
 
-        // callback through UdpManager in case it wants to queue the event
         UdpManager.CallbackRoutePacket(this, data);
     }
 
@@ -715,8 +659,6 @@ public class UdpConnection : PriorityQueueMember
             CallbackRoutePacket(data);
             return;
         }
-
-        // internal packet, so process it internally
 
         if (!reader.TryRead(out byte packetType))
             return;
@@ -749,10 +691,6 @@ public class UdpConnection : PriorityQueueMember
 
                     if (Status == Status.Negotiating)
                     {
-                        // why are we receiving a connect-request coming from the guy we ourselves are currently
-                        // in the process of trying to connect to?  Odds are very high that what is actually
-                        // happening is we are trying to connect to ourself.  In either case, we should reply
-                        // back telling them they are terminated.
 
                         SendTerminatePacket(connectCode, ConnectCode == connectCode
                             ? DisconnectReason.ConnectingToSelf
@@ -768,9 +706,6 @@ public class UdpConnection : PriorityQueueMember
                         ConnectionConfig.MaxRawPacketSize = Math.Min(maxRawPacketSize, ConnectionConfig.MaxRawPacketSize);
 
                         Span<byte> buf = stackalloc byte[21];
-
-                        // send confirm packet (if our connect code matches up)
-                        // prepare UdpPacketConnect packet
 
                         buf[0] = 0;
                         buf[1] = (byte)UdpPacketType.Confirm;
@@ -791,14 +726,6 @@ public class UdpConnection : PriorityQueueMember
                     }
                     else
                     {
-                        // ok, we got a connect-request packet from the ip/port of something we thought we already had a connection to.
-                        // Additionally, the connect-request packet has a different code, meaning it is not just a stragling connect-request
-                        // packet that got sent after we accepted the connection.
-                        // This means that the other side has probably terminated the connection and is attempting to connect again.
-                        // if we just ignore the new connect-request, it will actually result in the new connection-attempt effectively
-                        // keeping this connection object alive.  So, instead, when we get this situation, we will terminate this connection
-                        // and ignore the connect-request packet.  The connect-request packet will be sent again 1 second later by the client
-                        // at which time we won't exist and out UdpManager will establish a new connection object for it.
                         SendTerminatePacket(0, DisconnectReason.NewConnectionAttempt);
                     }
                 }
@@ -836,7 +763,6 @@ public class UdpConnection : PriorityQueueMember
                             return;
                     }
 
-                    // only actually process the confirm if we are negotiating (expecting it) and the connect-code matches up
                     if (Status == Status.Negotiating && ConnectCode == connectCode)
                     {
                         ConnectionConfig = config;
@@ -848,11 +774,6 @@ public class UdpConnection : PriorityQueueMember
                 }
                 break;
 
-            // if a request remap packet managed to get routed to our connection, it is because
-            // the mapping is already correct, so we can just ignore this packet at this point
-            // this will happen when the client sends multiple remap-requests, the first one will
-            // cause the actual remapping to occur, and the subsequent ones will manage to make
-            // it into here
             case UdpPacketType.RequestRemap:
                 break;
 
@@ -867,7 +788,6 @@ public class UdpConnection : PriorityQueueMember
 
                     var diff = orderedStamp - OrderedStampLast;
 
-                    // equal here makes it strip dupes too
                     if (diff <= 0)
                         diff += 0x10000;
 
@@ -891,7 +811,6 @@ public class UdpConnection : PriorityQueueMember
 
                     var diff = orderedStamp - OrderedStampLast2;
 
-                    // equal here makes it strip dupes too
                     if (diff <= 0)
                         diff += 0x10000;
 
@@ -913,7 +832,6 @@ public class UdpConnection : PriorityQueueMember
                     if (!reader.TryReadInt32(out var connectCode))
                         return;
 
-                    // to remain protocol compatible with previous version, the other side disconnect reason is an optional field on this packet
                     if (reader.RemainingLength > 0)
                     {
                         if (!reader.TryReadInt16(out var otherSideDisconnectReason))
@@ -924,9 +842,6 @@ public class UdpConnection : PriorityQueueMember
 
                     if (ConnectCode == connectCode)
                     {
-                        // since other side explicitly told us they had terminated, there is no reason for us to send a terminate
-                        // packet back to them as well (as it will almost always result in some for of unreachable-destination reply)
-                        // so, put ourselves in silent-disconnect mode when this happens
                         SilentDisconnect = true;
                         InternalDisconnect(0, DisconnectReason.OtherSideTerminated);
                         return;
@@ -947,15 +862,12 @@ public class UdpConnection : PriorityQueueMember
                         {
                             Span<byte> buf = stackalloc byte[21];
 
-                            // send confirm packet (if our connect code matches up)
-                            // prepare UdpPacketConnect packet
-
                             buf[0] = 0;
                             buf[1] = (byte)UdpPacketType.RequestRemap;
                             BinaryPrimitives.WriteInt32BigEndian(buf.Slice(2), ConnectCode);
                             BinaryPrimitives.WriteInt32BigEndian(buf.Slice(6), ConnectionConfig.EncryptCode);
 
-                            RawSend(buf, buf.Length); // since the destination doesn't have an associated connection for us to decrypt us, we must be sent unencrypted
+                            RawSend(buf, buf.Length);
 
                             break;
                         }
@@ -978,8 +890,6 @@ public class UdpConnection : PriorityQueueMember
 
                         if (nextPtr > endPtr)
                         {
-                            // specified more data in this piece than is left in the entire packet
-                            // this is either corruption, or more likely a hacker
                             CallbackCorruptPacket(data, UdpCorruptionReason.MisformattedGroup);
                             return;
                         }
@@ -1017,11 +927,9 @@ public class UdpConnection : PriorityQueueMember
                     ConnectionStats.SyncTheirReceived = pp.OurReceived;
                     ConnectionStats.SyncTheirSent = pp.OurSent;
 
-                    // if it has been over a second since our manager got processing time, then we should not reflect clock-sync packets as we will have introduced too much lag ourselves.
                     if (UdpManager.ProcessingInducedLag > 1000)
                         break;
 
-                    // prepare UdpPacketClockReflect packet
                     Span<byte> buf = stackalloc byte[40 + 4];
 
                     buf[0] = 0;
@@ -1055,7 +963,6 @@ public class UdpConnection : PriorityQueueMember
                     ConnectionStats.SyncTheirReceived = pp.OurReceived;
                     ConnectionStats.SyncTheirSent = pp.OurSent;
 
-                    // if it has been over a second since our manager got processing time, then we should ignore the timing aspects of the clock-sync packets as we will have introduced too much lag ourselves.
                     if (UdpManager.ProcessingInducedLag > 1000)
                         break;
 
@@ -1073,13 +980,10 @@ public class UdpConnection : PriorityQueueMember
 
                     SyncStatLast = roundTime;
 
-                    // see if we should use this sync to reset the master sync time
-                    // if have better (or close to better) round time or it has been a while
                     var elapsed = UdpManager.CachedClockElapsed(SyncStatMasterFixupTime);
 
                     if (roundTime <= SyncStatMasterRoundTime + 20 || elapsed > 120000)
                     {
-                        // resync on this packet unless this packet is a real loser (unless it just been a very long time, then sync up anyhow)
                         if (roundTime < SyncStatMasterRoundTime * 2 || elapsed > 240000)
                         {
                             SyncTimeDelta = pp.ServerSyncStampLong - UdpManager.LocalSyncStampLong() + (uint)(roundTime / 2);
@@ -1088,7 +992,6 @@ public class UdpConnection : PriorityQueueMember
                         }
                     }
 
-                    // update connection statistics
                     ConnectionStats.AveragePingTime = (SyncStatCount > 0) ? (SyncStatTotal / SyncStatCount) : 0u;
                     ConnectionStats.HighPingTime = SyncStatHigh;
                     ConnectionStats.LowPingTime = SyncStatLow;
@@ -1151,8 +1054,6 @@ public class UdpConnection : PriorityQueueMember
 
                         if (ptr > endPtr || len > endPtr - ptr)
                         {
-                            // specified more data in this piece than is left in the entire packet
-                            // this is either corruption, or more likely a hacker
                             CallbackCorruptPacket(data, UdpCorruptionReason.MisformattedGroup);
                             return;
                         }
@@ -1180,7 +1081,6 @@ public class UdpConnection : PriorityQueueMember
 
     private void InternalGiveTime()
     {
-        // give us time in 10 minutes (unless somebody wants it sooner)
         var nextSchedule = 10 * 60 * 1000L;
 
         ConnectionStats.Iterations++;
@@ -1205,7 +1105,6 @@ public class UdpConnection : PriorityQueueMember
 
                     if (elapsed >= UdpManager.Params.ConnectAttemptDelay)
                     {
-                        // prepare UdpPacketConnect packet
 
                         var protocolNameBytes = Encoding.ASCII.GetBytes(UdpManager.Params.ProtocolName);
 
@@ -1231,11 +1130,9 @@ public class UdpConnection : PriorityQueueMember
             case Status.Connected:
             case Status.DisconnectPending:
                 {
-                    // sync clock if required
 
                     if (UdpManager.Params.ClockSyncDelay > 0)
                     {
-                        // sync periodically.  If our current master round time is very bad, then sync more frequently (this is important to quickly get a sync up and running)
 
                         var elapsed = UdpManager.CachedClockElapsed(LastClockSyncTime);
 
@@ -1244,7 +1141,6 @@ public class UdpConnection : PriorityQueueMember
                             || (SyncStatMasterRoundTime > 1000 && elapsed > 5000)
                             || (SyncStatCount < 2 && elapsed > 10000))
                         {
-                            // send a clock-sync packet
 
                             var averagePing = (SyncStatCount > 0) ? (SyncStatTotal / SyncStatCount) : 0;
 
@@ -1258,10 +1154,9 @@ public class UdpConnection : PriorityQueueMember
                             BinaryPrimitives.WriteUInt32BigEndian(buf.Slice(12), SyncStatLow);
                             BinaryPrimitives.WriteUInt32BigEndian(buf.Slice(16), SyncStatHigh);
                             BinaryPrimitives.WriteUInt32BigEndian(buf.Slice(20), SyncStatLast);
-                            BinaryPrimitives.WriteInt64BigEndian(buf.Slice(24), ConnectionStats.TotalPacketsSent + 1); // ourSent (add 1 to include this packet we are about to send since other side will count it as received before getting it)
+                            BinaryPrimitives.WriteInt64BigEndian(buf.Slice(24), ConnectionStats.TotalPacketsSent + 1);
                             BinaryPrimitives.WriteInt64BigEndian(buf.Slice(32), ConnectionStats.TotalPacketsReceived);
 
-                            // don't buffer this, we need it to be as timely as possible, it still needs to be encrypted though, so don't raw send it.
                             PhysicalSend(buf, 40, true);
 
                             LastClockSyncTime = UdpManager.CachedClock;
@@ -1271,8 +1166,6 @@ public class UdpConnection : PriorityQueueMember
 
                         nextSchedule = Math.Min(nextSchedule, UdpManager.Params.ClockSyncDelay - elapsed);
                     }
-
-                    // give reliable channels processing time and see when they want more time
 
                     var totalPendingBytes = 0;
 
@@ -1294,25 +1187,22 @@ public class UdpConnection : PriorityQueueMember
                         return;
                     }
 
-                    // if we have multi-buffer data
                     if (MultiBufferOffset > 2)
                     {
                         var elapsed = UdpManager.CachedClockElapsed(DataHoldTime);
 
                         if (elapsed >= UdpManager.Params.MaxDataHoldTime)
-                            FlushMultiBuffer(); // having just sent it, there is no data in the buffer so no reason to adjust the schedule for when it may be needed again
+                            FlushMultiBuffer();
                         else
-                            nextSchedule = Math.Min(nextSchedule, UdpManager.Params.MaxDataHoldTime - elapsed); // schedule us processing time for when it does need to be sent
+                            nextSchedule = Math.Min(nextSchedule, UdpManager.Params.MaxDataHoldTime - elapsed);
                     }
 
-                    // see if we need to keep connection alive
                     if (KeepAliveDelay > 0)
                     {
                         var elapsed = UdpManager.CachedClockElapsed(LastSendTime);
 
                         if (elapsed >= KeepAliveDelay)
                         {
-                            // send keep-alive packet
                             Span<byte> buf = stackalloc byte[2 + 4];
 
                             buf[0] = 0;
@@ -1323,11 +1213,9 @@ public class UdpConnection : PriorityQueueMember
                             elapsed = 0;
                         }
 
-                        // schedule us next time for a keep-alive packet
                         nextSchedule = Math.Min(nextSchedule, KeepAliveDelay - elapsed);
                     }
 
-                    // see if we need to keep the port alive
                     if (UdpManager.Params.PortAliveDelay > 0)
                     {
                         var portElapsed = UdpManager.CachedClockElapsed(LastPortAliveTime);
@@ -1339,7 +1227,6 @@ public class UdpConnection : PriorityQueueMember
                             portElapsed = 0;
                         }
 
-                        // schedule us next time for a keep-alive packet
                         nextSchedule = Math.Min(nextSchedule, UdpManager.Params.PortAliveDelay - portElapsed);
                     }
 
@@ -1376,13 +1263,9 @@ public class UdpConnection : PriorityQueueMember
                 break;
         }
 
-        // safety to prevent us for scheduling ourselves for a time period that has already passed,
-        // as doing so could result in infinite looping in the priority queue processing.
-        // in theory this cannot happen, I should likely assert here just to make sure...
         if (nextSchedule < 0)
             nextSchedule = 0;
 
-        // add 5ms to ensure that we are indeed slightly past the scheduled time
         UdpManager.SetPriority(this, UdpManager.CachedClock + nextSchedule + 5);
     }
 
@@ -1404,8 +1287,6 @@ public class UdpConnection : PriorityQueueMember
 
     private void RawSend(ReadOnlySpan<byte> data, int dataLen)
     {
-        // raw send resets last send time, so we need to potentially recalculate when we need time again
-        // sends the actual physical packet (usually just after it has be prepped by PacketSend, but for connect/confirm/unreachable packets are bypass that step)
 
         UdpManager.ActualSend(data, dataLen, SocketAddress);
 
@@ -1414,18 +1295,11 @@ public class UdpConnection : PriorityQueueMember
 
         LastPortAliveTime = LastSendTime = UdpManager.CachedClock;
 
-        // TODO
-        // track data rate
-
         ScheduleTimeNow();
     }
 
     private void PhysicalSend(Span<byte> data, int dataLen, bool appendAllowed)
     {
-        // if we attempt to do a physical send (ie. encrypt/compress/crc a packet) while we are not connected
-        // (especially if we are cStatusNegotiating), then it will potentially crash, because in the case of
-        // cStatusNegotiating, we don't have the encryption method function pointer initialized yet, as the method
-        // is part of the negotiations
         if (Status != Status.Connected && Status != Status.DisconnectPending)
             return;
 
@@ -1445,13 +1319,11 @@ public class UdpConnection : PriorityQueueMember
 
             if (finalStart[0] == 0)
             {
-                // we know this internal packet will not be a connect or confirm packet since they are sent directly to RawSend to avoid getting encrypted
 
                 destPtr[1] = finalStart[1];
 
                 var len = EncryptFunction[i](destPtr.Slice(2), finalStart.Slice(2, finalLen - 2));
 
-                // would be really odd for encryption to return an error, but if it does, throw it away
                 if (len == -1)
                     return;
 
@@ -1461,7 +1333,6 @@ public class UdpConnection : PriorityQueueMember
             {
                 var len = EncryptFunction[i](destPtr.Slice(1), finalStart.Slice(1, finalLen - 1));
 
-                // would be really odd for encryption to return an error, but if it does, throw it away
                 if (len == -1)
                     return;
 
@@ -1477,8 +1348,6 @@ public class UdpConnection : PriorityQueueMember
         {
             if (!appendAllowed)
             {
-                // if the buffer we are going to append onto was our original (ie. no encryption took place)
-                // then we have to copy it all over to a temp buffer since we can't modify the original
                 finalStart.Slice(0, finalLen).CopyTo(_tempEncryptBuffer[0]);
                 finalStart = _tempEncryptBuffer[0];
             }
@@ -1523,14 +1392,9 @@ public class UdpConnection : PriorityQueueMember
 
         if (totalDataLen > 255 || (totalDataLen + 3) > actualMaxDataHoldSize)
         {
-            // too long of data to even attempt a multi-buffer of this packet, so let's just send it unbuffered
-            // but first, to ensure the packet-order integrity is somewhat maintained, flush the multi-buffer
-            // if it currently has something in it
 
             if (used > 2)
                 FlushMultiBuffer();
-
-            // now send it (the multi-buffer is empty if you need to use it temporarily to concatenate two data chunks -- it is large enough to hold the largest raw packet)
 
             if (!data2.IsEmpty)
             {
@@ -1547,26 +1411,18 @@ public class UdpConnection : PriorityQueueMember
             return null;
         }
 
-        // if this data will not fit into buffer
-        // note: we allow the multi-packet to grow as large as maxRawPacketSize, but down below we will flush it
-        // as soon as it gets larger than maxDataHoldSize.
         if (used + totalDataLen + 1 > (ConnectionConfig.MaxRawPacketSize - ConnectionConfig.CrcBytes - EncryptExpansionBytes))
         {
             FlushMultiBuffer();
             used = 0;
         }
 
-        // add data to buffer
         if (used == 0)
         {
-            // no buffered data yet, create multi-packet header
 
             ptr[MultiBufferOffset++] = 0;
             ptr[MultiBufferOffset++] = (byte)UdpPacketType.Multi;
 
-            // new multi-buffer started, so we need to potentially recalculate when we need time again
-
-            // set data hold time to when the first piece of data is stuck in the multi-buffer
             DataHoldTime = UdpManager.CachedClock;
 
             ScheduleTimeNow();
@@ -1606,7 +1462,6 @@ public class UdpConnection : PriorityQueueMember
             {
                 if (ptr[2] + 3 == len)
                 {
-                    // only one packet so don't send it as a multi-packet
                     PhysicalSend(ptr.Slice(3), len - 3, true);
                 }
                 else
@@ -1614,7 +1469,6 @@ public class UdpConnection : PriorityQueueMember
                     PhysicalSend(ptr, len, true);
                 }
 
-                // notify all the reliable channels to clear their buffered acks
                 for (var i = 0; i < Constants.ReliableChannelCount; i++)
                     Channel[i]?.ClearBufferedAck();
             }
@@ -1668,9 +1522,6 @@ public class UdpConnection : PriorityQueueMember
 
     internal void ScheduleTimeNow()
     {
-        // if we are current in our GiveTime function getting time, then there is no need to reprioritize to 0 when we send a raw packet, since
-        // the last thing we do in out GiveTime is do a scheduling calculation based on the last time a packet was sent.  This little check
-        // prevents us from reprioritizing to 0, only to shortly thereafter be reprioritized to where we actually belong.
         if (!GettingTime)
         {
             UdpManager.SetPriority(this, 0);
@@ -1859,7 +1710,6 @@ public class UdpConnection : PriorityQueueMember
                         EncryptFunction[j] = EncryptXorBuffer;
                         EncryptExpansionBytes += 0;
 
-                        // set up encrypt buffer (random numbers generated based on seed)
                         if (_encryptXorBuffer is null)
                         {
                             var len = ((UdpManager.Params.MaxRawPacketSize + 1) / 4) * 4;

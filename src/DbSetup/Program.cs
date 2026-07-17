@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 
 Console.WriteLine("Starting database migration...");
 
@@ -92,8 +92,6 @@ using (var cmd = connection.CreateCommand())
     Console.WriteLine("  - CharacterQuests table created");
 }
 
-// GoalProgress: number of goals ticked off (multi-goal progress). Added after the table so existing
-// DBs get it too (idempotent - ignore "duplicate column" when it already exists).
 try
 {
     using (var cmd = connection.CreateCommand())
@@ -117,7 +115,6 @@ using (var cmd = connection.CreateCommand())
 
 Console.WriteLine("\nMigration completed successfully!");
 
-// Remove test pets if they exist
 Console.WriteLine("\nRemoving test pets from character 1...");
 using (var deleteCmd = connection.CreateCommand())
 {

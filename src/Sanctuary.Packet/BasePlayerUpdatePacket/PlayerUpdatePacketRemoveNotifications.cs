@@ -4,9 +4,6 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-// op35 sub11 "RemoveNotifications" — clear overhead/minimap notification entries by guid. GROUND TRUTH
-// (04-01 capture idx 37385): at the Frostfang win the live server clears the minimap combat markers of
-// the despawning wolves in one batch; each entry is [guid][int 0][int 0].
 public class PlayerUpdatePacketRemoveNotifications : BasePlayerUpdatePacket, ISerializablePacket
 {
     public new const short OpCode = 11;
@@ -21,7 +18,7 @@ public class PlayerUpdatePacketRemoveNotifications : BasePlayerUpdatePacket, ISe
     {
         using var writer = new PacketWriter();
 
-        Write(writer); // [op 35][sub 11]
+        Write(writer);
 
         writer.Write(Guids.Count);
 

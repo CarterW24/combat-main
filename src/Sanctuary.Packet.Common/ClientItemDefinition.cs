@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 using Sanctuary.Core.IO;
 
@@ -8,11 +8,8 @@ public class ClientItemDefinition : BaseItemDefinition
 {
     public int ResellValue { get; set; }
 
-    // ModelId
-    // Player Customization Equipment Slot (sub_BD5980)
     public int Param1 { get; set; }
 
-    // Used in PlayerCustomization (sub_BD5980)
     public int Param2 { get; set; }
 
     public int Unknown5 { get; set; }

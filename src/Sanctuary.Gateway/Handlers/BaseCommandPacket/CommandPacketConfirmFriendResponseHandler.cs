@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Linq;
 
@@ -95,7 +95,6 @@ public static class CommandPacketConfirmFriendResponseHandler
         if (inviterDbCharacter is null || inviteeDbCharacter is null)
             return false;
 
-        // Check if friendship already exists
         var friendshipExists = dbContext.Friends.Any(x =>
             (x.CharacterId == inviterId && x.FriendCharacterId == inviteeId) ||
             (x.CharacterId == inviteeId && x.FriendCharacterId == inviterId));
@@ -116,7 +115,6 @@ public static class CommandPacketConfirmFriendResponseHandler
         if (dbContext.SaveChanges() <= 0)
             return false;
 
-        // Inviter
         {
             var inviterFriendData = new FriendData
             {
@@ -149,7 +147,6 @@ public static class CommandPacketConfirmFriendResponseHandler
             inviter.SendTunneled(inviterFriendAddPacket);
         }
 
-        // Invitee
         {
             var inviteeFriendData = new FriendData
             {

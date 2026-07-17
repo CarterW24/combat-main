@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Sanctuary.UdpLibrary.Enumerations;
 using Sanctuary.UdpLibrary.Packets;
@@ -11,7 +11,6 @@ internal class CallbackEvent : IDisposable
     public UdpConnection? Source;
     public LogicalPacket? Payload;
 
-    // Only used by PacketCorrupt event.
     public UdpCorruptionReason Reason;
 
     public CallbackEvent()

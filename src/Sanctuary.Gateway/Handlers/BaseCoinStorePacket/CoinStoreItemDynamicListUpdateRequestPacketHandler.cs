@@ -40,21 +40,18 @@ public static class CoinStoreItemDynamicListUpdateRequestPacketHandler
         {
             _resourceManager.Stores.TryGetValue(1, out var mainStore);
 
-            // Log which bundles are found vs missing in the store.
             foreach (var bundleId in vendorDef.Bundles)
             {
                 var found = mainStore?.Bundles.ContainsKey(bundleId) == true;
                 Console.WriteLine($"[165:8] Bundle {bundleId}: {(found ? "FOUND in store" : "MISSING from store")}");
             }
 
-            // 66:42 — merchant bundle list.
             var bundleListPacket = new InGamePurchaseMerchantListPacket { MerchantGuid = merchantGuid };
             bundleListPacket.BundleIds.AddRange(vendorDef.Bundles);
             var b42 = bundleListPacket.Serialize();
             Console.WriteLine($"[165:8→66:42] ({b42.Length} bytes): {Convert.ToHexString(b42)}");
             connection.SendTunneled(bundleListPacket);
 
-            // 66:45 — available quantities per bundle.
             var quantityPacket = new InGamePurchaseUpdateMerchantBundleQuantityPacket();
             foreach (var bundleId in vendorDef.Bundles)
                 quantityPacket.Entries.Add((bundleId, 999));
@@ -63,7 +60,6 @@ public static class CoinStoreItemDynamicListUpdateRequestPacketHandler
             connection.SendTunneled(quantityPacket);
         }
 
-        // 165:9 — populate dynamic items for the active merchant.
         var response = new CoinStoreItemDynamicListUpdateResponsePacket();
 
         if (merchantGuid != 0 && _resourceManager.NpcVendors.TryGetValue(merchantGuid, out var vendorForDynamic))
@@ -83,8 +79,6 @@ public static class CoinStoreItemDynamicListUpdateRequestPacketHandler
                     if (!_resourceManager.ClientItemDefinitions.ContainsKey(entry.MarketingItemId))
                         continue;
 
-                    // Use the bundle's CategoryGroupId as CategoryId so the client can match
-                    // this item against the category group filter in the merchant window (165:10).
                     response.DynamicItems[entry.MarketingItemId] = new ItemDefinitionMetaData
                     {
                         Id = entry.MarketingItemId,

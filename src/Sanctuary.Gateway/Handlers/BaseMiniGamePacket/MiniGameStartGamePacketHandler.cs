@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -33,7 +33,6 @@ public static class MiniGameStartGamePacketHandler
 
         connection.SendTunneled(miniGameGameStarted);
 
-        // Mining Practice
         if (packet.StateId == 1113)
         {
             var commandPacketStartFlashGame = new CommandPacketStartFlashGame()

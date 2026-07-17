@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -36,27 +36,17 @@ public sealed class StartingZone : BaseZone
         _questManager = serviceProvider.GetRequiredService<Sanctuary.Game.Quests.IQuestManager>();
         _partyManager = serviceProvider.GetRequiredService<Sanctuary.Game.Party.IPartyManager>();
 
-        // Spawn all static NPCs in the zone
         SpawnNpcs();
 
-        // Place a clickable entrance at each atlas dungeon marker (notif=3 POI) — click -> start panel -> GO!.
         SpawnDungeonEntrances();
 
-        // Place a wandering "Battle Starter" creature for each small combat encounter, among its own kind.
         SpawnEncounterEntryNpcs();
     }
 
-    // NPCs come from the community-contributed Npcs.json (fixed scale/rotation, static-marked). The guid
-    // is derived from each entry's id so that Quests.json giver/target guids and NpcVendors.json - both
-    // keyed by guid = NpcGuidBase + id - keep resolving after swapping the source from NpcSpawns.txt.
     private const ulong NpcGuidBase = 100000000000UL;
 
-    // Guid of the single Tormented Spirit that acts as the dungeon entrance (click -> offer).
-    // Every other graveyard spirit spawns as a hostile world enemy instead. 0 until the first is spawned.
     private ulong _spiritEntranceGuid;
 
-    // The one Tormented Spirit entrance's guid (0 = none). The interact handler opens the encounter
-    // offer ONLY for this spirit; the rest are fightable world enemies.
     public ulong SpiritEntranceGuid => _spiritEntranceGuid;
 
     private void SpawnNpcs()
@@ -67,10 +57,6 @@ public sealed class StartingZone : BaseZone
         {
             var guid = NpcGuidBase + (ulong)definition.Id;
 
-            // WORLD COMBAT: curated enemy creatures (model matches the dungeon enemy set) spawn as hostile
-            // CombatNpcs — they aggro on approach, chase, auto-attack the player, track HP, die, and respawn.
-            // Excluded when the same model is doubling as a vendor, quest giver/target, or a quest kill-target,
-            // which keep their existing interactive/quest paths (kill-targets get MakeQuestHostile below).
             if (IsWorldEnemyDefinition(definition))
             {
                 SpawnWorldEnemy(definition);
@@ -78,8 +64,6 @@ public sealed class StartingZone : BaseZone
                 continue;
             }
 
-            // INSTANCE (Tormented Spirits!): exactly ONE wandering spirit is the dungeon entrance (click ->
-            // offer popup); every OTHER graveyard spirit spawns as a hostile world enemy you can fight.
             if (definition.NameId == TormentedSpiritsArenaZone.EntryNpcNameId)
             {
                 if (_spiritEntranceGuid != 0)
@@ -89,7 +73,7 @@ public sealed class StartingZone : BaseZone
                     continue;
                 }
 
-                _spiritEntranceGuid = guid; // the first one becomes the single entrance (configured below)
+                _spiritEntranceGuid = guid;
             }
 
             if (!TryCreateNpc(guid, out var npc))
@@ -100,7 +84,6 @@ public sealed class StartingZone : BaseZone
             npc.TextureAlias = definition.TextureAlias;
             npc.Name = definition.Name;
             npc.Static = definition.Static;
-            // Scale from the model definition (Models.txt), matching the client; 0 -> default 1.
             npc.Scale = _resourceManager.Models.TryGetValue(definition.ModelId, out var model) && model.Scale != 0f
                 ? model.Scale
                 : 1f;
@@ -158,8 +141,6 @@ public sealed class StartingZone : BaseZone
                 };
             }
 
-            // Quest givers/targets (from Quests.json) route their interaction through the quest manager,
-            // which decides whether to offer a quest or advance/turn one in based on the player's state.
             if (_questManager.IsQuestNpc(guid))
             {
                 npc.CursorId = 17;
@@ -167,14 +148,9 @@ public sealed class StartingZone : BaseZone
                 npc.InteractAction = interactingPlayer => _questManager.OnNpcInteract(interactingPlayer, questNpc);
             }
 
-            // Kill-goal targets (Quests.json goals of Type=Kill, matched by NameId): spawn as attackable
-            // hostiles (red name + health bar + attack cursor) so combat abilities can target them.
             if (_resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId))
                 MakeQuestHostile(npc);
 
-            // INSTANCE (Tormented Spirits!): the wandering graveyard spirits are the encounter 146
-            // entries — clicking one opens the offer popup (routed by NameId in
-            // CommandPacketInteractRequestHandler). Swords cursor + a comfortable click range.
             if (definition.NameId == TormentedSpiritsArenaZone.EntryNpcNameId)
             {
                 npc.CursorId = 11;
@@ -192,8 +168,6 @@ public sealed class StartingZone : BaseZone
         SpawnQuestCollectibles();
     }
 
-    // Collect-goal pickups (Quests.json goals of Type=Collect): interactable world objects the player clicks
-    // to gather. Shared across players; per-player credit + hide are handled in QuestManager.OnCollectInteract.
     private void SpawnQuestCollectibles()
     {
         foreach (var collectible in _resourceManager.Quests.CollectibleSpawns)
@@ -208,7 +182,7 @@ public sealed class StartingZone : BaseZone
                 ? model.Scale
                 : 1f;
             npc.Visible = true;
-            npc.CursorId = 17; // hand cursor so it's clickable
+            npc.CursorId = 17;
 
             var questCollectible = npc;
             npc.InteractAction = interactingPlayer => _questManager.OnCollectInteract(interactingPlayer, questCollectible);
@@ -226,8 +200,6 @@ public sealed class StartingZone : BaseZone
 
         SendPointOfInterests(player);
 
-        // Level-scaled character stats for the active job, plus full HP/mana. This also caches the stats
-        // on the player and sends the hitpoints + mana packets.
         player.RecalculateStats(refill: true);
 
         SendReferenceData(player);
@@ -236,12 +208,6 @@ public sealed class StartingZone : BaseZone
 
         SendAdventurersJournalInfo(player);
 
-        // LOGIN ONLY — not on re-zone. This handler runs on EVERY zone-in to the overworld (including
-        // the return from the Frostfang arena), and PacketLoadWelcomeScreen makes the client pop the
-        // Welcome screen each time it arrives — on the return trip it opened OVER the encounter's
-        // victory score screen (user report 2026-07-04). Returning from a battle is a plain re-zone,
-        // not a fresh login. (The other reference-data sends above are invisible/idempotent — left
-        // alone to keep this change minimal.)
         if (!player.LoginBurstSent)
         {
             player.LoginBurstSent = true;
@@ -256,8 +222,6 @@ public sealed class StartingZone : BaseZone
 
         SendInGamePurchase(player);
 
-        // SendPetList(player); // DISABLED - now sent in GatewayConnection immediately after ClientPcData
-
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
 
@@ -266,10 +230,6 @@ public sealed class StartingZone : BaseZone
 
         UpdateFriendStatus(player);
 
-        // Repopulate the Hero's Journal + tracker for any in-progress quest after a relog (the client's
-        // quest UI starts empty; player.Quests is restored from the DB but the packets must be replayed).
-        // LOGIN ONLY: the client keeps the journal across a re-zone (e.g. returning from the Frostfang
-        // arena), so re-sending here would append duplicate rows that completion can't fully clear.
         if (!player.JournalRestored)
         {
             player.JournalRestored = true;
@@ -280,58 +240,29 @@ public sealed class StartingZone : BaseZone
 
         SpawnGrowlerWolf(player);
 
-        // COMBAT WIP: populate the left ability toolbar on zone load (so we don't have to swap jobs to
-        // trigger it). Combat/"fighting" state is NOT set here — it's set on the first attack (in the
-        // StartAbility handler) so job swaps still work until you swing.
         SendJobAbilityToolbar(player);
     }
 
-    // The load screen has dropped — the client reliably accepts everything from here (the Frostfang
-    // AddNpc lesson: packets sent during the load screen can be discarded).
     public override void OnClientFinishedLoading(Player player)
     {
-        // EVERY overworld entry (not just login): re-point the tracker arrow at the tracked quest's
-        // ACTIVE goal. A goal that completes inside a battle instance activates its next goal there,
-        // where the next goal's NPC isn't spawned — that in-arena target update is skipped, so a
-        // returning player kept the stale pre-dungeon arrow (live 2026-07-10: still on the entry
-        // spirit instead of "Return to Chloe" after winning the Tormented Spirits dungeon).
         _questManager.RefreshObjectiveTarget(player);
 
-        // Restore the HUD/camera on every overworld load — in particular when RETURNING FROM A DUNGEON the
-        // encounter/minigame end screen leaves the friends list + quest helper hidden until the server
-        // acknowledges. This is the same camera+HUD restore the quest-dialog flow uses (sub29 ->
-        // FUN_00a99220 -> restore camera + DismissEndScreen). On a plain login there's nothing to dismiss,
-        // so it's a harmless no-op.
         player.SendTunneled(new CommandPacketQuestDialogComplete());
     }
 
-    // COMBAT: fill the ability toolbar from the player's EQUIPPED WEAPON for any job with a
-    // weapon-ability kit (ninja Shadow Blades, archer Bows — see Combat/JobWeaponAbilities). Each
-    // "of X" weapon grants the X special; no kit weapon equipped => an empty bar. This is the
-    // zone-load populate (so no away-and-back job swap is needed).
     private void SendJobAbilityToolbar(Player player)
     {
-        // Sends the bar + warms the client's FX cache (first-cast effects are otherwise invisible
-        // while the on-demand asset load streams — see JobWeaponAbilities.PreloadAbilityEffects).
         if (!JobWeaponAbilities.SendToolbarWithFxPreload(player, _resourceManager))
-            return; // the active job has no weapon-ability kit
+            return;
 
         _logger.LogInformation("Job toolbar on zone-load: profile={profile}, equipped weapon def={def}.",
             player.ActiveProfileId, player.GetEquippedWeaponDefinitionId());
     }
 
-    // COMBAT WIP: spawn a single hostile "training dummy" NPC near the spawn point so we have a
-    // target to select + attack while building ability resolution. Pushed directly to the readying
-    // player; the tile-visibility system shows it to anyone else nearby. (See docs/STATUS.md.)
     private Npc? _trainingDummy;
 
-    // High HP so the bar visibly drains over many hits instead of dying every ~10 hits and respawning
-    // full (which made it look like only the last couple hits registered). Bumped to 50000 because the real
-    // ninja ability damage (from the wiki: 2609 melee .. 10674 special) would otherwise one-shot a 5000 dummy.
     private const int TrainingDummyMaxHealth = 50000;
 
-    // NAMECOLOR PROOF: "!namecolor [AARRGGBB]" spawns a dummy clone whose AddNpc carries a STATIC
-    // NameColor — live proof the field is an int ARGB. Re-running replaces the previous dummy.
     private Npc? _nameColorTestDummy;
 
     public void SpawnNameColorTestDummy(Player player, int argb)
@@ -342,10 +273,10 @@ public sealed class StartingZone : BaseZone
         if (!TryCreateNpc(out var npc))
             return;
 
-        npc.ModelId = 4;                // same robgoblin as the training dummy
+        npc.ModelId = 4;
         npc.Name = "Name Color Test";
         npc.NameId = 0;
-        npc.NameColor = argb;           // static color — nonzero suppresses the disposition resolver
+        npc.NameColor = argb;
         npc.ActiveProfile = 1;
         npc.Scale = 1f;
         npc.IsInteractable = false;
@@ -365,54 +296,33 @@ public sealed class StartingZone : BaseZone
             if (!TryCreateNpc(out var npc))
                 return;
 
-            npc.ModelId = 4;                // robgoblin_m_basic.adr — tagged "Combat NPC" in Models.txt
-                                            // (the crab 1667 is a passive critter; may not get a combat
-                                            //  health bar). Testing whether a real enemy model fixes it.
+            npc.ModelId = 4;
             npc.Name = "Training Dummy";
             npc.NameId = 0;
-            npc.Disposition = 0;            // 0 = Hostile
-            npc.ActiveProfile = 1;          // ★ non-default -> AddNpc apply runs SetProfileId -> color
-                                            // resolver re-runs post-disposition -> hostile = RED name
-                                            // (user-found 2026-07-03; default 0 skips the resolve)
+            npc.Disposition = 0;
+            npc.ActiveProfile = 1;
             npc.Scale = 1f;
-            npc.IsInteractable = false;     // no "Press X to talk" prompt — it's a combat target, not an NPC
+            npc.IsInteractable = false;
             npc.Visible = true;
-            npc.CursorId = 11;              // cursor_interaction_fight.cur -> crossed-swords attack cursor.
-                                            // (was 1 "cursor_interaction_combat" which renders NO cursor in this client)
+            npc.CursorId = 11;
 
-            // COMBAT WIP: make it damageable + show a health bar so abilities have a visible effect.
             npc.MaxHealth = TrainingDummyMaxHealth;
             npc.Health = TrainingDummyMaxHealth;
             npc.ShowHealthBar = true;
 
-            // A few units off the zone spawn point so it stands in front of the player.
             var pos = new Vector4(SpawnPosition.X + 5f, SpawnPosition.Y, SpawnPosition.Z, SpawnPosition.W);
             npc.UpdatePosition(pos, SpawnRotation);
 
             _trainingDummy = npc;
         }
 
-        // Make sure this player sees it immediately (don't wait on tile movement).
         player.OnAddVisibleNpcs(_trainingDummy);
 
-        // Mark it attackable (combat cursor) so the client lets the player select it as a target.
         SendNpcRelevance(player, _trainingDummy);
 
-        // RED-NAME TEST (2026-07-03): the AddNpc Disposition int is IGNORED client-side (the apply uses
-        // the global arena flag; ctor default = 2 ALLY -> bluish name). op35/sub28 UpdateDisposition is
-        // the real per-NPC lever: Disposition 0 HOSTILE -> the color resolver (sub_966460) paints the
-        // overhead name RED (0xFFFF0000) as long as no static NameColor is set.
-        // (2026-07-03 red-name experiments removed — the dummy's blue name is correct client behavior
-        // for a non-arena zone; the nameplate color is resolved once at spawn. See docs/STATUS.md.)
-
-        // Initialize its health bar on the client.
         SendNpcHealth(player, _trainingDummy);
     }
 
-    // INSTANCE WIP (Frostfang Fury, step 1): the "Frostfang Growler" wolf NPC = the adventure-giver. For now
-    // (per user) he stands next to the HOME spawn so we can iterate — the icy cave-mouth POI (id 59,
-    // 92.81789,66.33743,554.8647) is NOT the video spot; the Sunrise video shows him out in the green grove, so
-    // the real overworld location is still TBD. Neutral + interactable (clicking opens the future offer popup).
     private Npc? _growlerWolf;
 
     private void SpawnGrowlerWolf(Player player)
@@ -422,27 +332,18 @@ public sealed class StartingZone : BaseZone
             if (!TryCreateNpc(out var npc))
                 return;
 
-            npc.ModelId = 176;              // wolf.adr (basic wolf). Tint/swap to the white "frostfang" look later.
+            npc.ModelId = 176;
             npc.Name = "Frostfang Growler";
             npc.NameId = 0;
-            npc.Disposition = 1;            // Neutral — friendly adventure-giver, NOT a combat target
+            npc.Disposition = 1;
             npc.Scale = 1f;
             npc.IsInteractable = true;
             npc.Visible = true;
-            npc.CursorId = 11;              // cursor_interaction_fight.cur — the crossed-swords FIGHT cursor.
-                                            // (cursor 1 "cursor_interaction_combat" renders NOTHING in this client
-                                            // — that's why the dummy showed no cursor. 11 is the real swords one.)
-                                            // ⚠️ VERIFY ON TEST: if the fight cursor turns the wolf into an attack
-                                            // target and breaks click-to-open, fall back to 5 (talk) + the marker.
-            // The purple crossed-swords encounter badge ABOVE the head is NOT a nameplate field at
-            // all — it's a NOTIFICATION (op35/sub10 AddNotifications -> OverHeadBitmapElement at
-            // offset (0,-0.9,0)); see the badge push after OnAddVisibleNpcs below.
+            npc.CursorId = 11;
             npc.NameplateImageId = 0;
             npc.ImageSetId = 0;
-            npc.ShowHealthBar = false;      // MaxHealth stays 0 => not damageable
+            npc.ShowHealthBar = false;
 
-            // Out in Snowhill, east of Gerold (150.9, 23.7, 381.4) — matching the quest text "knock out
-            // Frostfang Growlers to the east of Gerold". Position measured in-game via !arena.
             var pos = new Vector4(202.2f, 34.6f, 504.7f, 1f);
             npc.UpdatePosition(pos, SpawnRotation);
 
@@ -451,24 +352,11 @@ public sealed class StartingZone : BaseZone
 
         player.OnAddVisibleNpcs(_growlerWolf);
 
-        // Same recipe the training dummy uses to be clickable: tell the client it has a cursor (relevance).
         SendNpcRelevance(player, _growlerWolf);
 
         SendGrowlerBadge(player);
     }
 
-    // The reference video's crossed-swords badge floating ABOVE the Growler's head. RE'd 2026-07-02:
-    // op35/sub10 AddNotifications (byte-exact vs live 2014 pcap) -> client attaches an
-    // OverHeadBitmapElement above the character. ImageId 24 in NotificationImages.txt =
-    // tint-circle + circle + crossed-swords icon 1345 (the combat-encounter badge art).
-    //
-    // ★ RED BADGE + RED MINIMAP DOT, BLUE NAME (2026-07-05): the color is driven by the notification's
-    // Type field, NOT the NPC disposition — so we get the red combat look while the name stays neutral
-    // blue. GROUND TRUTH: in BOTH 2014 captures the img-24 combat-encounter badge is sent with
-    // Type = 3 (the "combat" category) + Unknown3 = 7, and EVERY red minimap-dot notification is Type 3
-    // (04-01 idx 1928/4291). Our old badge used the default Type = 1 (a quest category) -> the blue
-    // bubble/dot the user saw. Type 3 tints the bubble (NotificationImages layer 369, APPLY_TINT) and
-    // the minimap blip (layer 1345) red without any disposition change.
     private void SendGrowlerBadge(Player player)
     {
         if (_growlerWolf is null)
@@ -479,7 +367,7 @@ public sealed class StartingZone : BaseZone
         {
             Guid = _growlerWolf.Guid,
             ImageId = 24,
-            Type = 3,        // COMBAT category -> red badge tint + red minimap dot (live img-24 value)
+            Type = 3,
             Unknown3 = 7,    // live combat-badge value (was default 1)
             Unknown10 = true // constant 1 across all live samples
         });
@@ -487,11 +375,8 @@ public sealed class StartingZone : BaseZone
         player.SendTunneled(badge);
     }
 
-    // INSTANCE WIP: the Frostfang Growler adventure-giver wolf.
     public Npc? GrowlerWolf => _growlerWolf;
 
-    // INSTANCE (Tormented Spirits!): a wandering Tormented Spirit — the encounter 146
-    // entry NPC the tracker arrow / breadcrumb points at for EncounterComplete(146) goals.
     public Npc? TormentedSpiritEntry()
     {
         foreach (var (id, definition) in _resourceManager.Npcs)
@@ -506,7 +391,6 @@ public sealed class StartingZone : BaseZone
         return null;
     }
 
-    // Re-push the Growler wolf to a player (e.g. after a "!grove" teleport re-zone).
     public void ShowGrowlerWolf(Player player)
     {
         if (_growlerWolf is not null)
@@ -516,13 +400,8 @@ public sealed class StartingZone : BaseZone
         }
     }
 
-    // (SendNpcRelevance / SendNpcHealth moved to BaseZone — shared with the Frostfang arena zone.)
-
-    // COMBAT WIP: the live combat target (training dummy).
     public Npc? TrainingDummy => _trainingDummy;
 
-    // COMBAT WIP: eternal training dummy — instead of despawn/respawn (which stacked extra dummies
-    // across relogs), just reset it to full HP and refresh the bar so it's always there to hit.
     public void ResetTrainingDummy()
     {
         var dummy = _trainingDummy;
@@ -536,30 +415,23 @@ public sealed class StartingZone : BaseZone
             SendNpcHealth(zonePlayer, dummy);
     }
 
-    // ---- Quest kill targets (world hostiles from Npcs.json, made attackable by a Kill goal) ----
-
-    // HP of a quest kill target (~2 ninja melee swings at current damage numbers).
     private const int QuestHostileHealth = 5000;
 
-    // Live dying-wolf graceful-removal params (04-01 capture): death clip + poof fx 5017.
     private const int QuestHostileDeathFxId = 5017;
     private const int QuestHostileDeathHoldMs = 2000;
 
-    // How long a defeated quest hostile stays gone before respawning (shared world spawns —
-    // a 6-kill goal only has 5 spirit spawns, so respawns are required to finish it).
     private const int QuestHostileRespawnMs = 20_000;
 
     private static void MakeQuestHostile(Npc npc)
     {
-        npc.Disposition = 0;        // hostile — with NameColor 0 the client resolves the name RED...
-        npc.ActiveProfile = 1;      // ...but only if a non-default profile re-runs the color resolver
-        npc.EnemyStatus = true;     // AddNpc "render as enemy" flag (set on every live camp hostile)
-        npc.CursorId = 11;          // crossed-swords attack cursor (delivered via NpcRelevance)
+        npc.Disposition = 0;
+        npc.ActiveProfile = 1;
+        npc.EnemyStatus = true;
+        npc.CursorId = 11;
         npc.MaxHealth = QuestHostileHealth;
         npc.Health = QuestHostileHealth;
     }
 
-    // Re-spawn a defeated quest hostile from its Npcs.json definition (same guid).
     private void RespawnQuestHostile(NpcDefinition definition)
     {
         var guid = NpcGuidBase + (ulong)definition.Id;
@@ -585,19 +457,10 @@ public sealed class StartingZone : BaseZone
         tile.Entities.TryAdd(npc.Guid, npc);
     }
 
-    // ---- World combat enemies (curated hostile creatures, spawned as CombatNpc) ----
-
-    // Baseline level for overworld enemies (drives HP/damage/XP via CombatNpc.InitializeFromLevel).
-    // Modest so early players can fight them; tune per-region later.
     private const int WorldEnemyLevel = 3;
 
-    // How long a defeated world enemy stays gone before a fresh one respawns at its post. Kept
-    // short so clearing a spot doesn't leave you standing around with nothing to shoot.
     private const int WorldEnemyRespawnMs = 8_000;
 
-    // True when an overworld NPC definition spawns as a killable hostile CombatNpc
-    // (its model is a dungeon-enemy model and it isn't claimed as a vendor / quest giver / quest kill-target).
-    // Used both to spawn the world enemies and to keep Battle-Starter anchors AWAY from them.
     private bool IsWorldEnemyDefinition(NpcDefinition definition)
     {
         var guid = NpcGuidBase + (ulong)definition.Id;
@@ -616,24 +479,21 @@ public sealed class StartingZone : BaseZone
         enemy.NameId = definition.NameId;
         enemy.TextureAlias = definition.TextureAlias;
         enemy.Name = definition.Name;
-        enemy.Static = false;               // MUST be false — the zone tick loop skips Static NPCs (no AI)
+        enemy.Static = false;
         enemy.Scale = _resourceManager.Models.TryGetValue(definition.ModelId, out var model) && model.Scale != 0f
             ? model.Scale
             : 1f;
         enemy.Visible = true;
-        enemy.EnemyStatus = true;           // AddNpc "render as enemy" flag (red name)
-        enemy.ActiveProfile = 1;            // re-runs the client name-color resolver -> red
-        enemy.CursorId = 11;                // crossed-swords attack cursor
-        enemy.IsInteractable = false;       // it's a combat target, not an NPC — no "Press X to talk" prompt
-                                            // (the dungeon enemies already do this; the overworld ones didn't)
+        enemy.EnemyStatus = true;
+        enemy.ActiveProfile = 1;
+        enemy.CursorId = 11;
+        enemy.IsInteractable = false;
         enemy.ShowHealthBar = true;
-        enemy.MovementType = 2;             // PHYSICS — grounded with gravity (CONTROLLER/1 left them "flying")
+        enemy.MovementType = 2;
 
-        enemy.InitializeFromLevel(WorldEnemyLevel); // HP / damage / XP / attack cadence
+        enemy.InitializeFromLevel(WorldEnemyLevel);
         enemy.Speed = enemy.CombatSpeed;
 
-        // The player's ability handler damages via Npc.Health and routes the kill through OnNpcKilled, so
-        // mirror the combat HP into the Npc fields (that's what makes it a damageable target + drives the bar).
         enemy.MaxHealth = enemy.MaxHitpoints;
         enemy.Health = enemy.CurrentHitpoints;
 
@@ -646,7 +506,6 @@ public sealed class StartingZone : BaseZone
         tile.Entities.TryAdd(enemy.Guid, enemy);
     }
 
-    // Re-spawn a fresh world enemy at a defeated one's post (captured model/name/level/position).
     private void RespawnWorldEnemy(int modelId, int nameId, string? name, string? textureAlias, float scale,
         int level, Vector4 spawnPosition, Quaternion spawnRotation)
     {
@@ -663,9 +522,9 @@ public sealed class StartingZone : BaseZone
         enemy.EnemyStatus = true;
         enemy.ActiveProfile = 1;
         enemy.CursorId = 11;
-        enemy.IsInteractable = false;       // combat target, not a talkable NPC (same as the initial spawn)
+        enemy.IsInteractable = false;
         enemy.ShowHealthBar = true;
-        enemy.MovementType = 2;             // PHYSICS — grounded with gravity (CONTROLLER/1 left them "flying")
+        enemy.MovementType = 2;
 
         enemy.InitializeFromLevel(level);
         enemy.Speed = enemy.CombatSpeed;
@@ -680,11 +539,6 @@ public sealed class StartingZone : BaseZone
         var tile = GetTileFromPosition(spawnPosition);
         tile.Entities.TryAdd(enemy.Guid, enemy);
 
-        // Explicitly push the fresh enemy to every already-present player who can see its tile. The INITIAL
-        // spawn is picked up by each player's load-time visibility sweep, but a mid-session respawn isn't —
-        // so without this the enemy is alive + targetable server-side yet never rendered or known to the
-        // client, i.e. "I'm standing right by enemies but nothing gets shot." (Guard against the rare double-
-        // send when UpdatePosition's tile transition already notified the player.)
         foreach (var player in Players)
         {
             if (enemy.VisiblePlayers.ContainsKey(player.Guid))
@@ -699,19 +553,6 @@ public sealed class StartingZone : BaseZone
         }
     }
 
-    // ---- Dungeon entrances (atlas notif=3 POIs -> the BIG walk-through dungeon) ----
-
-    // Each atlas dungeon marker is a NotificationType=3 PointOfInterest. Fast-travel drops you at its
-    // overworld position, where we place a clickable entrance whose click opens the dungeon start panel;
-    // GO! routes through EncounterParticipantRequestEntranceHandler -> EnterEncounterArena. The atlas
-    // markers map to the BIG walk-through dungeon worlds (the real dungeon worlds like sg_robgoblin_trove),
-    // NOT the small scattered encounter arenas. Look them up by POI id (DungeonCatalog.ByAtlasPoi) — the
-    // catalog is keyed by the REAL client activity id now, so the old "900000 + poiId" key is gone.
-
-    // Model 511 = human_invisible_m.adr (Models.txt): an invisible CHARACTER actor — renders
-    // nothing, is still sent to the client (so it's clickable via its nameplate/actor box), and unlike the
-    // "Invisible Block" widget it has no solid environment collision, so the player (who teleports onto
-    // this exact spot) doesn't get stuck inside it.
     private const int AtlasEntranceModelId = 511;
 
     private void SpawnDungeonEntrances()
@@ -725,19 +566,14 @@ public sealed class StartingZone : BaseZone
             if (!TryCreateNpc(out var entrance))
                 continue;
 
-            // The entrance is an INVISIBLE clickable widget (model 69 "widget_01.adr" = "Invisible Block"):
-            // no creature stands at the dungeon mouth, but the actor is still sent to the client (required
-            // to be clickable) with the dungeon's NAME on its floating nameplate as the click cue. Clicking
-            // it opens the start panel. (A truly Visible=false NPC isn't sent to the client at all, so it
-            // couldn't be clicked — hence an invisible-but-present model instead.)
             entrance.ModelId = AtlasEntranceModelId;
-            entrance.NameId = dungeon.TitleNameId;   // floating nameplate = the dungeon's name (the click cue)
+            entrance.NameId = dungeon.TitleNameId;
             entrance.Name = dungeon.Comment;
             entrance.Static = true;
             entrance.Scale = 1f;
-            entrance.Visible = true;                 // present/clickable; the model itself renders nothing
-            entrance.HideNamePlate = false;          // keep the nameplate as the visible target
-            entrance.CursorId = 11;                  // crossed-swords / adventure cursor on hover
+            entrance.Visible = true;
+            entrance.HideNamePlate = false;
+            entrance.CursorId = 11;
             entrance.InteractRange = 18;
 
             var pos = poi.SpawnPosition != default ? poi.SpawnPosition : poi.Position;
@@ -750,9 +586,6 @@ public sealed class StartingZone : BaseZone
         }
     }
 
-    // Open the dungeon start panel (adventure offer + auto-ready GO!) for a data-driven dungeon —
-    // the same offer/handshake the Growler/Spirit entries use, keyed to this dungeon's activity id so the
-    // GO! button routes to its EncounterArenaZone.
     public static void SendDungeonOffer(Player player, Sanctuary.Game.Dungeons.DungeonDefinition dungeon)
     {
         const int instanceId = 1;
@@ -775,7 +608,7 @@ public sealed class StartingZone : BaseZone
             DescriptionId = dungeon.DescriptionId,
             Difficulty = dungeon.Difficulty,
             IconId = dungeon.IconId,
-            MiniGameType = 4, // COMBAT
+            MiniGameType = 4,
             PreviewRewards = FrostfangArenaZone.GetPrizePreviewFor(player),
             PreviewCoins = FrostfangArenaZone.PrizeCoins,
             PreviewXp = FrostfangArenaZone.PrizeXp,
@@ -783,8 +616,6 @@ public sealed class StartingZone : BaseZone
             ActivityId = dungeon.ActivityId,
         });
 
-        // Auto-complete the ready handshake so the spinner flips to the green GO! (same as the two hand-built
-        // encounters — no "!ready" chat command needed).
         _ = Task.Run(async () =>
         {
             await Task.Delay(600);
@@ -798,17 +629,6 @@ public sealed class StartingZone : BaseZone
         });
     }
 
-    // ---- Wandering combat-encounter entries ("Battle Starters") ----
-    //
-    // Retail placed a wandering "Battle Starter" creature for each combat encounter, standing among its own
-    // kind (per the FR bestiary: 58 battle-starter mob types named Robgoblin*/Thugawug*/Cray Marauder/Frostfang
-    // Snarler/...). We do the same: one EncounterEntryNpc per small ARENA encounter (the 900000+ atlas
-    // walk-throughs already have their own clickable atlas entrances), wearing that encounter's boss model,
-    // placed next to an existing overworld NPC of the same theme (matched by name) so it stands where its kin
-    // roam. It ambles peacefully; clicking it opens the encounter start panel (SendDungeonOffer -> GO!).
-
-    // Battle-map -> theme keyword, the fallback anchor search term when an encounter's own title
-    // nouns don't match any overworld NPC name.
     private static readonly Dictionary<string, string> EncounterThemeKeyword = new()
     {
         ["sg_random_encounter_skullcamp"] = "Robgoblin",
@@ -826,50 +646,43 @@ public sealed class StartingZone : BaseZone
 
     private void SpawnEncounterEntryNpcs()
     {
-        // Overworld NPCs with a real (non-origin) position = candidate anchor spots (valid, walkable ground).
-        // EXCLUDE the ones that spawn as killable world enemies: anchoring a Battle Starter next to its themed
-        // "kin" put it right on top of a same-model enemy, so you couldn't tell the encounter-entry creature from
-        // the mobs you fight ("mixed in with the killable enemies"). Anchor to peaceful NPCs (towns / quest hubs)
-        // so the badged Battle Starter stands clearly apart from the combat crowd.
         var anchors = _resourceManager.Npcs.Values
             .Where(d => (d.SpawnPosition[0] != 0f || d.SpawnPosition[2] != 0f) && !IsWorldEnemyDefinition(d))
             .ToList();
         if (anchors.Count == 0)
             return;
 
-        var used = new HashSet<int>();   // anchor ids already claimed, so entries don't stack on each other
+        var used = new HashSet<int>();
         int spreadCursor = 0;
         int spawned = 0;
 
         foreach (var dungeon in Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.Values)
         {
             if (dungeon.PoiId != 0)
-                continue; // atlas walk-through dungeons already have their own entrances (PoiId = the marker)
+                continue;
 
             var anchor = FindThematicAnchor(dungeon, anchors, used)
                          ?? PickSpreadAnchor(anchors, used, ref spreadCursor);
             if (anchor is null)
-                break; // ran out of anchors
+                break;
             used.Add(anchor.Id);
 
             if (!TryCreateEncounterEntryNpc(out var entry))
                 continue;
 
-            // The encounter's boss (or first) enemy is the creature that represents it in the world.
             var lead = System.Array.Find(dungeon.Enemies, e => e.Boss) ?? dungeon.Enemies[0];
             entry.ModelId = lead.ModelId;
-            entry.NameId = dungeon.TitleNameId;  // floating nameplate = the encounter's name (the click cue)
+            entry.NameId = dungeon.TitleNameId;
             entry.Name = dungeon.Comment;
-            entry.Static = false;                // MUST be false — the tick loop skips Static NPCs (no wander)
+            entry.Static = false;
             entry.Scale = (_resourceManager.Models.TryGetValue(lead.ModelId, out var model) && model.Scale != 0f
-                ? model.Scale : 1f) * 1.15f;     // a touch larger than its kin so the "leader" reads as special
+                ? model.Scale : 1f) * 1.15f;
             entry.Visible = true;
-            entry.CursorId = 11;                 // crossed-swords adventure cursor on hover
-            entry.MovementType = 2;              // PHYSICS — grounded amble (matches the world enemies)
+            entry.CursorId = 11;
+            entry.MovementType = 2;
             entry.InteractRange = 6;
             entry.ShowHealthBar = false;
 
-            // A few units off the anchor NPC so it doesn't stack exactly on top of it.
             var pos = new Vector4(anchor.Position.X + 4f, anchor.Position.Y, anchor.Position.Z + 4f, 1f);
 
             var captured = dungeon;
@@ -884,9 +697,6 @@ public sealed class StartingZone : BaseZone
         _logger.LogInformation("Spawned {count} wandering combat-encounter entries.", spawned);
     }
 
-    // Find an overworld NPC whose name matches the encounter's theme — first by the significant words
-    // in the encounter's own title (e.g. "Band of Robgoblins!" -> "Robgoblin"), then by the battle-map's
-    // theme keyword — so each Battle Starter stands among its own kind. Null if nothing matches.
     private static NpcDefinition? FindThematicAnchor(Sanctuary.Game.Dungeons.DungeonDefinition dungeon,
         List<NpcDefinition> anchors, HashSet<int> used)
     {
@@ -898,7 +708,7 @@ public sealed class StartingZone : BaseZone
                 continue;
             keywords.Add(word);
             if (word.EndsWith('s'))
-                keywords.Add(word[..^1]); // singular ("Robgoblins" -> "Robgoblin")
+                keywords.Add(word[..^1]);
         }
         if (EncounterThemeKeyword.TryGetValue(dungeon.World, out var themeKeyword))
             keywords.Add(themeKeyword);
@@ -912,8 +722,6 @@ public sealed class StartingZone : BaseZone
         return null;
     }
 
-    // Fallback: hand out an unused anchor, striding through the list so the fallbacks spread across
-    // the world instead of clumping.
     private static NpcDefinition? PickSpreadAnchor(List<NpcDefinition> anchors, HashSet<int> used, ref int cursor)
     {
         int stride = Math.Max(1, anchors.Count / 60);
@@ -929,16 +737,6 @@ public sealed class StartingZone : BaseZone
         return null;
     }
 
-    // COMBAT: kill routing for this zone — the eternal training dummy resets, quest kill targets
-    // credit the killer's active Kill goal and respawn after a delay.
-    // (The Frostfang encounter wolves live in FrostfangArenaZone, which has its own override.)
-    // Clear the dead NPC's overhead/minimap notification entry (op35/sub11 RemoveNotifications) on
-    // every client that had it visible, plus the killer. THIS is what unsticks a bow after a kill: the client
-    // keeps auto-firing (Target=0, server picks the nearest) as long as it holds a combat entry for the enemy
-    // it engaged; when that enemy dies WITHOUT its notification being cleared, the client stays latched to the
-    // corpse and silently stops sending fire requests until a full state reset (job swap). Every other combat
-    // zone (Frostfang, Spirits, the walk-through dungeons) already sends this on mob death — the overworld was
-    // the only one that didn't, which is exactly why the dungeon worked and the open world didn't.
     private static void BroadcastKillSignal(Player killer, Npc npc)
     {
         var clear = new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } };
@@ -948,14 +746,8 @@ public sealed class StartingZone : BaseZone
             killer.SendTunneled(clear);
     }
 
-    // How far a party member can be from the kill and still share its XP. Stops a party-mate on the
-    // other side of the map from leeching, but is generous enough that anyone actually in the fight counts.
     private const float XpShareRange = 100f;
 
-    // Overworld kills pay the whole PARTY, not just whoever landed the last hit — so players fighting
-    // together both level up. Every nearby member gets the FULL reward (not a split), which is how the dungeon
-    // zones already pay out. Members must be in this zone and within XpShareRange of the kill.
-    // Solo players (no party) are unaffected: the killer just gets their XP as before.
     private void AwardSharedXp(Player killer, int xp, Vector4 killPos)
     {
         killer.AwardXp(xp);
@@ -974,7 +766,7 @@ public sealed class StartingZone : BaseZone
             var dx = member.Position.X - killPos.X;
             var dz = member.Position.Z - killPos.Z;
             if (dx * dx + dz * dz > range2)
-                continue; // too far from the fight to have taken part
+                continue;
 
             member.AwardXp(xp);
         }
@@ -988,33 +780,22 @@ public sealed class StartingZone : BaseZone
             return;
         }
 
-        // World combat enemy: award XP, play the death (clip + poof), then respawn a fresh one at its post.
         if (npc is Sanctuary.Game.Entities.CombatNpc worldEnemy)
         {
-            // Idempotency guard (belt-and-suspenders with the atomic ApplyDamage): process each death
-            // exactly once. Overlapping archer shots could otherwise route the same kill here repeatedly,
-            // double-awarding XP and firing multiple graceful-removes that jam the client. Mirrors the
-            // dungeon zone's "already removed?" guard.
             if (worldEnemy.IsDead)
                 return;
             worldEnemy.IsDead = true;
 
             AwardSharedXp(killer, worldEnemy.XpReward, worldEnemy.Position);
 
-            // Capture what we need to rebuild it before Dispose() clears the entity.
             int modelId = worldEnemy.ModelId, nameId = worldEnemy.NameId, level = worldEnemy.Level;
             string? name = worldEnemy.Name, textureAlias = worldEnemy.TextureAlias;
             float scale = worldEnemy.Scale;
             var spawnPos = worldEnemy.SpawnPosition;
             var spawnRot = worldEnemy.SpawnRotation;
 
-            BroadcastKillSignal(killer, npc); // clear the dead enemy's client notification entry (matches
-                                              // every combat arena; the overworld was the only zone missing it)
+            BroadcastKillSignal(killer, npc);
 
-            // A roaming enemy can be killed by a player who ISN'T in its VisiblePlayers set — the attack picks
-            // targets by RANGE, not tile-visibility, and the mob may have shifted tiles since the client rendered
-            // it. Dispose() only sends the graceful-remove to VisiblePlayers, so that killer's client would keep
-            // the corpse forever ("dead body won't disappear"). Capture it, then send the killer the removal too.
             var killerSaw = npc.VisiblePlayers.ContainsKey(killer.Guid);
 
             npc.GracefulRemoval = (true, QuestHostileDeathHoldMs, 0, QuestHostileDeathFxId, 1000);
@@ -1047,15 +828,13 @@ public sealed class StartingZone : BaseZone
             return;
         }
 
-        // Credit the active Kill goal of any of the killer's in-progress quests (matched by NameId).
         _questManager.OnNpcKilled(killer, npc);
 
-        // World hostiles die with the live death flow (death clip + poof) and respawn after a delay.
         if (npc.Guid > NpcGuidBase
             && _resourceManager.Npcs.TryGetValue((int)(npc.Guid - NpcGuidBase), out var definition)
             && _resourceManager.Quests.KillTargetNameIds.Contains(definition.NameId))
         {
-            BroadcastKillSignal(killer, npc); // release the client's ranged target-lock (bow re-fire fix)
+            BroadcastKillSignal(killer, npc);
             npc.GracefulRemoval = (true, QuestHostileDeathHoldMs, 0, QuestHostileDeathFxId, 1000);
             npc.Dispose();
 
@@ -1074,33 +853,25 @@ public sealed class StartingZone : BaseZone
         }
     }
 
-    // COMBAT: a non-fatal hit — make a world enemy fight back. If the player poked it from range (or before
-    // it noticed them), lock it onto the attacker so it charges + auto-attacks instead of standing idle.
     public override void OnNpcDamaged(Player player, Npc npc)
     {
         if (npc is Sanctuary.Game.Entities.CombatNpc enemy)
             enemy.AggroOnto(player);
     }
 
-    // COMBAT WIP: Shadow Army special — spawn temporary "shadow clone" NPCs around the caster, each using the
-    // caster's own model, wearing a shadow aura, appearing/vanishing in a puff of black ninja smoke, then
-    // despawning after a few seconds. (Customization/outfit copy is a client TODO, so clones are the base body
-    // + the shadow aura for now.) FX ids from ActorCompositeEffectDefinitions.xml.
-    private const int ShadowCloneModelId = 945;    // human_m_ninja_ghost.adr (Models.txt) — a clothed, ghostly shadow ninja
-    private const int ShadowCloneSmokePoof = 21;   // PFX_smoke_black_explosion (ninja appear/vanish poof)
-    // Clone AI: run to the enemy, then swing at it on a cooldown (the clones "help you fight").
-    private const int CloneTickMs = 300;           // movement/AI tick (client interpolates between updates)
+    private const int ShadowCloneModelId = 945;
+    private const int ShadowCloneSmokePoof = 21;
+    private const int CloneTickMs = 300;
     private const int CloneAttackCooldownMs = 1400;
-    private const int CloneAttackAnimation = 1021; // com_1hs_attack_01 — sword swing
+    private const int CloneAttackAnimation = 1021;
     private const int CloneAttackDamage = 200;
-    private const int CloneHitFx = 15999;          // PFX_ninja-shadowblade_impact (shadow-blade hit on target)
-    private const float CloneMoveSpeed = 9f;       // units/sec toward the target
-    private const float CloneAttackRange = 2.5f;   // stop & swing within this distance
-    private const int CloneRunAnim = 3;            // loc_run · walk=2 · stand=1 (AnimationGroups.xml)
+    private const int CloneHitFx = 15999;
+    private const float CloneMoveSpeed = 9f;
+    private const float CloneAttackRange = 2.5f;
+    private const int CloneRunAnim = 3;
 
     public void SummonShadowClones(Player summoner, int count, int lifetimeSeconds)
     {
-        // small arc around the caster
         (float dx, float dz)[] offsets = [(-2f, -2f), (2f, -2f), (0f, -3f), (-3f, 1f), (3f, 1f)];
 
         var clones = new List<Npc>(count);
@@ -1113,25 +884,24 @@ public sealed class StartingZone : BaseZone
             var (dx, dz) = offsets[i % offsets.Length];
             var pos = new Vector4(summoner.Position.X + dx, summoner.Position.Y, summoner.Position.Z + dz, summoner.Position.W);
 
-            clone.ModelId = ShadowCloneModelId; // clothed ghostly shadow ninja (fixes "naked" base body)
-            clone.Name = "Shadow Ninja";        // nameplate text (matches the real ability)
+            clone.ModelId = ShadowCloneModelId;
+            clone.Name = "Shadow Ninja";
             clone.NameId = 0;
-            clone.HideNamePlate = false;        // show the "Shadow Ninja" nameplate
-            clone.Disposition = 2;              // Ally (your shadow ninjas)
+            clone.HideNamePlate = false;
+            clone.Disposition = 2;
             clone.Scale = 1f;
             clone.IsInteractable = false;
             clone.CursorId = 0;
-            clone.CompositeEffectId = 0;        // ghost model is already shadowy; NO persistent (_loop) aura -> nothing lingers
-            clone.RunAnimId = CloneRunAnim;     // play the run clip while moving to the enemy
-            clone.WalkAnimId = 2;               // loc_walk
-            clone.StandAnimId = 1;              // loc_stand
+            clone.CompositeEffectId = 0;
+            clone.RunAnimId = CloneRunAnim;
+            clone.WalkAnimId = 2;
+            clone.StandAnimId = 1;
             clone.Visible = true;
             clone.UpdatePosition(pos, summoner.Rotation);
 
-            summoner.OnAddVisibleNpcs(clone);   // make it appear for the caster
-            clone.OnAddVisiblePlayers(summoner); // track the caster so Dispose() removes it from their client
+            summoner.OnAddVisibleNpcs(clone);
+            clone.OnAddVisiblePlayers(summoner);
 
-            // ninja smoke poof at the spawn spot
             summoner.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
             {
                 Guid = clone.Guid,
@@ -1148,15 +918,12 @@ public sealed class StartingZone : BaseZone
         _logger.LogInformation("Shadow Army: summoned {n} clones for {sec}s (model {model}).",
             clones.Count, lifetimeSeconds, summoner.Model);
 
-        // despawn after the lifetime (off-thread, mirrors the damage-resolve pattern)
         _ = Task.Run(async () =>
         {
             try
             {
-                // CLONE AI: run to the dummy (re-targeting its position each tick = chase), then swing on a
-                // cooldown once in range. Position updates each tick; the client interpolates -> smooth run.
                 var totalMs = lifetimeSeconds * 1000;
-                var nextAttackMs = new int[clones.Count]; // per-clone next-attack time (ms since start)
+                var nextAttackMs = new int[clones.Count];
 
                 for (var elapsed = 0; elapsed < totalMs; elapsed += CloneTickMs)
                 {
@@ -1175,13 +942,11 @@ public sealed class StartingZone : BaseZone
                         var toTarget = target - here;
                         var dist = toTarget.Length();
 
-                        // face the dummy (yaw about Y)
                         var yaw = (float)Math.Atan2(toTarget.X, toTarget.Z);
                         var rot = Quaternion.CreateFromYawPitchRoll(yaw, 0f, 0f);
 
                         if (dist > CloneAttackRange)
                         {
-                            // step toward the dummy
                             var step = Math.Min(CloneMoveSpeed * (CloneTickMs / 1000f), dist - CloneAttackRange);
                             var dir = toTarget / dist;
                             var np = here + dir * step;
@@ -1195,7 +960,6 @@ public sealed class StartingZone : BaseZone
                         }
                         else
                         {
-                            // in range: hold, face the dummy, swing on cooldown
                             clone.UpdatePosition(clone.Position, rot);
                             summoner.SendTunneled(new PlayerUpdatePacketUpdatePosition
                             {
@@ -1206,14 +970,12 @@ public sealed class StartingZone : BaseZone
                             {
                                 nextAttackMs[i] = elapsed + CloneAttackCooldownMs;
 
-                                // swing (StartCasting animates the clone's guid)
                                 summoner.SendTunneled(new AbilityPacketStartCasting
                                 {
                                     Unknown = clone.Guid, Unknown2 = dummy.Guid, CompositeEffectId = 0,
                                     Animation = CloneAttackAnimation, AbilityId = 0, ActionTime = 0.3f, HasActionProgress = false,
                                 });
 
-                                // damage + shadow-blade hit on the dummy
                                 var killed = dummy.ApplyDamage(CloneAttackDamage);
                                 summoner.SendTunneled(new CombatPacketAttackProcessed
                                 {
@@ -1238,7 +1000,6 @@ public sealed class StartingZone : BaseZone
             }
             finally
             {
-                // poof out + remove every clone
                 foreach (var clone in clones)
                 {
                     summoner.SendTunneled(new PlayerUpdatePacketPlayCompositeEffect
@@ -1248,12 +1009,11 @@ public sealed class StartingZone : BaseZone
                         Position = clone.Position,
                     });
 
-                    clone.Dispose(); // RemovePlayer to the caster + clears zone tile + zone registration
+                    clone.Dispose();
                 }
             }
         });
     }
-
 
     private void SendQuickChatData(Player player)
     {
@@ -1336,8 +1096,6 @@ public sealed class StartingZone : BaseZone
 
     private void SendAdventurersJournalInfo(Player player)
     {
-        // DO NOT REMOVE even if it's not fully implemented. This packet is needed
-        // due to an Area Definition called "Newbiezone" in FabledRealmsAreas.xml.
 
         var adventurersJournal = new AdventurersJournalInfoPacket();
 
@@ -2171,47 +1929,47 @@ public sealed class StartingZone : BaseZone
         {
             new PlayerCustomizationData
             {
-                Id = 0, // Head
+                Id = 0,
                 Param = player.HeadId,
                 StringParam = player.Head
             },
             new PlayerCustomizationData
             {
-                Id = 1, // Skin Tone
+                Id = 1,
                 Param = player.SkinToneId,
                 StringParam = player.SkinTone
             },
             new PlayerCustomizationData
             {
-                Id = 2, // Hair
+                Id = 2,
                 Param = player.HairId,
                 StringParam = player.Hair
             },
             new PlayerCustomizationData
             {
-                Id = 3, // Hair Color
+                Id = 3,
                 Param = player.HairColor
             },
             new PlayerCustomizationData
             {
-                Id = 4, // Eye Color
+                Id = 4,
                 Param = player.EyeColor
             },
             new PlayerCustomizationData
             {
-                Id = 5, // Model Customization
+                Id = 5,
                 Param = player.ModelCustomizationId,
                 StringParam = player.ModelCustomization
             },
             new PlayerCustomizationData
             {
-                Id = 6, // Face Paint
+                Id = 6,
                 Param = player.FacePaintId,
                 StringParam = player.FacePaint
             },
             new PlayerCustomizationData
             {
-                Id = 8, // Model — use TemporaryAppearance when a transform is active
+                Id = 8,
                 Param = player.TemporaryAppearance != 0 ? player.TemporaryAppearance : player.Model
             }
         };
@@ -2233,194 +1991,6 @@ public sealed class StartingZone : BaseZone
 
     private void SendListOfActivities(Player player)
     {
-        /* var activityProfileListPacket = new ActivityProfileListPacket
-        {
-            Activities = new Dictionary<int, ActivityForProfileType>()
-            {
-                {
-                    // Fisherman
-                    137, new ActivityForProfileType
-                    {
-                        ProfileId = 137,
-                        QuestId = 1968,
-                        IconId = 20740,
-                        BadgeId = 4843,
-                        QuestTitle = 412490,
-                        QuestDescription = 412491,
-                    }
-                },
-                {
-                    // Soccer Star
-                    52, new ActivityForProfileType
-                    {
-                        ProfileId = 52,
-                        QuestId = 1965,
-                        IconId = 20743,
-                        BadgeId = 4842,
-                        QuestTitle = 412463,
-                        QuestDescription = 412464
-                    }
-                },
-                {
-                    // Demo Derby Driver
-                    49, new ActivityForProfileType
-                    {
-                        ProfileId = 49,
-                        QuestId = 1960,
-                        IconId = 8059,
-                        BadgeId = 46,
-                        QuestTitle = 412342,
-                        QuestDescription = 412343
-                    }
-                },
-                {
-                    // Kart Driver
-                    48, new ActivityForProfileType
-                    {
-                        ProfileId = 48,
-                        QuestId = 1961,
-                        IconId = 20725,
-                        BadgeId = 46,
-                        QuestTitle = 407752,
-                        QuestDescription = 412379
-                    }
-                },
-                {
-                    // Chef
-                    45, new ActivityForProfileType
-                    {
-                        ProfileId = 45,
-                        QuestId = 1978,
-                        IconId = 156,
-                        BadgeId = 11,
-                        QuestTitle = 413021,
-                        QuestDescription = 413022
-                    }
-                },
-                {
-                    // Archer
-                    35, new ActivityForProfileType
-                    {
-                        ProfileId = 35,
-                        QuestId = 1952,
-                        IconId = 1335,
-                        BadgeId = 32,
-                        QuestTitle = 412187,
-                        QuestDescription = 412188
-                    }
-                },
-                {
-                    // Warrior
-                    32, new ActivityForProfileType
-                    {
-                        ProfileId = 32,
-                        QuestId = 1966,
-                        IconId = 21594,
-                        BadgeId = 10,
-                        QuestTitle = 412471,
-                        QuestDescription = 412472
-                    }
-                },
-                {
-                    // Miner
-                    14, new ActivityForProfileType
-                    {
-                        ProfileId = 14,
-                        QuestId = 1979,
-                        IconId = 1341,
-                        BadgeId = 11,
-                        QuestTitle = 139748,
-                        QuestDescription = 413026
-                    }
-                },
-                {
-                    // Wizard
-                    12, new ActivityForProfileType
-                    {
-                        ProfileId = 12,
-                        QuestId = 1967,
-                        IconId = 1343,
-                        BadgeId = 12,
-                        QuestTitle = 412481,
-                        QuestDescription = 412482
-                    }
-                },
-                {
-                    // Medic
-                    11, new ActivityForProfileType
-                    {
-                        ProfileId = 11,
-                        QuestId = 1962,
-                        IconId = 1340,
-                        BadgeId = 13,
-                        QuestTitle = 412422,
-                        QuestDescription = 412423
-                    }
-                },
-                {
-                    // Postman
-                    4, new ActivityForProfileType
-                    {
-                        ProfileId = 4,
-                        QuestId = 1964,
-                        IconId = 1339,
-                        BadgeId = 11,
-                        QuestTitle = 412445,
-                        QuestDescription = 412446
-                    }
-                },
-                {
-                    // Ninja
-                    2, new ActivityForProfileType
-                    {
-                        ProfileId = 2,
-                        QuestId = 1963,
-                        IconId = 1342,
-                        BadgeId = 10,
-                        QuestTitle = 412437,
-                        QuestDescription = 412438
-                    }
-                },
-                {
-                    // Brawler
-                    43, new ActivityForProfileType
-                    {
-                        ProfileId = 43,
-                        QuestId = 1593,
-                        IconId = 1337,
-                        BadgeId = 10,
-                        QuestTitle = 388503,
-                        QuestDescription = 388504
-                    }
-                },
-                {
-                    // Card Duelist
-                    120, new ActivityForProfileType
-                    {
-                        ProfileId = 120,
-                        QuestId = 1304,
-                        IconId = 396,
-                        BadgeId = 1783,
-                        QuestTitle = 103744,
-                        QuestDescription = 103745
-                    }
-                },
-                {
-                    // Blacksmith
-                    16, new ActivityForProfileType
-                    {
-                        ProfileId = 16,
-                        QuestId = 1019,
-                        IconId = 1336,
-                        BadgeId = 11,
-                        QuestTitle = 90071,
-                        QuestDescription = 90072
-                    }
-                }
-            }
-        };
-
-        player.SendTunneled(activityProfileListPacket); */
 
         var clientActivities = _resourceManager.ClientActivityDefinitions.Values.Where(x => x.ServerType == 2).ToList();
 
@@ -2497,24 +2067,8 @@ public sealed class StartingZone : BaseZone
 
         player.SendTunneled(packetInGamePurchaseStoreBundleGroups);
 
-        // Send empty claim list so the Claim window doesn't get stuck on "Processing..."
         player.SendTunneled(new PromotionalBundleDataPacket());
 
-        /* var inGamePurchaseUpdateSaleDisplay = new InGamePurchaseUpdateSaleDisplay();
-
-        inGamePurchaseUpdateSaleDisplay.Sales.Add(new SaleDisplayInfo
-        {
-            Id = 12951,
-            IconId = 7866,
-            TintId = 0,
-            TitleId = 824,
-            BodyId = 825,
-            SecondsLeft = 1000,
-            Unknown = 0,
-            IsMembership = false
-        });
-
-        player.SendTunneled(inGamePurchaseUpdateSaleDisplay); */
     }
 
     private void SendFriendList(Player player)

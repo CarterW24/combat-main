@@ -16,107 +16,50 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Zones;
 
-// INSTANCE (Frostfang Fury): the REAL arena zone for the "Frostfang Growler!" combat encounter, done the
-// proper way — a genuine server-side zone the player is TeleportToZone'd into, so tiles/visibility/NPC
-// delivery all run through the normal engine pipeline.
-//
-// The world + coords come from the CLIENT'S OWN DATA (2026-07-01, see docs/STATUS.md):
-//   world  = sg_random_encounter_clearing (green grass clearing; matches the Sunrise reference video)
-//   center = (136, y≈0.5, 165) radius 100, from sg_random_encounter_clearingAreas.xml ("Bed" AreaDefinition)
-//
-// ★ ENCOUNTER SPEC — GROUND TRUTH (2026-07-05): the ENTIRE live encounter decoded from the 2014-04-01
-// capture (idx 27735-38200; scripts in the session scratchpad, analysis in docs/STATUS.md):
-//   * ONE "roamer" wolf pre-spawned before the player even loads (wolf_evil, tint evil_purple,
-//     AddNpc Speed=3.0) — it wanders at walk speed and never charges; the video shows it idling
-//     around as the player loads in.
-//   * 4 WAVES of pack wolves: 6, 9, 10, 10 — each wave 2× wolf_evil (tex 'evil'/'evil_black') and
-//     the rest wolf (tex 'snow'/'base_metal'). A wave spawns ~1s after the previous is (nearly)
-//     cleared (live triggered at ≤1 alive). Total pack = 1+6+9+10+10 = 36. Max ~12 alive at once.
-//   * spawn points are FIXED locations ringing the whole arena (bake of every live spawn below) —
-//     wolves appear far away, idle ~2.2s, then get ExpectedSpeed 3.0 + 6.0 + CharacterState 0x8001
-//     and CHARGE the player at 6.0. (No proximity aggro — the "roaming pack" look in the video is
-//     just far-away wolves running in.)
-//   * pack wolves: NameId 104067/116023 ("Frostfang Snarler"), HideNamePlate=1, healthBar=0 —
-//     NO overhead plates (video-confirmed); they show as red dots on the minimap via the combat
-//     notification. HP 760 (one basic hit). Bites are TINY on the live wire (3-5 vs a 7828-HP ninja).
-//   * the ALPHA spawns WITH wave 4: model 176 + tex 'snow'/'snow_blue', scale 1.7, NameId 423045,
-//     plate SHOWN + healthBar=1 (the video's floating red name + bar — live sends NO op32/sub9 boss
-//     display for him). HP 3800. He charges and bites like the pack.
-//   * the Alpha has NO flee threshold: at 0 HP he is "defeated" and the flee IS his death
-//     presentation — RemovePlayerGracefully(Animate, Delay=10000) + ExpectedSpeed 6.0: the client
-//     runs him off for 10s (video 1:25-1:35). Pack wolves use the same packet with Delay=2000
-//     (death clip + 5017 poof).
-//   * win moment (all at once): health heart (736) + coin pile (841, Knockback pop + fx, removed
-//     ~instantly) at the Alpha's spot; op45/sub3 ObjectiveComplete (green-check "Goal Complete!",
-//     id 12642) + op47/sub3 row complete; reward banners; the EXIT DOOR (846 sg_exit_door_01,
-//     NameId 4826, scale 1.2, cursor 17, minimap badge ImageId 186) spawns at (145, 0, 173) —
-//     NO auto-kick; the player leaves by clicking the door.
-//   * the goal 12642 "Scare away the wolves!" is Total=1 with NO per-kill ticks on live.
 public sealed class FrostfangArenaZone : CombatEncounterZone
 {
     private sealed class FrostfangArenaDefinition : BaseZoneDefinition
     {
     }
 
-    // Real ground height: LIVE TEST 10 (2026-07-02 19:31) — the client settles the player to y≈0.0-0.6
-    // across the clearing. (The old "y≈14" reading was wrong and left wolves hovering at canopy height.)
     private const float GroundY = 0.5f;
 
-    // Encounter identity, shared by the details header ints + EncounterStatePacket + PlayerEnter
-    // (the live server uses one [encounterId][instanceId] pair across all of them). 174 = the
-    // Frostfang Growler activity id (ClientActivityDefinitions).
     public const int EncounterId = 174;
     public const int EncounterInstanceId = 1;
 
-    // Client enum MINI_GAME_TYPE_COMBAT = 4 (IDA). The minigame status handler only shows the objective
-    // (goals) pane for a COMBAT-type minigame — see the details packet below.
     private const int CombatMiniGameType = 4;
 
-    // ── Wolf identities: GROUND TRUTH, every field verbatim from the live AddNpc packets ────────────
-    private const int SnowWolfModelId = 176;   // wolf.adr        tex 'snow' / tint 'base_metal'
-    private const int EvilWolfModelId = 177;   // wolf_evil.adr   tex 'evil' / tint 'evil_black'
-    private const int SnarlerSnowNameId = 104067; // "Frostfang Snarler" family string
+    private const int SnowWolfModelId = 176;
+    private const int EvilWolfModelId = 177;
+    private const int SnarlerSnowNameId = 104067;
     private const int SnarlerEvilNameId = 116023;
-    private const int RoamerNameId = 115837;   // the pre-spawned evil_purple roamer's live NameId
-    private const int AlphaNameId = 423045;    // "Frostfang Alpha"
-    private const int PackActiveProfile = 151; // live ActiveProfile on every pack wolf (non-zero also
-                                               // keeps the red hostile name resolve — see Npc.Disposition)
+    private const int RoamerNameId = 115837;
+    private const int AlphaNameId = 423045;
+    private const int PackActiveProfile = 151;
     private const int AlphaActiveProfile = 152;
 
-    private const int WolfHealth = 760;        // live: player -2739 basic one-shots; video archer ~3 arrows
-    private const int AlphaHealth = 3800;      // live max in the killing HitPointModification
-    private const float AlphaScale = 1.7f;     // live AddNpc scale (was 1.6 guessed from video)
+    private const int WolfHealth = 760;
+    private const int AlphaHealth = 3800;
+    private const float AlphaScale = 1.7f;
 
-    private const float RoamSpeed = 3f;        // live ExpectedSpeed while ambling
-    // Charge speed (live 6.0 for all wolves) is the shared MobChaseSpeed override above.
-    // The roamer's fight-kickoff HOWL (live idx 28467-28469, both on the roamer, one tick before wave 1's
-    // AddNpc burst): a rear-up cast pose + a "commanding shout" composite over its head. THIS is what
-    // summons the pack — no wolf spawns until the howl fires. Trigger is PROXIMITY (the live capture shows
-    // the player walking straight up to the roamer, 52u -> ~4u, and it howls at close range — not a timer).
-    private const int RoamerHowlAnimId = 1111;   // AnimationGroup com_cast_01 (SetAnimation op35/8)
-    private const int RoamerHowlFxId = 15226;    // PFX_moire-circles_multi_head_commanding-shout-level-1_loop
-    private const int RoamerHowlHoldMs = 1500;   // plant + hold the howl pose (anim + fx) before charging
-    private const float RoamerAggroRange = 6f;   // player-approach distance that fires the howl
-    private const int AggroDelayMs = 2200;     // live: ES 3.0 + ES 6.0 + state 0x8001 land ~2.2s after AddNpc
-    private const int SpawnPoofFxId = 46;      // AddNpc.CompositeEffectId on every live WAVE wolf (not the roamer)
-    private const int DeathPoofFxId = 5017;    // the graceful-remove composite effect on every dying wolf
-    private const int AlphaFleeMs = 10000;     // graceful-remove Delay on the defeated Alpha (he runs off)
-    private const int WolfDeathHoldMs = 2000;  // graceful-remove Delay on pack wolves (death clip plays)
+    private const float RoamSpeed = 3f;
+    private const int RoamerHowlAnimId = 1111;
+    private const int RoamerHowlFxId = 15226;
+    private const int RoamerHowlHoldMs = 1500;
+    private const float RoamerAggroRange = 6f;
+    private const int AggroDelayMs = 2200;
+    private const int SpawnPoofFxId = 46;
+    private const int DeathPoofFxId = 5017;
+    private const int AlphaFleeMs = 10000;
+    private const int WolfDeathHoldMs = 2000;
 
-    // CharacterState 0x8001 = live "charging/in-combat" state (bit0 baseline + bit15). Every live wolf
-    // toggles 1 -> 0x8001 at its charge moment; the PLAYER toggles the same pair with IsFighting.
-    // NOTE our 2026-07-03 test showed bit15 AT SPAWN suppresses an overhead plate, so the Alpha
-    // (plated) does NOT get this — video-first. Pack wolves have no plates to lose.
     private const int CharState_Baseline = 0x1;
     private const int CharState_Charging = 0x8001;
 
-    // Waves (live): 6, 9, 10, 10 — two evil wolves in each, Alpha alongside the last wave.
     private static readonly int[] WaveSizes = [6, 9, 10, 10];
     private const int EvilPerWave = 2;
-    private const int NextWaveDelayMs = 1000;  // live gap: last kill -> next wave ≈ 0.6-1.3s
+    private const int NextWaveDelayMs = 1000;
 
-    // Every live wolf spawn point (x, y, z), baked verbatim from the 04-01 AddNpc positions — fixed
-    // locations ringing the arena (center ~(136,165)); the live server drew from these repeatedly.
     private static readonly Vector3[] SpawnPoints =
     [
         new(166.08f, 0.35f, 197.34f), new(139.08f, 1.64f, 113.27f), new(122.40f, 0.56f, 114.63f),
@@ -130,92 +73,52 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         new(108.96f, 0.02f, 209.94f), new(183.20f, 0.85f, 163.49f), new(118.60f, 0.94f, 118.90f),
     ];
 
-    // Live one-off actor positions (roamer / Alpha / exit door), verbatim from the capture.
     private static readonly Vector4 RoamerSpawn = new(129.33f, GroundY, 171.81f, 1f);
     private static readonly Vector4 AlphaSpawn = new(154.32f, 1.96f, 209.35f, 1f);
     private static readonly Vector4 DoorSpawn = new(145.0f, 0.0f, 173.35f, 1f);
 
-    // ── Exit door (846 = sg_exit_door_01.adr) — live fields from AddNpc idx 37181 + companions ──────
     private const int DoorModelId = 846;
     private const int DoorNameId = 4826;
     private const float DoorScale = 1.2f;
     private const int DoorInteractRange = 125;
     private const int DoorActiveProfile = 28;
-    private const int DoorCursorId = 17;         // live NpcRelevance entry for the door
-    private const int DoorMinimapImageId = 186;  // live AddNotifications badge (minimap exit icon)
+    private const int DoorCursorId = 17;
+    private const int DoorMinimapImageId = 186;
     private const int DoorBadgeType = 7;
     private const int DoorBadgeUnknown3 = 102;
 
-    // Coin-pile pop at the win (841 = loot_coins_01.adr): knocked outward and removed ~instantly.
     private const int CoinsModelId = 841;
     private const int CoinsNameId = 139649;
-    private const int CoinsPopFxId = 5192;       // PlayCompositeEffect on the coins at the win moment
-    private const float CoinsKnockMagnitude = 0.0712f; // live Knockback magnitude
+    private const int CoinsPopFxId = 5192;
+    private const float CoinsKnockMagnitude = 0.0712f;
 
-    // Chase-and-bite AI now runs on the shared CombatEncounterZone tick (TickMobCombat / TickMobReturnHome).
-    // Wolves charge a touch faster than the pre-spawned zones' default 5; everything else uses the base tuning.
     protected override float MobChaseSpeed => 6f;
 
-    // Defeated-Alpha flee run (video 1:25-1:35: he turns and sprints off into the fog until he's gone).
-    private const float FleeSpeed = 9f;        // a touch faster than the chase so he clearly gets away
-    private const float FleeDespawnRadius = 90f; // ~arena edge from center (136,165), r100 playable
+    private const float FleeSpeed = 9f;
+    private const float FleeDespawnRadius = 90f;
 
-    // Optional spawn override pinned live via the "!arena set" chat command (fine-tuning).
     public static Vector4? SpawnOverride;
 
-    // Client movement gate (OnPlayerUpdatePosition, RE'd): MovementType must be 1 (CONTROLLER) or
-    // 2 (PHYSICS), and the actor's rider must be the invalid-guid sentinel, else op125 updates are
-    // dropped. Live: every walking NPC is type 2 (PHYSICS) — that path auto-plays locomotion.
     private const int WolfMovementTypePhysics = 2;
 
     private readonly IZoneManager _zoneManager;
     private readonly IResourceManager _resourceManager;
     private readonly Random _rng = new();
 
-    // Heart pickups (video: +125 green heal on walk-over; model 736 = powerup_health_buff.adr, the
-    // real drop — one is GUARANTEED at the Alpha's defeat spot on live; mid-fight drops are random).
-    // (Live also dropped one 746 powerup_damage_buff mid-fight; damage buffs are a later task.)
     private const int HeartModelId = 736;
-    private const int HeartHeal = 125;            // the green "+125" the video shows
-    private const float HeartPickupRange = 2.6f;  // walk-over radius
-    private const int HeartDropPercent = 12;      // random mid-fight drop chance per kill
-    // Heart pickup FX: the live heart is removed gracefully with composite effect 15032 (the pickup
-    // sparkle) — params verbatim from the capture remove (Animate=0, Delay=0, EffectDelay=5000).
+    private const int HeartHeal = 125;
+    private const float HeartPickupRange = 2.6f;
+    private const int HeartDropPercent = 12;
     private const int HeartPickupFxId = 15032;
-    // ★ WHAT THE HEART ACTUALLY IS (SOLVED 2026-07-05, wiki + 04-01 capture + video math). The health
-    // powerup (model 736 powerup_health_buff — the ONLY combat "heart"; the sg_icon_* pickups are
-    // Demolition Derby, unrelated) does TWO things on pickup:
-    //   (1) a FLAT +125 heal — the wiki's "Small Heart: heals a low amount of your own health" (the
-    //       green number). Video proof: archer at 417/500 -> +125 -> 542, seen as 542/665.
-    //   (2) a TEMPORARY +33% MAX-HP BUFF for ~15s: MaxHealth ×1.33 (archer 500->665, ninja 7828->10411,
-    //       both exactly ×1.33), healed to the new full, reverted ~15s later.
-    // It is NOT heal-over-time — both parts land instantly; only the buff (and its FX) linger 15s. The
-    // ninja showed no +125 float only because he grabbed it at full HP (flat heal on a full bar is
-    // invisible; his visible gain was the buff fill). We do the flat +125 + the 15s looping shower now;
-    // the real ×1.33 max-HP buff + revert needs the player HP pool (STATUS.md task).
-    //
-    // THE HEALING STATUS EFFECT (GROUND TRUTH, 04-01 idx 37215-37223): composite 15921 =
-    // PFX_magic-heal_red_head_shower_lg_loop_raised (the LOOPING over-head heal shower + trail) is
-    // attached to the player via an effect TAG (op35/sub41), held ~15s, then stopped (op35/sub42) —
-    // NOT the one-shot 16324 blip we used before. The status-effect ICON under the portrait is driven
-    // by the effect-tag entries (op38/sub16, 3 per pickup, server-defined effect ids 61401-61403);
-    // that 97-byte format is complex/server-authored (embeds a float + source guid + effect refs) and
-    // is a TODO — the looping composite below is the visible above-head heart/trail.
-    private const int HealShowerFxId = 15921;  // looping over-head heal shower + trail
-    private const int HealShowerMs = 15000;    // live buff duration (14.88s measured) — the ~15s shower
-    private int _healTagCounter = 300;         // unique effect-tag ids for concurrent heart pickups
+    private const int HealShowerFxId = 15921;
+    private const int HealShowerMs = 15000;
+    private int _healTagCounter = 300;
     private readonly List<Npc> _hearts = [];
-    // The live heart tag (04-01 idx 37219, byte-decoded 2026-07-16): type 2, ×1.33, 15s, icon 17348,
-    // ability 6211, shower composite riding the tag — sent via StatusEffects.ApplyBuffTag.
     private const int HeartBuffIconId = 17348;
     private const uint HeartBuffNameId = 5102381;
     private const int HeartBuffAbilityId = 6211;
     private const float HeartBuffMult = 1.33f;
 
-    // ── POWERUPS (wiki Combat page + Models.txt + the 04-01 capture) ─────────────────────────────────
-    // `powerup_*_buff` models = INSTANT on walk-over (mana 737 = energy refill, damage 746 = ×1.33 dmg,
-    // captured in full); bare `powerup_<name>` = HELD in action-bar slot 3 until used with the "3" key
-    // (wiki), lost on zone exit: flame_wave 1949, quake 1950 (wiki "Earth Shard"), super_shield 1951.
     private enum PowerupKind { Energy, Damage, FlameWave, Quake, Shield }
 
     private const int EnergyPowerupModelId = 737;
@@ -224,53 +127,43 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private const int QuakePowerupModelId = 1950;
     private const int ShieldPowerupModelId = 1951;
     private const int PowerupDropPercent = 8;
-    private const int PowerupNameId = 5102385;   // the live damage powerup's AddNpc NameId (plate hidden)
+    private const int PowerupNameId = 5102385;
 
-    // Damage powerup — capture-verbatim (idx 30273 tag composite, removal +14.7s, icon floats 1.33):
-    private const int DamageBuffBodyFxId = 5032; // PFX_barrier-rock_gray_loop on the player while buffed
+    private const int DamageBuffBodyFxId = 5032;
     private const int DamageBuffMs = 15000;
     private const int DamageBuffPct = 133;
-    // Held-powerup FX — no wire samples exist (the capture never uses one) so these are by-eye picks,
-    // live-tunable via "!pufx <kind> <fxId> [animId]".
     private const int FlameWaveDamage = 500;
     private const float FlameWaveRadius = 10f;
-    public static int FlameWaveFxId = 5591;        // PFX_fire-ring_orange_cog_spiral_AOE — RADIAL ring
-                                                   // (16140 ninja-flame-wave is DIRECTIONAL: "went behind me")
-    public static int FlameWaveAnimId;             // 0 = no use gesture (none existed live)
+    public static int FlameWaveFxId = 5591;
+    public static int FlameWaveAnimId;
     private const int QuakeDamage = 350;
     private const float QuakeRadius = 10f;
     private const int QuakeStunMs = 3000;
-    public static int QuakeFxId = 5388;            // PFX_smoke-rocks_purple_cave-in ("raining rocks")
+    public static int QuakeFxId = 5388;
     public static int QuakeAnimId;
-    private const int ShieldMs = 8000;             // "invulnerable for a few moments"
-    public static int ShieldFxId = 5049;           // PFX_shield_swirl_blue_barrier_loop (matches icon art)
+    private const int ShieldMs = 8000;
+    public static int ShieldFxId = 5049;
     public static int ShieldAnimId;
     private const int WolfKnockDownAnimId = 1402;
     private const int WolfGetUpAnimId = 1403;
-    private const int FlameWaveIconId = 26832;     // icon_flame_wave_32
-    private const int QuakeIconId = 26835;         // icon_quake_32
-    private const int ShieldIconId = 26838;        // icon_super_shield_32
-    private const uint ShieldBuffNameId = 1352849523; // locale "Shield" — buff-bar label while active
-    // Super Shield speed half: stat 2 MaxMovementSpeed applies INSTANTLY on the local player
-    // (client-authoritative movement). Multiplier provisional.
+    private const int FlameWaveIconId = 26832;
+    private const int QuakeIconId = 26835;
+    private const int ShieldIconId = 26838;
+    private const uint ShieldBuffNameId = 1352849523;
     private const float ShieldSpeedMult = 1.35f;
 
-    // Drop pool = the wiki's list (Energy / Flame Wave / Earth Shard / Super Shield; heart rolled
-    // separately). Damage (746) is capture-seen but pool-EXCLUDED until its live drop rule is known.
     private static readonly PowerupKind[] DroppablePowerups =
         [PowerupKind.Energy, PowerupKind.FlameWave, PowerupKind.Quake, PowerupKind.Shield];
 
     private readonly List<(Npc Npc, PowerupKind Kind)> _powerups = [];
-    private PowerupKind? _heldPowerup;     // what's sitting in action-bar slot 3 (one at a time)
+    private PowerupKind? _heldPowerup;
 
-    // Charging / SlotAngle / NextAttackTicks / Home / Idling / Planted now live on the shared EncounterMobState.
     private sealed class WolfState : EncounterMobState
     {
-        public long ChargeAtTicks;   // Environment.TickCount64 when the charge kicks in
-        public long StunnedUntil;    // Quake/Earth-Shard powerup: frozen (no move, no bite) until this tick
-        // Roamer wander state
+        public long ChargeAtTicks;
+        public long StunnedUntil;
         public bool IsRoamer;
-        public bool Howled;          // roamer has howled; standing in the pose until ChargeAtTicks, then charges
+        public bool Howled;
         public Vector2? WanderTarget;
         public long WanderPauseUntil;
     }
@@ -279,93 +172,50 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
     private readonly List<Npc> _wolves = [];
     private readonly Dictionary<ulong, WolfState> _wolfStates = [];
     private Npc? _alpha;
-    // The DEFEATED Alpha while he RUNS AWAY (video: he never dies on screen — at 0 HP he turns and flees
-    // to the fog). Kept OUT of _wolves so the normal chase/straggler-cleanup ignore him; the AI loop
-    // drives his flee run and despawns him at the timeout / arena edge.
     private Npc? _fleeingAlpha;
     private long _alphaFleeUntilTicks;
-    private int _waveIndex;        // next wave to spawn (0-based into WaveSizes)
+    private int _waveIndex;
     private bool _waveScheduled;
-    private bool _roamerEngaged;   // set once the roamer has howled + spawned wave 1 (gates the kickoff)
+    private bool _roamerEngaged;
     private int _killedSnarlers;
     private bool _won;
-    private bool _victoryUiDone; // wheel/score/teardown delivered (first door click or proximity)
-    private int _encounterRun; // bumped every StartEncounter; stops stale AI loops
+    private bool _victoryUiDone;
+    private int _encounterRun;
 
-    // PARTY CO-OP: the players currently in this arena instance. The encounter runs ONCE (started by
-    // the first entrant = the party leader who pressed GO!); co-entrants join the running fight rather
-    // than resetting it. Every shared encounter packet is Broadcast to all of them, so a solo player
-    // (party of one) behaves exactly as before. The AI still ANCHORS on the first entrant (_anchor)
-    // for wolf targeting — v1 co-op: wolves chase the leader, the whole party fights them.
     private readonly List<Player> _activePlayers = [];
     private Player? _anchor;
 
-    // Knockout counter/limit — top-left combat HUD (op39/sub23 MiniGameKnockOut, Max=5 ground-truthed
-    // from the 2014-04-01 burst idx 28043/28060/28071). Solo = 5 on live.
-    // (KnockoutLimit + the knockout/fail/revive lifecycle now live in CombatEncounterZone.)
-
-    // THE Goals-window goal (video: the panel shows only this). id 12642 / NameId 104176 =
-    // "Scare away the wolves!" (confirmed live 2026-07-03). GROUND TRUTH (launch decode): the live
-    // goal is Total=1 (a one-shot "deal with the pack" flag) — NO per-kill count ticks; it completes
-    // in one go at the win via op45/sub3 + op47/sub3.
     private const int GoalScareWolves = 12642;
     private const int GoalScareWolvesNameId = 104176;
     private const int GoalScareWolvesDescId = 104177;
 
-    // PRIZES — the offer popup's reward list AND the victory loot-wheel slices (both render from the
-    // details packet's PREVIEW reward bundle; see RewardEntry). GROUND TRUTH 2026-07-04: decoded verbatim
-    // from the real 04-01 launch packet (idx 28053) — and that player was ALSO a ninja, so this IS the
-    // correct job set for us (icons/names/ids cross-checked against ClientItemDefinitions.json).
-    // Job dependence is server-side: live picks the set for the player's ACTIVE job and stamps
-    // MiniGameInfo.ProfileType with the job CATEGORY (2 = combat jobs, Profiles.json Type).
     public const int CombatProfileType = 2;
     public static List<RewardEntry> NinjaPrizePreview() =>
     [
-        new() { Hidden = true,  IconId = 2483, TintId = 234, NameId = 133217, ItemDefId = 76209 }, // Kusa Ninja Tabi Boots
-        new() {                 IconId = 3717, TintId = 264, NameId = 131152, ItemDefId = 75408 }, // Ninja's Power Shard of Regeneration I
-        new() {                 IconId = 3229, TintId = 247, NameId = 131975, ItemDefId = 75091 }, // Ninja's Training Sword of 1000 Storms
-        new() {                 IconId = 1198, TintId = 0,   NameId = 131129, ItemDefId = 75385 }, // Ninja's Necklace of Vitality I
-        new() { Hidden = true,  IconId = 973,  TintId = -1,  NameId = 6666,   ItemDefId = 10482 }, // Battle Item Mystery Pack
+        new() { Hidden = true,  IconId = 2483, TintId = 234, NameId = 133217, ItemDefId = 76209 },
+        new() {                 IconId = 3717, TintId = 264, NameId = 131152, ItemDefId = 75408 },
+        new() {                 IconId = 3229, TintId = 247, NameId = 131975, ItemDefId = 75091 },
+        new() {                 IconId = 1198, TintId = 0,   NameId = 131129, ItemDefId = 75385 },
+        new() { Hidden = true,  IconId = 973,  TintId = -1,  NameId = 6666,   ItemDefId = 10482 },
     ];
-    // Real preview bundle values, IDA-verified 2026-07-04 (bundle U2 = Num Coins, U3 = Experience):
-    // 10 coins, 0 XP. The encounter's XP was granted by the GOAL's own reward bundle on live — that's
-    // EncounterXp below, granted for real in WinEncounter via the job XP/level system.
     public const int PrizeCoins = 10;
     public const int PrizeXp = 0;
 
-    // Job XP granted at the encounter win (live: 10, delivered by the goal's own reward
-    // bundle rather than the wheel preview — the popup preview correctly keeps showing 0 XP).
     public const int EncounterXp = 10;
 
-    // ARCHER set — the REFERENCE VIDEO's ground truth (its player was an archer; popup frame at 0:09
-    // shows exactly these three): Power Shard of Vitality I / Ring of Regeneration I / Bow of Volleys —
-    // the mirror of the ninja structure (shard + training weapon + jewelry). The two HIDDEN slots
-    // aren't visible in the video, so: the boots are INFERRED by tier index (ninja hidden boot = its
-    // costume family's TIER 2, archer tier 2 = Hen Feather; 11 tiers in both families) and the
-    // Mystery Pack slot is the shared consumable prize.
-    public const int ArcherProfileId = 35; // Profiles.json "Archer" (Type 2 = combat category)
+    public const int ArcherProfileId = 35;
     public static List<RewardEntry> ArcherPrizePreview() =>
     [
-        new() { Hidden = true,  IconId = 4939, TintId = 247, NameId = 132741, ItemDefId = 75733 }, // Hen Feather Archer Boots (inferred tier-2)
-        new() {                 IconId = 3721, TintId = 230, NameId = 130968, ItemDefId = 75224 }, // Archer's Power Shard of Vitality I (video)
-        new() {                 IconId = 547,  TintId = 0,   NameId = 130924, ItemDefId = 75180 }, // Archer's Ring of Regeneration I (video)
-        new() {                 IconId = 3104, TintId = 228, NameId = 131884, ItemDefId = 75000 }, // Archer's Bow of Volleys (video)
-        new() { Hidden = true,  IconId = 973,  TintId = -1,  NameId = 6666,   ItemDefId = 10482 }, // Battle Item Mystery Pack (shared slot)
+        new() { Hidden = true,  IconId = 4939, TintId = 247, NameId = 132741, ItemDefId = 75733 },
+        new() {                 IconId = 3721, TintId = 230, NameId = 130968, ItemDefId = 75224 },
+        new() {                 IconId = 547,  TintId = 0,   NameId = 130924, ItemDefId = 75180 },
+        new() {                 IconId = 3104, TintId = 228, NameId = 131884, ItemDefId = 75000 },
+        new() { Hidden = true,  IconId = 973,  TintId = -1,  NameId = 6666,   ItemDefId = 10482 },
     ];
 
-    // The reward set for the player's ACTIVE JOB — live behavior: the interact/launch packets
-    // carry no profile, the SERVER picks the set for the player's active job and stamps only the job
-    // CATEGORY (ProfileType=2, combat). Ninja = 04-01 capture ground truth; Archer = reference-video
-    // ground truth (3 visible) + tier-2 boot inference. Other combat jobs fall back to ninja until
-    // authored — the pattern per job: tier-2 costume boots (hidden) + Power Shard of X I + training
-    // weapon + jewelry of Y I + Mystery Pack, all in the job's 75xxx item block.
-    // The SAME set must be used at offer, launch, AND the win-time wheel packet — the client resolves
-    // the wheel's landing slice by matching NameId against the launch packet's stored preview rows.
     public static List<RewardEntry> GetPrizePreviewFor(Player player) =>
         player.ActiveProfileId == ArcherProfileId ? ArcherPrizePreview() : NinjaPrizePreview();
 
-    // The goal, defined inline in the launch details packet. GROUND TRUTH: live 12642 ships
-    // Status=1, Count=0, Total=1, Unknown8=0.
     private static IEnumerable<EncounterObjective> EncounterObjectives =>
     [
         new EncounterObjective
@@ -387,49 +237,34 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
     private static BaseZoneDefinition CreateDefinition() => new FrostfangArenaDefinition
     {
-        Id = 174, // the Frostfang Growler activity id (traceability; the runtime zone Id is assigned by the manager)
+        Id = 174,
         Name = "sg_random_encounter_clearing",
         TileSize = 64,
-        // The clearing is tiny (playable r100 around (136,165)); pad the tile grid generously around it.
         StartLongitude = -2,
         EndLongitude = 8,
         StartLatitude = -2,
         EndLatitude = 8,
-        Sky = null, // the GO! teleport sends sky_shrouded_gloam.xml (encounter mood); world default otherwise
-        // Live player spawn (04-01 capture, first c2s position idx 28214): (130.11, 1.03, 120.04) — the
-        // SOUTH edge of the clearing, ~52u from the roaming wolf up at z~172. The player walks that whole
-        // stretch north before closing on the roamer (matches the video's long approach). Spawning at the
-        // arena centre (136,165) put the player ~10u from the roamer — right on top of it. GroundY+2 keeps
-        // the small settle-drop onto real ground.
+        Sky = null,
         SpawnPosition = new Vector4(130.11f, GroundY + 2f, 120.04f, 1f),
         SpawnRotation = Quaternion.Identity,
     };
 
-    // Where GO! drops the player (the pinned override, if the user set one, else the real center).
     public Vector4 EffectiveSpawn => SpawnOverride ?? SpawnPosition;
 
     #region Zone lifecycle
 
     public override void OnClientIsReady(Player player)
     {
-        // Finish the client's zone-in (same tail the starting zone sends): vitals + "zone data done".
-        // Do NOT spawn NPCs here: the client sends ClientIsReady ~0.35s after BeginZoning, while the load
-        // screen is still up, and discards every AddNpc sent then (LIVE TESTS 8+9, 2026-07-02).
-        EnterAtFullVitals(player); // real max HP + mana so the bar matches the real-damage bites
+        EnterAtFullVitals(player);
 
         player.SendTunneled(new PacketZoneDoneSendingInitialData());
         player.SendTunneled(new ClientUpdatePacketDoneSendingPreloadCharacters());
 
-        // Keep the weapon-driven ability toolbar alive in the arena (any kit job — ninja or archer),
-        // warming the FX cache so first casts render (see JobWeaponAbilities.PreloadAbilityEffects).
         JobWeaponAbilities.SendToolbarWithFxPreload(player, _resourceManager);
     }
 
-    // The load screen has actually dropped (this is the handler that flips Player.Visible=true), so the
-    // client accepts AddNpc from here on. This is the encounter's true start line.
     public override void OnClientFinishedLoading(Player player)
     {
-        // Prune anyone who has already left (so a solo re-entry resets a stale instance cleanly).
         ActivePlayers();
 
         bool first;
@@ -442,14 +277,11 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         if (first)
         {
-            // First entrant (the party leader who pressed GO!) — spawn the encounter + start the AI.
             _anchor = player;
             StartEncounter(player);
         }
         else
         {
-            // A party member joining the running fight: don't reset it — deliver the combat gate +
-            // goals to THEM, and push the currently-alive encounter NPCs so they see the fight.
             _logger.LogInformation("Frostfang arena: {name} joined the party fight (member #{n}).",
                 player.Name, _activePlayers.Count);
             DeliverEntrySequence(player, _encounterRun);
@@ -457,16 +289,12 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
     }
 
-    // Broadcast a shared encounter packet to every player currently in this arena instance.
-    // For a solo player this is exactly the old per-player send; for a party it drives everyone.
     protected override void Broadcast(ISerializablePacket packet)
     {
         foreach (var p in ActivePlayers())
             p.SendTunneled(packet);
     }
 
-    // Push the currently-alive encounter NPCs (wolves/alpha/hearts/door) to a player who
-    // just joined mid-fight, so the running encounter is visible to them.
     private void PushLiveEncounterTo(Player player)
     {
         List<Npc> live = [];
@@ -518,12 +346,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             _won = false;
             _encounterRun++;
 
-            // The lone ROAMER — live pre-spawns it before the player's launch burst; the video shows
-            // it ambling around as the player loads in. It wanders at walk speed until attacked.
             SpawnRoamer(player);
         }
 
-        // THE COMBAT GATE + Goals — delivered per-player (each member needs their own MiniGameState).
         DeliverEntrySequence(player, _encounterRun);
 
         _logger.LogInformation("Frostfang arena: encounter start for {name} — roamer out, {waves} waves queued.",
@@ -532,11 +357,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         StartWolfAi(player, _encounterRun);
     }
 
-    // The per-player combat gate + goals burst (RE'd — see PacketEncounterDataCommon). Sent a
-    // beat after the load settles (LIVE TEST 12: the client's zone-in tail resets encounter/UI state
-    // right after FinishedLoading, so same-instant delivery is dropped). Called for the anchor at
-    // StartEncounter AND for every party member who joins the running fight, so each gets their own
-    // MiniGameState (without which op45 goal packets are silently dropped and the goals pane never shows).
     private void DeliverEntrySequence(Player player, int run)
     {
         _ = Task.Run(async () =>
@@ -548,19 +368,15 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 if (player.Zone != this || run != _encounterRun)
                     return;
 
-                // MASTER GATE (RE'd 2026-07-02): the LAUNCH form of the details packet creates the
-                // client's MiniGameState. While it's empty, every op45 objective packet is dropped and
-                // IsInMiniGame() stays false. Type MUST be COMBAT (4) — the status handler only
-                // populates the objective pane for a combat-type minigame.
                 EncounterDetailsResponsePacket MakeLaunch() => new()
                 {
                     Unknown = EncounterId,          // live header ints = [encounterId][instanceId]
                     Unknown2 = EncounterInstanceId,
-                    NameId = 93276,                 // "Frostfang Growler!" (ClientActivityDefinitions Id 174)
+                    NameId = 93276,
                     DescriptionId = 104171,
                     Difficulty = 1,
                     IconId = 1345,
-                    MiniGameType = CombatMiniGameType,   // 4 = COMBAT — the goals-pane gate
+                    MiniGameType = CombatMiniGameType,
                     Launch = true,
                     Objectives = [.. EncounterObjectives],
                     PreviewRewards = GetPrizePreviewFor(player),
@@ -577,35 +393,28 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                     PlayerGuid = guid,
                 };
 
-                // ★ EXACT REAL-SERVER ENTRY SEQUENCE (2014-04-01 capture idx 28043-28224): LAUNCH twice
-                // with a PlayerEnter between them (the first Populate fires before the status handler
-                // exists; the PlayerEnter brings the HUD up; the second re-fires Populate). The op47 goal
-                // row must be in the DS before the PlayerEnter (else ObjectiveListPopulate hides it).
                 UiObjectiveAddPacket ScareWolvesRow() => new()
                 {
                     ObjectiveId = GoalScareWolves,
                     NameId = GoalScareWolvesNameId,
                 };
 
-                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit)); // 28043
-                player.SendTunneled(new ObjectiveActivatePacket    // op45 activate (announce)
+                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit));
+                player.SendTunneled(new ObjectiveActivatePacket
                 {
                     ObjectiveId = GoalScareWolves,
-                    Total = 1, // live goal total — a one-shot flag, not a wolf counter
+                    Total = 1,
                 });
-                player.SendTunneled(ScareWolvesRow());   // 28049 — op47 "Scare away the wolves!"
-                player.SendTunneled(MakeLaunch());       // 28053 — create state + goals
-                player.SendTunneled(MakeEnter(0));       // 28058 — PlayerEnter: showMinigame
-                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit)); // 28060
-                player.SendTunneled(MakeLaunch());       // 28065 — LAUNCH again: re-fire Populate
-                player.SendTunneled(ScareWolvesRow());   // 28069 — op47 row again (real server repeats)
-                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit)); // 28071
-                player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules()); // 28122 — op62
-                player.SendTunneled(MakeEnter(player.Guid)); // 28224 — PlayerEnter (player guid)
+                player.SendTunneled(ScareWolvesRow());
+                player.SendTunneled(MakeLaunch());
+                player.SendTunneled(MakeEnter(0));
+                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit));
+                player.SendTunneled(MakeLaunch());
+                player.SendTunneled(ScareWolvesRow());
+                player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit));
+                player.SendTunneled(PacketEncounterDataCommon.CreateCombatRules());
+                player.SendTunneled(MakeEnter(player.Guid));
 
-                // NO op41/132 (OverworldCombat) or 133 (IsFighting) here: live sends NEITHER during the
-                // encounter (whole 04-01 capture), and sending them flips the knockout window to the
-                // overworld PAID-revive variant (play-test 2026-07-15 — the wrong-window bug).
                 player.SendTunneled(new EncounterStatePacket
                 {
                     EncounterId = EncounterId,
@@ -623,10 +432,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         });
     }
 
-    // ── Spawning ─────────────────────────────────────────────────────────────────────────────────────
-
-    // The pre-spawned lone roamer (live: wolf_evil + tint 'evil_purple', AddNpc Speed=3.0,
-    // NO spawn poof) — ambles around the mid-arena until attacked, then charges like the pack.
     private void SpawnRoamer(Player player)
     {
         var roamer = CreateWolf(player, EvilWolfModelId, RoamerNameId, "evil", "evil_purple",
@@ -642,13 +447,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             Home = roamer.Position,
         };
 
-        // The roamer walks from the start (live ES 3.0 shortly after spawn).
         Broadcast(new PlayerUpdatePacketExpectedSpeed { Guid = roamer.Guid, ExpectedSpeed = RoamSpeed });
         SendWolfMinimapMarkers(player, [roamer.Guid]);
     }
 
-    // Spawn the next wave (caller holds _stateLock): live sizes 6/9/10/10, two wolf_evil in
-    // each, the Alpha alongside the final wave, all at the baked live spawn points.
     private void SpawnWave(Player player)
     {
         if (_waveIndex >= WaveSizes.Length)
@@ -661,7 +463,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         var newGuids = new List<ulong>(size + 1);
 
-        // Pick distinct spawn points for this wave.
         var points = new List<Vector3>(SpawnPoints);
         for (var i = 0; i < size; i++)
         {
@@ -670,7 +471,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 : SpawnPoints[_rng.Next(SpawnPoints.Length)];
             points.Remove(pt);
 
-            var evil = i < EvilPerWave; // live: exactly two wolf_evil per wave
+            var evil = i < EvilPerWave;
             var wolf = CreateWolf(player,
                 evil ? EvilWolfModelId : SnowWolfModelId,
                 evil ? SnarlerEvilNameId : SnarlerSnowNameId,
@@ -693,17 +494,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         if (isLastWave)
         {
-            // ★ THE ALPHA — spawns WITH the last wave on live (idx 35077, third actor of the burst):
-            // big (1.7) snow_blue wolf, plate + health bar SHOWN (the video's floating red name + red
-            // bar — the red comes from hostile disposition + the name resolver; live sends NO op32/sub9
-            // boss display and no NameColor).
             _alpha = CreateWolf(player, SnowWolfModelId, AlphaNameId, "snow", "snow_blue",
                 AlphaHealth, AlphaScale, AlphaSpawn, showPlate: true, AlphaActiveProfile, spawnFx: 0, speed: 0f);
             if (_alpha is not null)
             {
-                // The Alpha rides the SAME AI list as the pack (the loop ticks _wolves) so he charges +
-                // bites like the others — he was missing from _wolves before, so he just stood there.
-                // OnNpcKilled special-cases him (defeat -> flee -> win) via the _alpha reference.
                 _wolves.Add(_alpha);
                 _wolfStates[_alpha.Guid] = new WolfState
                 {
@@ -725,9 +519,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         SendWolfMinimapMarkers(player, newGuids);
     }
 
-    // Live: one op35/sub10 AddNotifications per wave — a short "combat" entry per wolf,
-    // which is what paints the red enemy dots on the minimap. Broadcast so every party member's
-    // minimap shows the pack (the player arg is kept for call-site symmetry).
     private void SendWolfMinimapMarkers(Player player, IReadOnlyList<ulong> guids)
     {
         if (guids.Count == 0)
@@ -745,13 +536,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         if (!TryCreateNpc(out var npc))
             return null;
 
-        // ★ Every field below mirrors the live AddNpc packets verbatim (04-01 capture decode
-        // 2026-07-05). Pack wolves: NameId set but plate HIDDEN + no bar (no overhead UI at all —
-        // video-confirmed); the NameId still feeds the target frame when clicked. The Alpha flips
-        // showPlate: plate + bar visible -> the floating red name + red bar over his head.
         npc.ModelId = modelId;
-        // The Alpha (showPlate) keeps his named plate; the pack shows a NAMELESS plate so their HEALTH BAR
-        // still renders (the bar is a nameplate element — a hidden plate meant no bar, only a flash-on-hit).
         npc.NameId = showPlate ? nameId : 0;
         npc.Name = null;
         npc.TextureAlias = textureAlias;
@@ -759,40 +544,30 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         npc.HideNamePlate = false;
         npc.ShowHealthBar = true;
         npc.Scale = scale;
-        npc.Disposition = 0;            // hostile
-        // Non-zero ActiveProfile makes the client's AddNpc apply re-run the name color resolver AFTER
-        // disposition lands -> hostile + NameColor unset = RED (see Npc.Disposition notes). Live uses
-        // the real job-profile ids 151 (pack) / 152 (alpha).
+        npc.Disposition = 0;
         npc.ActiveProfile = activeProfile;
-        npc.CompositeEffectId = spawnFx; // 46 = the live spawn poof on wave wolves (0 on roamer/alpha)
+        npc.CompositeEffectId = spawnFx;
         npc.MaxHealth = health;
         npc.Health = health;
-        // A combat target, NOT an NPC: no "Press X to talk" interact prompt. (The live capture had 1 here, but
-        // the wolves have no InteractAction so the prompt is dead UI — and it made enemies look clickable.
-        // IsInteractable=false + the crossed-swords cursor still leaves them attackable, same as the dummy.)
         npc.IsInteractable = false;
-        npc.InteractRange = 100;        // live: range 100 on every wolf
+        npc.InteractRange = 100;
         npc.Visible = true;
-        npc.CursorId = 11;              // crossed-swords attack cursor (delivered via NpcRelevance)
+        npc.CursorId = 11;
 
-        // Locomotion: model's own clips (-1), PHYSICS movement, live wire values.
         npc.WalkAnimId = -1;
         npc.RunAnimId = -1;
         npc.StandAnimId = -1;
         npc.MovementType = WolfMovementTypePhysics;
-        npc.Speed = speed;              // live: 0 on wave wolves (ExpectedSpeed drives them), 3.0 roamer
-        npc.RiderGuid = ulong.MaxValue; // "no rider" invalid-guid sentinel gate
+        npc.Speed = speed;
+        npc.RiderGuid = ulong.MaxValue;
 
         npc.UpdatePosition(pos, Quaternion.Identity);
 
-        // Push directly so EVERY party member in the arena sees it immediately (co-op). For a solo
-        // player this loop runs once = the old single-player push.
         foreach (var p in ActivePlayers())
         {
             p.OnAddVisibleNpcs(npc);
             npc.OnAddVisiblePlayers(p);
 
-            // Live post-spawn burst, in order: UpdateMana then CharacterState baseline.
             p.SendTunneled(new PlayerUpdatePacketUpdateMana { Guid = npc.Guid });
             p.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
             {
@@ -800,19 +575,14 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 Status = (CharacterStatus)CharState_Baseline,
             });
 
-            // Clickable attack target (cursor via relevance — same recipe as the training dummy).
             SendNpcRelevance(p, npc);
 
-            // Belt-and-suspenders hostile mark (op35/sub28).
             p.SendTunneled(new PlayerUpdatePacketUpdateDisposition { Guid = npc.Guid, Disposition = 0 });
         }
 
         return npc;
     }
 
-    // Snapshot of the players currently in this arena instance (co-op recipients). Filters
-    // out any who have left (teleported to another zone) and prunes them so a departed member never
-    // receives encounter packets and the instance can reset once it truly empties.
     private Player[] ActivePlayers()
     {
         lock (_stateLock)
@@ -824,10 +594,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
     }
 
-    // ── AI ───────────────────────────────────────────────────────────────────────────────────────────
-
-    // Chase-the-player AI: position tick + client interpolation; bites use CombatPacketAttackProcessed
-    // (live per-bite packet: wolf attacker, player target, fx 5409 / crit 5622).
     private void StartWolfAi(Player player, int run)
     {
         _ = Task.Run(async () =>
@@ -846,9 +612,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         return;
                     }
 
-                    // Target the whole GROUP: each wolf picks its nearest live player every tick, so the pack
-                    // spreads across the party and re-targets when a player falls. Loop lifetime is the run + any
-                    // players remaining (not one anchor leaving).
                     var players = ActivePlayers();
                     if (players.Length == 0)
                     {
@@ -856,7 +619,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         return;
                     }
 
-                    // Walk-over pickups + the door proximity check — any party member.
                     foreach (var p in players)
                     {
                         CollectHearts(p);
@@ -873,13 +635,11 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                     }
 
                     if (pack.Length == 0 && fleeingAlpha is null)
-                        continue; // between waves or encounter done
+                        continue;
 
                     var now = Environment.TickCount64;
                     var dt = TickMs / 1000f;
 
-                    // The defeated Alpha runs for the fog (kept out of _wolves so nothing else touches him). He
-                    // flees away from the nearest standing player (or any player if the whole party is down).
                     if (fleeingAlpha is not null)
                     {
                         var alphaHere = new Vector3(fleeingAlpha.Position.X, fleeingAlpha.Position.Y, fleeingAlpha.Position.Z);
@@ -899,9 +659,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
                         var here = new Vector3(wolf.Position.X, wolf.Position.Y, wolf.Position.Z);
 
-                        // Whole party down: DISENGAGE — amble back to the spawn post and idle there until someone
-                        // revives (shared tick; resets Charging/Planted so the wolf re-engages cleanly). Otherwise
-                        // this wolf's target is the nearest player still standing.
                         var tgt = NearestLivePlayer(here, players);
                         if (tgt is null)
                         {
@@ -911,10 +668,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
                         var target = new Vector3(tgt.Position.X, tgt.Position.Y, tgt.Position.Z);
 
-                        // ROAMER: amble between random waypoints at walk speed until a player closes in
-                        // (proximity — the live trigger) or hits it (OnNpcDamaged). Either fires the howl
-                        // via EngageRoamer. Scenery until then, matching the video's load-in wolf. Once it
-                        // has howled it stops roaming (falls through to the hold+charge gate below).
                         if (state.IsRoamer && !state.Charging && !state.Howled)
                         {
                             var dxr = target.X - here.X;
@@ -931,12 +684,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                             }
                         }
 
-                        // Quake/Earth-Shard stun: frozen in place (no move, no bite) until it wears off.
                         if (now < state.StunnedUntil)
                             continue;
 
-                        // Standing still: the roamer holding its howl pose, or a wave wolf in its ~2.2s
-                        // post-spawn idle — either way, wait out ChargeAtTicks, then charge.
                         if (!state.Charging)
                         {
                             if (now < state.ChargeAtTicks)
@@ -944,9 +694,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                             BeginCharge(tgt, wolf, state);
                         }
 
-                        // CHARGING: converge on an owned slot around the player, plant + bite in range — the
-                        // shared tick (identical to the pre-spawned zones; wolves just use MobChaseSpeed=6 and
-                        // the pack-wide bite spacing lives on the base attack gate now).
                         TickMobCombat(wolf, state, tgt, target, now, dt);
                     }
                 }
@@ -960,8 +707,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         });
     }
 
-    // Wander tick: walk to a random waypoint near mid-arena at live walk speed (3.0),
-    // pause a beat, pick another. No biting — the roamer is scenery until provoked.
     private void TickRoamer(Player player, Npc wolf, WolfState state, Vector3 here, long now, float dt)
     {
         if (state.WanderTarget is null)
@@ -969,7 +714,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             if (now < state.WanderPauseUntil)
                 return;
 
-            // New waypoint within ~14m of the roamer's home spot, kept inside the clearing.
             var angle = (float)(_rng.NextDouble() * Math.Tau);
             var dist = 5f + (float)_rng.NextDouble() * 9f;
             state.WanderTarget = new Vector2(
@@ -983,7 +727,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         if (d < 0.5f)
         {
-            // Arrived — stand for 1.5-3.5s (send one stopped update so the client halts locomotion).
             state.WanderTarget = null;
             state.WanderPauseUntil = now + 1500 + _rng.Next(2000);
             Broadcast(new PlayerUpdatePacketUpdatePosition
@@ -1007,9 +750,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         });
     }
 
-    // The live aggro burst, verbatim order: ExpectedSpeed 3.0 -> ExpectedSpeed 6.0 ->
-    // CharacterState 0x8001. The Alpha skips the 0x8001 (bit15 at spawn suppressed overhead plates in
-    // our 2026-07-03 live test, and his plate must stay visible — video-first).
     private void BeginCharge(Player player, Npc wolf, WolfState state)
     {
         state.Charging = true;
@@ -1028,11 +768,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
     }
 
-    // The roamer's fight-kickoff (live idx 28467-28471): it plants, rears into a commanding
-    // howl — SetAnimation com_cast_01 (1111) + PlayCompositeEffect 15226 (moire "commanding-shout" rings
-    // over its head), animation and FX FIRING TOGETHER (EffectDelay 0) — and the pack spawns. It holds
-    // the pose for RoamerHowlHoldMs (the AI loop then charges it via ChargeAtTicks) so the howl reads
-    // before the lunge. Fires exactly once — proximity or a hit on the roamer (both idempotent).
     private void EngageRoamer(Player player, Npc roamer, WolfState state)
     {
         lock (_stateLock)
@@ -1041,7 +776,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 return;
             _roamerEngaged = true;
 
-            // Plant it where it stands so the client stops its wander walk and plays the howl cleanly.
             var facePlayer = new Vector2(player.Position.X - roamer.Position.X, player.Position.Z - roamer.Position.Z);
             var faceLen = facePlayer.Length();
             var faceDir = faceLen > 0.01f ? facePlayer / faceLen : new Vector2(0f, 1f);
@@ -1051,8 +785,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 Guid = roamer.Guid, Position = roamer.Position, Rotation = howlRot, State = 1, Unknown = 0,
             });
 
-            // The howl — animation and composite together (EffectDelay 0 keeps the FX in sync with the
-            // pose; the live 2000 fired the rings ~2s late, which read as "the FX only went as he charged").
             Broadcast(new PlayerUpdatePacketSetAnimation
             {
                 Guid = roamer.Guid,
@@ -1068,18 +800,13 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 Clear = true,
             });
 
-            // Hold the pose, THEN charge — the loop's charge gate waits out ChargeAtTicks.
             state.Howled = true;
             state.ChargeAtTicks = Environment.TickCount64 + RoamerHowlHoldMs;
 
-            // The pack answers the call — not a moment before.
             SpawnWave(player);
         }
     }
 
-    // The defeated Alpha's flee run: sprint straight AWAY from the player (facing that way,
-    // no biting) until the flee timeout or he reaches the arena edge, then a small poof + despawn.
-    // Smooth server-driven movement — no death clip, no teleport.
     private void TickFleeingAlpha(Player player, Npc alpha, long now, float dt)
     {
         var here = new Vector3(alpha.Position.X, alpha.Position.Y, alpha.Position.Z);
@@ -1093,17 +820,16 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             lock (_stateLock)
             {
                 if (!ReferenceEquals(_fleeingAlpha, alpha))
-                    return; // already handled
+                    return;
                 _fleeingAlpha = null;
             }
             Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { alpha.Guid } });
-            alpha.GracefulRemoval = (false, 0, 0, DeathPoofFxId, 1000); // quiet poof once he's in the fog
+            alpha.GracefulRemoval = (false, 0, 0, DeathPoofFxId, 1000);
             alpha.Dispose();
             _logger.LogInformation("Frostfang arena: the fled Alpha reached the fog -> despawned.");
             return;
         }
 
-        // Run directly away from the player and face that way.
         var awayX = here.X - player.Position.X;
         var awayZ = here.Z - player.Position.Z;
         var len = MathF.Sqrt(awayX * awayX + awayZ * awayZ);
@@ -1123,7 +849,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         });
     }
 
-    // Provoking the roamer (any damage) flips it into a normal charger.
     public override void OnNpcDamaged(Player player, Npc npc)
     {
         lock (_stateLock)
@@ -1136,10 +861,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
     }
 
-    // ── Hearts ───────────────────────────────────────────────────────────────────────────────────────
-
-    // Drop a heart pickup (736 = powerup_health_buff.adr) — live spawns one at the defeated
-    // Alpha's spot; mid-fight drops are random (the video's +125 heal at 1:05).
     private void SpawnHeart(Player player, Vector4 pos)
     {
         if (!TryCreateNpc(out var heart))
@@ -1147,16 +868,16 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         heart.ModelId = HeartModelId;
         heart.Name = null;
-        heart.NameId = 5102381;       // live heart NameId
-        heart.Disposition = 1;        // neutral (not a combat target)
+        heart.NameId = 5102381;
+        heart.Disposition = 1;
         heart.Scale = 1f;
-        heart.IsInteractable = false; // auto-collected by walking over it, no click prompt
+        heart.IsInteractable = false;
         heart.InteractRange = 0;
         heart.Visible = true;
-        heart.MaxHealth = 0;          // not damageable
+        heart.MaxHealth = 0;
         heart.ShowHealthBar = false;
         heart.HideNamePlate = true;
-        heart.ActiveProfile = 8;      // live heart AddNpc value
+        heart.ActiveProfile = 8;
         heart.WalkAnimId = -1;
         heart.RunAnimId = -1;
         heart.StandAnimId = -1;
@@ -1171,8 +892,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             _hearts.Add(heart);
     }
 
-    // Walk-over heart collection: within range → +125 heal number + green FX, remove the
-    // heart with the live pickup effect (graceful remove, fx 15032 — verbatim capture params).
     private void CollectHearts(Player player)
     {
         List<Npc>? collected = null;
@@ -1195,7 +914,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         foreach (var h in collected)
         {
-            // Real heal into the player's HP pool + the green "+125" number (self-sourced, on the player).
             var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
             player.CurrentHitpoints = Math.Min(maxHp, player.CurrentHitpoints + HeartHeal);
             player.SendTunneled(new ClientUpdatePacketHitpoints
@@ -1213,22 +931,15 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 Unknown4 = HeartHeal,
             });
 
-            // ★ THE HEALING BUFF, live-exact (04-01 idx 37215+37219, byte-decoded): op35/41 heal-shower
-            // loop THEN the op38/16 buff-bar tag (type 2, ×1.33, 15s, icon 17348, ability 6211, shower
-            // composite echoed in the tag, sourced from the heart's guid). Auto-reverts after 15s.
             StatusEffects.ApplyBuffTag(player, HeartBuffIconId, HeartBuffNameId, HealShowerMs,
                 magnitude: HeartBuffMult, fxId: HealShowerFxId, abilityId: HeartBuffAbilityId,
                 sourceGuid: h.Guid);
 
-            // Live heart removal: graceful, fx 15032 (the pickup sparkle), params verbatim.
             h.GracefulRemoval = (false, 0, 5000, HeartPickupFxId, 1000);
             h.Dispose();
         }
     }
 
-    // ── Powerups: drop / walk-over collect / the "3"-key use ─────────────────────────────────────────
-
-    // Drop a powerup at a wolf's death spot — same neutral walk-over actor recipe as the heart.
     private void SpawnPowerup(Player player, Vector4 pos, PowerupKind kind)
     {
         if (!TryCreateNpc(out var pu))
@@ -1272,9 +983,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         _logger.LogInformation("Frostfang arena: dropped a {kind} powerup.", kind);
     }
 
-    // Walk-over powerup collection. Instant kinds (Energy/Damage — the `_buff` model family) apply on
-    // pickup like the heart; held kinds (Flame Wave / Quake / Super Shield) go into action-bar slot 3
-    // for the "3" key (wiki), replacing whatever was held.
     private void CollectPowerups(Player player)
     {
         List<(Npc Npc, PowerupKind Kind)>? collected = null;
@@ -1287,9 +995,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 var dz = player.Position.Z - p.Position.Z;
                 if (dx * dx + dz * dz > HeartPickupRange * HeartPickupRange)
                     continue;
-                // ENERGY at a full bar stays on the ground (user design call) — it collects on a later
-                // walk-over once some energy has been spent. (Hearts intentionally NOT gated: the live
-                // player collected one at full HP.)
                 if (k == PowerupKind.Energy && CombatBuffs.IsEnergyFull?.Invoke(player) == true)
                     continue;
                 (collected ??= []).Add(_powerups[i]);
@@ -1305,13 +1010,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             switch (kind)
             {
                 case PowerupKind.Energy:
-                    // Instant refill (wiki: "Replenishes energy") — the ability handler owns the bar.
                     CombatBuffs.RequestEnergyRefill(player);
                     break;
 
                 case PowerupKind.Damage:
-                    // Capture-verbatim: ×1.33 outgoing damage for ~15s + barrier-rock loop on the body,
-                    // buff tag live-exact (idx 30275: type 2, ×1.33, 15s, icon 17351, ability 6213).
                     CombatBuffs.AddDamageBuff(player.Guid, DamageBuffPct, DamageBuffMs);
                     StatusEffects.ApplyBuffTag(player, 17351, PowerupNameId, DamageBuffMs,
                         magnitude: DamageBuffPct / 100f, fxId: DamageBuffBodyFxId, abilityId: 6213,
@@ -1320,7 +1022,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
                 default:
                     lock (_stateLock)
-                        _heldPowerup = kind; // one at a time — a new pickup replaces the held one
+                        _heldPowerup = kind;
                     SendPowerupSlot(player);
                     break;
             }
@@ -1332,8 +1034,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
     }
 
-    // The "3" key (action-bar slot index 2, routed from the ability handler): fire the held powerup.
-    // Returns false if nothing is held.
     public bool UseHeldPowerup(Player player)
     {
         PowerupKind kind;
@@ -1347,7 +1047,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         var now = Environment.TickCount64;
 
-        // No use gesture existed in the real game — an anim only plays when one was set via !pufx.
         var useAnim = kind switch
         {
             PowerupKind.FlameWave => FlameWaveAnimId,
@@ -1370,7 +1069,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         switch (kind)
         {
             case PowerupKind.FlameWave:
-                // "Instantly damages all surrounding enemies."
                 Broadcast(new PlayerUpdatePacketPlayCompositeEffect
                 {
                     Guid = player.Guid,
@@ -1381,7 +1079,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 break;
 
             case PowerupKind.Quake:
-                // "Damages all enemies around you and briefly stuns them" (Earth Shard).
                 Broadcast(new PlayerUpdatePacketPlayCompositeEffect
                 {
                     Guid = player.Guid,
@@ -1404,8 +1101,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         }
                     }
                 }
-                // The stun must READ as a stun: real IsStunned state + stars-over-head (StatusEffects,
-                // auto-reverts) + knock the wolf down and stand it back up when the freeze ends.
                 foreach (var wolf in stunned)
                 {
                     StatusEffects.Apply(wolf, StatusEffectKind.Stun, QuakeStunMs,
@@ -1429,14 +1124,12 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                                     AnimationId = WolfGetUpAnimId,
                                 });
                     }
-                    catch { /* instance torn down mid-stun */ }
+                    catch {  }
                 });
                 break;
 
             case PowerupKind.Shield:
-                // "Increases your speed and makes you invulnerable for a few moments."
                 player.InvulnerableUntilTicks = now + ShieldMs;
-                // Buff-bar tag (shield icon + duration pie) + the blue-swirl barrier loop, live pairing.
                 StatusEffects.ApplyBuffTag(player, ShieldIconId, ShieldBuffNameId, ShieldMs,
                     magnitude: ShieldSpeedMult, fxId: ShieldFxId);
 
@@ -1452,17 +1145,16 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                         if (player.Zone == this)
                             player.UpdateCharacterStats(new CharacterStat(CharacterStatId.MaxMovementSpeed, baseSpeed));
                     }
-                    catch { /* player left mid-buff */ }
+                    catch {  }
                 });
                 break;
         }
 
         _logger.LogInformation("Frostfang arena: player used the held {kind} powerup.", kind);
-        SendPowerupSlot(player); // re-send the bar with slot 3 cleared
+        SendPowerupSlot(player);
         return true;
     }
 
-    // Radial damage helper for the held offensive powerups (bypasses the energy gate).
     private void DamageWolvesAround(Player player, float radius, int damage)
     {
         List<Npc> victims = [];
@@ -1496,8 +1188,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
     }
 
-    // Debug: "!pu <flame|quake|shield|energy>" — hand the player a powerup directly (skips the drop
-    // grind while tuning FX/feel). Held kinds land on the "3" key like a pickup.
     public bool GrantPowerup(Player player, string kind)
     {
         switch (kind)
@@ -1522,8 +1212,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         return true;
     }
 
-    // Debug: "!pufx <flame|quake|shield> <fxId> [animId]" — retarget a held powerup's use-FX (and
-    // optionally its use-animation) live (no wire ground truth exists; found by eye).
     public static bool TrySetPowerupFx(string kind, int fxId, int? animId = null)
     {
         switch (kind)
@@ -1545,8 +1233,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
     }
 
-    // Re-send the ability toolbar with the held powerup pinned at slot index 2 (the "3" key) — or
-    // cleared when nothing is held.
     private void SendPowerupSlot(Player player)
     {
         AbilityPacketSetDefinition.Slot? slot = null;
@@ -1563,8 +1249,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         player.SendTunneled(JobWeaponAbilities.BuildToolbar(player, _resourceManager, slot));
     }
-
-    // ── Kills / waves / victory ─────────────────────────────────────────────────────────────────────
 
     public override void OnNpcKilled(Player killer, Npc npc)
     {
@@ -1586,7 +1270,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 _wolfStates.Remove(npc.Guid);
                 _killedSnarlers++;
 
-                // Live wave trigger: the next wave runs in when the field is (nearly) clear.
                 if (_wolves.Count <= 1 && _waveIndex < WaveSizes.Length && !_waveScheduled && !_won)
                 {
                     _waveScheduled = true;
@@ -1595,13 +1278,10 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             }
             else
             {
-                return; // not an encounter NPC
+                return;
             }
         }
 
-        // Clear the minimap combat marker for everyone, then the ONE live death packet:
-        // RemovePlayerGracefully (Animate=true -> the client plays the wolf's death clip). The graceful
-        // removal itself reaches all members via npc.Dispose (the wolf's visible set = all members).
         Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } });
 
         if (!alphaDown)
@@ -1610,8 +1290,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             var deathPos = npc.Position;
             npc.Dispose();
 
-            // Random mid-fight drops: heart (video: the +125 pickup) and, on a separate roll, one of
-            // the wiki's powerups (Energy / Flame Wave / Earth Shard / Super Shield).
             if (_rng.Next(100) < HeartDropPercent)
                 SpawnHeart(killer, deathPos);
             else if (_rng.Next(100) < PowerupDropPercent)
@@ -1622,14 +1300,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             return;
         }
 
-        // ★ THE ALPHA IS DEFEATED — he FLEES, he does NOT die (video 1:25-1:35: at 0 HP he turns and
-        //   runs off into the fog). We keep him alive-but-INVULNERABLE and drive a real run AWAY from
-        //   the player in the AI loop (TickFleeingAlpha) until the timeout / arena edge, then poof.
-        //   (The earlier build reused the pack "animate + poof" graceful-remove here, which made the
-        //   client play his DEATH clip in place — he "died instead of fleeing", the user's report. The
-        //   live graceful-remove(animate,delay=10000) is ambiguous; driving the run explicitly
-        //   guarantees the video's flee.) He's out of _wolves already (above) + invulnerable, so he
-        //   can't be hit while fleeing and nothing else moves him — no teleport stutter.
         _logger.LogInformation("Frostfang arena: the Alpha is DEFEATED -> he flees to the fog; encounter won.");
 
         var alphaPos = npc.Position;
@@ -1665,15 +1335,8 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         });
     }
 
-    // The win moment — every beat verbatim from the live capture burst: the Alpha's parting
-    // drops (heart + coin pop), the goal completing (green ✓ "Goal Complete!"), the loot wheel + score
-    // rows, and the exit door. NO auto-return — the player leaves through the door.
     private void WinEncounter(Player player, Vector4 alphaPos)
     {
-        // Clear any pack wolves still alive — on live the Alpha spawns WITH the final wave, so the
-        // player can defeat him while stragglers remain, and the win burst removes them (04-01: wolves
-        // 0x22/0x26 removed right after the Alpha at 37148). Without this they'd keep biting on the
-        // victory screen. Scatter them off with the same graceful poof + clear their minimap dots.
         List<Npc> stragglers;
         lock (_stateLock)
         {
@@ -1689,42 +1352,29 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             straggler.Dispose();
         }
 
-        // 1) The Alpha's parting drops at his EXACT defeat spot — heart + coin pop (pure theater; the
-        //    real reward is the wheel/XP below). Spawned once at the death spot.
         SpawnHeart(player, alphaPos);
         SpawnCoinPop(player, alphaPos);
 
-        // ★ CO-OP: award the win to EVERY party member in the arena (each gets their own goal
-        // complete, XP, and quest credit). For a solo player this loops once.
         foreach (var member in ActivePlayers())
         {
-            // Goal complete — op45/sub3 (green-check announce) + op47/sub3 (Goals-window row done).
             member.SendTunneled(new ObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
             member.SendTunneled(new UiObjectiveCompletePacket { ObjectiveId = GoalScareWolves });
 
-            // Goal reward XP (drives the member's active-job level bar) + the fly-in banner.
             member.AwardXp(EncounterXp);
             member.SendTunneled(new RewardBundlePacket { Xp = EncounterXp });
 
-            // Credit any quest whose active goal is "win THIS encounter" (EncounterComplete id 174).
             _questManager.OnEncounterComplete(member, EncounterId);
         }
 
-        // THE EXIT DOOR — spawned once, visible + clickable to all members. The loot wheel + score
-        // card fire on the FIRST DOOR CLICK (or walking up to it), NOT at the win moment — the
-        // user-confirmed live timing (the wheel-at-win teardown popped the card mid-arena).
         SpawnExitDoor(player);
 
         _logger.LogInformation("Frostfang arena: encounter WON — exit door out ({kills} kills).", _killedSnarlers);
     }
 
-    // First door interaction (click or proximity) after the win: the loot wheel + score card + the
-    // win teardown for the whole party, ONCE. The card's own exit button (op41/109) then routes to
-    // LeaveEncounter -> ReturnHome; a second door click leaves too.
     private void SendVictoryWheelAndScore()
     {
         var enemies = _killedSnarlers;
-        var knockoutsLeft = Math.Max(0, KnockoutLimit - KnockoutsUsed(0)); // pooled — guid unused
+        var knockoutsLeft = Math.Max(0, KnockoutLimit - KnockoutsUsed(0));
         MiniGameGameEndScorePacket MakeScore()
         {
             var s = new MiniGameGameEndScorePacket();
@@ -1736,10 +1386,8 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         foreach (var member in ActivePlayers())
         {
-            // Loot wheel — each member spins their OWN prize (server picks it; the spin is theater).
-            // Must be the member's own active-job set (NameId matching — see GetPrizePreviewFor).
             var prizes = GetPrizePreviewFor(member);
-            var slice = _rng.Next(prizes.Count + 1); // 0..N-1 = items, N = coins
+            var slice = _rng.Next(prizes.Count + 1);
             var wheel = new MiniGameLootWheelSetItemToLandOnPacket();
             if (slice < prizes.Count)
             {
@@ -1756,7 +1404,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
             member.SendTunneled(wheel);
             member.SendTunneled(MakeScore());
-            EndEncounterForPlayer(member, won: true); // teardown pops the persistent win card w/ wheel
+            EndEncounterForPlayer(member, won: true);
         }
 
         _logger.LogInformation("Frostfang arena: victory wheel + score delivered at the door.");
@@ -1775,14 +1423,12 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         if (first)
         {
             SendVictoryWheelAndScore();
-            return; // the player leaves via the card's exit button (or a second door click)
+            return;
         }
 
         base.UseExitDoor(player);
     }
 
-    // Post-Dec-2009 behavior: standing near the victory door for a moment auto-opens the score
-    // screen — no click needed (the click also works, and makes you invulnerable on live).
     private const float DoorProximityRange = 3f;
 
     private void CheckDoorProximity(Player player)
@@ -1803,8 +1449,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             SendVictoryWheelAndScore();
     }
 
-    // The live coin-pile pop: loot_coins_01 spawns at the Alpha's spot, gets a Knockback
-    // along a random direction + a burst effect, and is removed almost immediately.
     private void SpawnCoinPop(Player player, Vector4 pos)
     {
         if (!TryCreateNpc(out var coins))
@@ -1820,7 +1464,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         coins.Visible = true;
         coins.MaxHealth = 0;
         coins.HideNamePlate = true;
-        coins.ActiveProfile = 28;     // live coins AddNpc value
+        coins.ActiveProfile = 28;
         coins.WalkAnimId = -1;
         coins.RunAnimId = -1;
         coins.StandAnimId = -1;
@@ -1850,7 +1494,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         {
             try
             {
-                await Task.Delay(150); // live removes the pile ~0.1s after the pop
+                await Task.Delay(150);
                 coins.GracefulRemoval = (false, 0, 0, 0, 1000);
                 coins.Dispose();
             }
@@ -1861,8 +1505,6 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         });
     }
 
-    // The live exit door (846 = sg_exit_door_01.adr at (145, 0, 173.35), scale 1.2): AddNpc
-    // hostile-then-SetDisposition(neutral) exactly like the wire, cursor 17, minimap exit badge.
     private void SpawnExitDoor(Player player)
     {
         if (!TryCreateNpc(out var door))
@@ -1871,17 +1513,16 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         door.ModelId = DoorModelId;
         door.NameId = DoorNameId;
         door.Name = null;
-        door.Disposition = 1;           // spawn NEUTRAL: the nameplate color LOCKS at AddNpc, so live's
-                                        // 0-then-sub28-flip renders a RED name (play-test 2026-07-12)
+        door.Disposition = 1;
         door.Scale = DoorScale;
         door.IsInteractable = true;
         door.InteractRange = DoorInteractRange;
         door.Visible = true;
         door.MaxHealth = 0;
         door.ShowHealthBar = false;
-        door.HideNamePlate = false;     // live: plate shown (door name on approach)
+        door.HideNamePlate = false;
         door.ActiveProfile = DoorActiveProfile;
-        door.CursorId = DoorCursorId;   // live NpcRelevance cursor 17
+        door.CursorId = DoorCursorId;
         door.WalkAnimId = -1;
         door.RunAnimId = -1;
         door.StandAnimId = -1;
@@ -1894,9 +1535,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         {
             Guid = door.Guid,
             Combat = false,
-            Type = DoorBadgeType,           // live: 7
+            Type = DoorBadgeType,
             Unknown3 = DoorBadgeUnknown3,   // live: 102
-            ImageId = DoorMinimapImageId,   // live: 186 (minimap exit icon)
+            ImageId = DoorMinimapImageId,
             DescriptionId = 0,
             NameId = DoorNameId,
             SubTextId = -1,
@@ -1905,15 +1546,11 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             Unknown10 = true                // constant 1 across all live samples
         });
 
-        // CO-OP: the door must be visible + clickable to EVERY party member so each can leave. For a
-        // solo player this loops once.
         foreach (var p in ActivePlayers())
         {
             p.OnAddVisibleNpcs(door);
             door.OnAddVisiblePlayers(p);
 
-            // Live companion burst: SetDisposition(neutral), baseline state, cursor relevance, badge.
-            // NO vitals packet (the door renders an overhead bar for any value — user-confirmed).
             p.SendTunneled(new PlayerUpdatePacketUpdateDisposition { Guid = door.Guid, Disposition = 1 });
             p.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
             {
@@ -1927,21 +1564,16 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         SetExitDoor(door);
     }
 
-    // Release the client from the encounter (RE'd exit protocol): remove the minigame
-    // state (op39/sub19 — full client-side teardown incl. combat exit for combat-type games) and
-    // restore the default combat ruleset (op62) + clear the transient fighting state. Without this
-    // the client stays InCombat forever (can't change jobs after leaving — LIVE TEST 11 bug).
-
     protected override void ReturnHome(Player player)
     {
         if (player.Zone != this)
-            return; // already left
+            return;
 
         bool won, tornDown;
         lock (_stateLock)
         {
             won = _won;
-            tornDown = _victoryUiDone; // the door-click wheel/score burst already tore the UI down
+            tornDown = _victoryUiDone;
         }
 
         if (!tornDown)
@@ -1952,13 +1584,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         player.TeleportToZone(home, home.SpawnPosition, home.SpawnRotation, sky: null, geometryId: 0);
     }
 
-    // Knockout / fail / revive lifecycle lives in CombatEncounterZone — supply the encounter id + log label.
-    // (Bites deal real damage, so hitting 0 HP knocks the player out and the 5th knockout fails the encounter.)
     protected override int FailEncounterId => EncounterId;
     protected override int FailInstanceId => EncounterInstanceId;
     protected override string EncounterLogName => "Frostfang arena";
-
-    // MoveToward is the shared CombatEncounterZone helper now.
 
     #endregion
 }

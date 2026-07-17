@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Net;
 
@@ -54,12 +54,10 @@ internal class TestConnection : UdpConnection
 
         switch (opCode)
         {
-            // Client < Server
             case 1:
                 buf[0] = 0x02;
                 break;
 
-            // Client > Server
             case 2:
                 buf[0] = 0x01;
                 break;

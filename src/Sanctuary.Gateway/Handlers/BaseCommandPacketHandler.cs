@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -44,26 +44,18 @@ public static class BaseCommandPacketHandler
             CommandPacketIgnoreRequest.OpCode => CommandPacketIgnoreRequestHandler.HandlePacket(connection, reader.Span),
             CommandPacketChatChannelOn.OpCode => CommandPacketChatChannelOnHandler.HandlePacket(connection, reader.Span),
             CommandPacketChatChannelOff.OpCode => CommandPacketChatChannelOffHandler.HandlePacket(connection, reader.Span),
-            23 => CommandPacketQuestAbandonHandler.HandlePacket(connection, reader.Span), // "Drop Quest" (journal)
-            6 => HandleDialogResponse(connection),                                        // 26/6 PacketDialogResponse
+            23 => CommandPacketQuestAbandonHandler.HandlePacket(connection, reader.Span),
+            6 => HandleDialogResponse(connection),
             _ => LogUnhandled(opCode, reader)
         };
     }
 
-    // The player clicked a response button on a CommandPacketShowDialog (26/3) NPC conversation. Wire-
-    // confirmed: the client sends 26/6 (payload = int response Id). Respond with the proper NPC-dialog
-    // teardown CommandPacketEndDialog (26/4 -> client FUN_008a7ce0 frees the native dialog object at
-    // +0x654 and restores the camera via FUN_009f6890). NOT sub-opcode 29 (QuestDialogComplete): that
-    // dispatches "QuestStartHandler:DismissEndScreen", which is for the quest END SCREEN - sending it
-    // here hid the whole HUD and locked player movement (no end screen was open to dismiss).
     private static bool HandleDialogResponse(GatewayConnection connection)
     {
         connection.Player.SendTunneled(new CommandPacketEndDialog());
         return true;
     }
 
-    // INSTANCE WIP: observe-log unmapped command sub-opcodes so we can see what the offer popup requests when it
-    // opens — e.g. CommandPacketRequestRewardPreviewUpdate (sub37, the "Prizes" loader the spinner waits on).
     private static bool LogUnhandled(short subOpCode, PacketReader reader)
     {
         _logger.LogInformation("BaseCommandPacket UNHANDLED sub-opcode={sub} | remaining bytes={hex}",

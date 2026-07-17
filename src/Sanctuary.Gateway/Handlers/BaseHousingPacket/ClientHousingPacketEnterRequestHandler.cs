@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Numerics;
 
@@ -47,35 +47,28 @@ public static class ClientHousingPacketEnterRequestHandler
         
         var playerId = GuidHelper.GetPlayerId(connection.Player.Guid);
         
-        // Get or create player's house
         var dbHouse = dbContext.Houses
             .Include(h => h.Fixtures)
             .FirstOrDefault(h => h.OwnerId == playerId);
 
         if (dbHouse == null)
         {
-            // Create default house for player
             dbHouse = CreateDefaultHouse(dbContext, playerId);
             _logger.LogInformation("Created new house for player {name}", connection.Player.Name.FirstName);
         }
 
-        // Get house definition
         if (!_resourceManager.Houses.TryGetValue(dbHouse.HouseDefinitionId, out var houseDefinition))
         {
             _logger.LogError("Invalid house definition ID: {id}", dbHouse.HouseDefinitionId);
             return false;
         }
 
-        // Store current house in player connection for furniture operations
         connection.Player.CurrentHouseGuid = dbHouse.Id;
 
-        // Begin zone transition to house
         SendZoneTransition(connection, dbHouse, houseDefinition);
 
-        // Send house instance data
         SendHouseData(connection, dbHouse, houseDefinition);
 
-        // Send furniture data
         SendFurnitureData(connection, dbHouse);
 
         _logger.LogInformation("Player {name} entered house successfully", connection.Player.Name.FirstName);
@@ -88,7 +81,7 @@ public static class ClientHousingPacketEnterRequestHandler
         var house = new DbHouse
         {
             OwnerId = playerId,
-            HouseDefinitionId = 1, // Default: Seaside Beach house
+            HouseDefinitionId = 1,
             NameId = 0,
             CustomName = null,
             IsLocked = false,
@@ -114,15 +107,13 @@ public static class ClientHousingPacketEnterRequestHandler
 
     private static void SendZoneTransition(GatewayConnection connection, DbHouse dbHouse, Game.Resources.Definitions.HouseDefinition houseDefinition)
     {
-        // Get zone definition for this house
-        string zoneName = "hsg_emptylot_seaside_beach_01"; // Default fallback
-        string sky = "sky_seaside24.xml"; // Default sky
-        int geometryId = 214; // Seaside housing geometry ID (client-side)
+        string zoneName = "hsg_emptylot_seaside_beach_01";
+        string sky = "sky_seaside24.xml";
+        int geometryId = 214;
         
-        // Always use spawn position from Houses.json (more reliable than zone files)
         var spawnPosition = new Vector4(
             houseDefinition.SpawnPosition.X,
-            houseDefinition.SpawnPosition.Y + 10f, // Add 10 units height to prevent falling
+            houseDefinition.SpawnPosition.Y + 10f,
             houseDefinition.SpawnPosition.Z,
             houseDefinition.SpawnPosition.W
         );
@@ -145,11 +136,10 @@ public static class ClientHousingPacketEnterRequestHandler
                 houseDefinition.ZoneId, houseDefinition.Id);
         }
 
-        // Send zone transition packet
         var packetClientBeginZoning = new PacketClientBeginZoning
         {
             Name = zoneName,
-            Type = 2, // Housing instance
+            Type = 2,
             Position = spawnPosition,
             Rotation = new Quaternion(spawnRotation.X, spawnRotation.Y, spawnRotation.Z, spawnRotation.W),
             Sky = sky,

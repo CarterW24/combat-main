@@ -1,11 +1,10 @@
-﻿namespace Sanctuary.Core.Configuration;
+namespace Sanctuary.Core.Configuration;
 
 public sealed class LoginServerOptions : ServerOptions
 {
     public required int LoginGatewayPort { get; set; }
     public required string LoginGatewayChallenge { get; set; }
 
-    // Locks the server and only allows admins to login.
     public bool IsLocked { get; set; }
 
     public int DefaultTitleId { get; set; }

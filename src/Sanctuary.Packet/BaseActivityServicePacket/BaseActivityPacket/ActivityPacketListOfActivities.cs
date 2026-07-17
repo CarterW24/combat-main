@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 using Sanctuary.Core.IO;
 using Sanctuary.Packet.Common;
@@ -9,8 +9,6 @@ public class ActivityPacketListOfActivities : BaseActivityPacket, ISerializableP
 {
     public new const byte OpCode = 1;
 
-    // 1 - PacketTunneledClientWorldPacket
-    // 2 - PacketTunneledClientPacket
     public int ServerType;
 
     public List<ClientActivityDefinition> Activities = [];

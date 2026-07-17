@@ -45,7 +45,6 @@ public static class ClientHousingPacketPlaceFixtureRequestHandler
 
         using var dbContext = _dbContextFactory.CreateDbContext();
 
-        // Create fixture in database
         var dbFixture = new DbHouseFixture
         {
             HouseId = connection.Player.CurrentHouseGuid,
@@ -69,7 +68,6 @@ public static class ClientHousingPacketPlaceFixtureRequestHandler
         _logger.LogInformation("Player {name} placed furniture item {itemId} at position {pos}", 
             connection.Player.Name.FirstName, packet.ItemDefinitionId, packet.Position);
 
-        // Send confirmation to client
         var response = new HousingPacketPlaceFixture
         {
             FixtureGuid = dbFixture.Id,
@@ -80,9 +78,6 @@ public static class ClientHousingPacketPlaceFixtureRequestHandler
         };
 
         connection.SendTunneled(response);
-
-        // TODO: Remove item from inventory if it was placed from inventory
-        // For now furniture items remain in inventory
 
         return true;
     }

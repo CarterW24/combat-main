@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 using Sanctuary.Core.IO;
 
@@ -14,10 +14,8 @@ public class PlayerUpdatePacketNpcRelevance : BasePlayerUpdatePacket, ISerializa
 
         public bool Unknown;
 
-        // Id from Cursors.txt
         public byte CursorId;
 
-        // True when the NPC should be selectable/clickable (quest NPCs send true).
         public bool HasCursor;
 
         public void Serialize(PacketWriter writer)

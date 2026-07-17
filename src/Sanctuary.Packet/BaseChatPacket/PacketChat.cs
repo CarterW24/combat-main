@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Numerics;
 
 using Sanctuary.Core.IO;
@@ -27,7 +27,6 @@ public class PacketChat : BaseChatPacket, ISerializablePacket, IDeserializable<P
 
     public int LanguageId;
 
-    // Only needed for WorldArea.
     public int AreaNameId;
 
     public PacketChat() : base(OpCode)

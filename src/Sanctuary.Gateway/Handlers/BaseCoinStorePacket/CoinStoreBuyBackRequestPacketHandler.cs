@@ -40,7 +40,6 @@ public static class CoinStoreBuyBackRequestPacketHandler
 
         _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(CoinStoreBuyBackRequestPacket), packet);
 
-        // TransactionId == 0 is a tab-activation list request — just send the current list.
         if (packet.TransactionId == 0)
         {
             var listResponse = new CoinStoreBuyBackResponsePacket();
@@ -137,7 +136,6 @@ public static class CoinStoreBuyBackRequestPacketHandler
             return true;
         }
 
-        // Update in-memory state
         transaction.QuantityRemaining -= quantity;
         if (transaction.QuantityRemaining <= 0)
             connection.Player.CoinStoreTransactions.Remove(transaction);
@@ -191,7 +189,6 @@ public static class CoinStoreBuyBackRequestPacketHandler
         coinStoreTransactionCompletePacket.TransactionRecord.MerchantGuid = connection.Player.ActiveMerchantGuid;
         connection.SendTunneled(coinStoreTransactionCompletePacket);
 
-        // Send updated buy-back list.
         var buyBackResponse = new CoinStoreBuyBackResponsePacket();
         buyBackResponse.Transactions.AddRange(
             connection.Player.CoinStoreTransactions.Where(x => x.Type == 2));

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -64,14 +64,12 @@ public static class CharacterDeleteRequestHandler
 
         try
         {
-            // Disable foreign key constraints temporarily (must be done outside transaction)
             dbContext.Database.ExecuteSqlRaw("PRAGMA foreign_keys = OFF");
 
             using var transaction = dbContext.Database.BeginTransaction();
 
             try
             {
-                // Delete related entities first
                 dbContext.Database.ExecuteSqlRaw("DELETE FROM Items WHERE CharacterId = {0}", characterId);
                 dbContext.Database.ExecuteSqlRaw("DELETE FROM Titles WHERE CharacterId = {0}", characterId);
                 dbContext.Database.ExecuteSqlRaw("DELETE FROM Mounts WHERE CharacterId = {0}", characterId);
@@ -79,7 +77,6 @@ public static class CharacterDeleteRequestHandler
                 dbContext.Database.ExecuteSqlRaw("DELETE FROM Ignores WHERE CharacterId = {0}", characterId);
                 dbContext.Database.ExecuteSqlRaw("DELETE FROM Profiles WHERE CharacterId = {0}", characterId);
 
-                // Now delete the character
                 dbContext.Database.ExecuteSqlRaw("DELETE FROM Characters WHERE Id = {0}", characterId);
 
                 transaction.Commit();
@@ -91,7 +88,6 @@ public static class CharacterDeleteRequestHandler
             }
             finally
             {
-                // Re-enable foreign key constraints
                 dbContext.Database.ExecuteSqlRaw("PRAGMA foreign_keys = ON");
             }
         }

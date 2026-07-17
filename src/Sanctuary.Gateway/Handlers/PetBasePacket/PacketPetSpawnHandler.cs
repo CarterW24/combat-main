@@ -43,7 +43,6 @@ public static class PacketPetSpawnHandler
             return true;
         }
 
-        // If pet is already spawned, dismiss it
         if (connection.Player.Pet is not null)
         {
             _logger.LogInformation("Pet already active, dismissing it. PetGuid={petGuid}", connection.Player.Pet.Guid);
@@ -51,7 +50,7 @@ public static class PacketPetSpawnHandler
             var petDismountResponsePacket = new PetDismountResponsePacket
             {
                 OwnerGuid = connection.Player.Guid,
-                CompositeEffectId = 46 // Teleport flash effect
+                CompositeEffectId = 46
             };
 
             connection.Player.SendTunneledToVisible(petDismountResponsePacket, true);
@@ -94,7 +93,7 @@ public static class PacketPetSpawnHandler
 
         pet.Scale = 1f;
         pet.Disposition = 1;
-        pet.Speed = 4.5f; // Default walking speed
+        pet.Speed = 4.5f;
 
         pet.HideNamePlate = true;
 

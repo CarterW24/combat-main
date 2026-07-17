@@ -42,7 +42,6 @@ public static class ClientHousingPacketPickupFixtureHandler
 
         using var dbContext = _dbContextFactory.CreateDbContext();
 
-        // Find the fixture
         var dbFixture = dbContext.HouseFixtures
             .FirstOrDefault(f => f.Id == packet.FixtureGuid && f.HouseId == connection.Player.CurrentHouseGuid);
 
@@ -53,23 +52,18 @@ public static class ClientHousingPacketPickupFixtureHandler
             return false;
         }
 
-        // Delete the fixture
         dbContext.HouseFixtures.Remove(dbFixture);
         dbContext.SaveChanges();
 
         _logger.LogInformation("Player {name} removed furniture fixture {guid} (item {itemId})", 
             connection.Player.Name.FirstName, packet.FixtureGuid, dbFixture.ItemDefinitionId);
 
-        // Send removal packet to client
         var response = new HousingPacketRemoveFixture
         {
             FixtureGuid = packet.FixtureGuid
         };
 
         connection.SendTunneled(response);
-
-        // TODO: Add item back to player's inventory
-        // For now the item is just deleted
 
         return true;
     }

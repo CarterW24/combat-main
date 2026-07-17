@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -73,7 +73,6 @@ public static class PacketLoginHandler
             return true;
         }
 
-        // Use ticket as key.
         connection.InitializeCipher(packet.Ticket);
 
         using var dbContext = _dbContextFactory.CreateDbContext();
@@ -179,22 +178,12 @@ public static class PacketLoginHandler
 
         connection.Send(packetLoginReply);
 
-        // TODO
-        // AchievementObjectiveActivatedPacket - Part 1?
-        // EncounterOverworldCombatPacket
-
         connection.SendInitializationParameters();
         connection.SendZoneDetails();
         connection.ClientGameSettings();
         connection.SendItemDefinitions();
 
-        // TODO
-        // AnnoucementDataSendPacket
-        // AchievementObjectiveActivatedPacket - Part 2?
-
         connection.SendSelfToClient();
-
-        // NOTE: PetListPacket (OpCode 5) is sent later in StartingZone.cs after zone initialization completes
 
         return true;
     }

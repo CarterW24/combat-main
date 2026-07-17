@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 
 if (args.Length < 2)
 {
@@ -27,7 +27,6 @@ var connectionString = $"Data Source={dbPath}";
 using var connection = new SqliteConnection(connectionString);
 connection.Open();
 
-// Split SQL into individual statements (simple split by semicolon)
 var statements = sql.Split(';', StringSplitOptions.RemoveEmptyEntries);
 
 foreach (var statement in statements)

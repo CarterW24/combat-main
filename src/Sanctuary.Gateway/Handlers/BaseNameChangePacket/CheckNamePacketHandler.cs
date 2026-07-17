@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +41,6 @@ public static class CheckNamePacketHandler
         checkNameResponsePacket.Type = packet.Type;
         checkNameResponsePacket.Guid = packet.Guid;
 
-        // TODO: Check if we have the item that let's us change name.
         if (packet.Token)
         {
             checkNameResponsePacket.Result = CheckNameResponse.FoundItem;
@@ -67,9 +66,6 @@ public static class CheckNamePacketHandler
 
     private static CheckNameResponse OnCheckCharacterName(GatewayConnection connection, CheckNamePacket packet)
     {
-        // TODO: Implement the following checks (https://archive.ph/3DB0L)
-        //  3 - Profane
-        // 11 - IllegalCharacters
 
         if (string.IsNullOrWhiteSpace(packet.Name.FirstName)
             || packet.Name.LastName != string.Empty && string.IsNullOrWhiteSpace(packet.Name.LastName))

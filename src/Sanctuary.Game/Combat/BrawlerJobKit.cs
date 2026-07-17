@@ -7,8 +7,6 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
-// Brawler kit — surface over the BrawlerWeaponAbilities table (Enrage is the one sheet-confirmed
-// row so far). No traits/AbilitiesScreen data yet.
 public sealed class BrawlerJobKit : IJobKit
 {
     public int ProfileId => BrawlerWeaponAbilities.BrawlerProfileId;

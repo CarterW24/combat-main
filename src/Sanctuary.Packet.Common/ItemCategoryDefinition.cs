@@ -1,4 +1,4 @@
-﻿using Sanctuary.Core.IO;
+using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet.Common;
 
@@ -10,8 +10,6 @@ public class ItemCategoryDefinition : ISerializableType
     public int Unknown;
     public bool Unknown2;
 
-    // 0 - Hidden
-    // X - Visible
     public int Display;
 
     public void Serialize(PacketWriter writer)

@@ -10,8 +10,6 @@ using Sanctuary.Packet.Common.Attributes;
 
 namespace Sanctuary.Gateway.Handlers;
 
-// Handles player auto-attack requests against NPCs.
-// Calculates melee damage using player stats and deals damage to the target CombatNpc.
 [PacketHandler]
 public static class CombatPacketAutoAttackTargetHandler
 {
@@ -36,14 +34,12 @@ public static class CombatPacketAutoAttackTargetHandler
         if (player.IsDead)
             return true;
 
-        // Find the target NPC
         if (!player.Zone.TryGetNpc(packet.TargetGuid, out var npc))
         {
             _logger.LogDebug("Auto-attack target {guid} not found.", packet.TargetGuid);
             return true;
         }
 
-        // Only attack CombatNpcs
         if (npc is not CombatNpc combatNpc)
         {
             _logger.LogDebug("Auto-attack target {guid} is not a combat NPC.", packet.TargetGuid);
@@ -53,7 +49,6 @@ public static class CombatPacketAutoAttackTargetHandler
         if (combatNpc.IsDead)
             return true;
 
-        // Check range
         var dx = player.Position.X - combatNpc.Position.X;
         var dz = player.Position.Z - combatNpc.Position.Z;
         var distance = MathF.Sqrt(dx * dx + dz * dz);
@@ -62,24 +57,20 @@ public static class CombatPacketAutoAttackTargetHandler
         var rangeMultiplier = player.Stats[CharacterStatId.RangeMultiplier].Float;
         var effectiveRange = weaponRange * rangeMultiplier;
 
-        if (distance > effectiveRange * 2f) // Allow some slack for client-server position desync
+        if (distance > effectiveRange * 2f)
         {
             _logger.LogDebug("Auto-attack target too far. Distance: {distance}, Range: {range}", distance, effectiveRange);
             return true;
         }
 
-        // Enter combat
         player.InCombat = true;
         player.LastCombatTime = DateTime.UtcNow;
         player.CombatTargetGuid = combatNpc.Guid;
 
-        // Calculate damage
         var damage = CalculateMeleeDamage(player);
 
-        // Deal damage to the NPC
         combatNpc.TakeDamage(damage, player);
 
-        // Send attack damage feedback to the player
         var attackDamage = new CombatPacketAttackTargetDamage
         {
             AttackerGuid = player.Guid,
@@ -89,7 +80,6 @@ public static class CombatPacketAutoAttackTargetHandler
 
         player.SendTunneled(attackDamage);
 
-        // Send attack processed
         var attackProcessed = new CombatPacketAttackProcessed();
         player.SendTunneled(attackProcessed);
 
@@ -100,7 +90,6 @@ public static class CombatPacketAutoAttackTargetHandler
     {
         var random = Random.Shared;
 
-        // Base damage from stats
         var weaponDamage = player.Stats[CharacterStatId.EquippedMeleeWeaponDamage].Int;
         var handToHandDamage = player.Stats[CharacterStatId.MeleeHandToHandDamage].Int;
         var damageMultiplier = player.Stats[CharacterStatId.DamageMultiplier].Float;
@@ -110,11 +99,9 @@ public static class CombatPacketAutoAttackTargetHandler
         var baseDamage = Math.Max(weaponDamage, handToHandDamage);
         var totalDamage = (int)((baseDamage + damageAddition) * damageMultiplier * weaponDamageMultiplier);
 
-        // Add variance (±20%)
         var variance = 0.8f + random.NextSingle() * 0.4f;
         totalDamage = (int)(totalDamage * variance);
 
-        // Check for critical hit
         var critChance = player.Stats[CharacterStatId.MeleeCriticalHitChance].Int;
         var critMultiplier = player.Stats[CharacterStatId.MeleeCriticalHitMultiplier].Float;
 

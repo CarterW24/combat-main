@@ -6,7 +6,6 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
-// Archer kit — a thin surface over ArcherWeaponAbilities.
 public sealed class ArcherJobKit : IJobKit
 {
     public int ProfileId => ArcherWeaponAbilities.ArcherProfileId;

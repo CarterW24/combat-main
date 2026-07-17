@@ -7,13 +7,11 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
-// Wizard kit — surface over the WizardWandAbilities wand tables (49 wands, spreadsheet-confirmed).
-// No traits/AbilitiesScreen data yet: those return null/none until the wizard sheet rows land.
 public sealed class WizardJobKit : IJobKit
 {
     public int ProfileId => WizardWandAbilities.WizardProfileId;
     public bool UsesCombatEnergy => true;
-    public float AutoTargetReach => 25f; // wand basics are RANGED
+    public float AutoTargetReach => 25f;
     public IReadOnlyList<int> SlotAbilityDefIds { get; } = new[] { NinjaWeaponAbilities.MeleeAbilityDefId, NinjaWeaponAbilities.SpecialAbilityDefId };
     public IReadOnlyList<int> WeaponDefIds => Array.Empty<int>();
 

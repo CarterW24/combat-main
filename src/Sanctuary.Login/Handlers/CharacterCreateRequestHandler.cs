@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -71,8 +71,6 @@ public static class CharacterCreateRequestHandler
 
             return true;
         }
-
-        // TODO: Validate name against CharacterCreateItemClothingSets.txt, CharacterCreateItemMappings.txt
 
         if (!_resourceManager.Models.TryGetValue(characterData.Model, out var model))
         {
@@ -372,7 +370,6 @@ public static class CharacterCreateRequestHandler
                 Level = 1
             };
 
-            // TODO
             if (profileData.DefaultItems.Count == 0)
             {
                 dbProfile.Items.Add(chestItem);

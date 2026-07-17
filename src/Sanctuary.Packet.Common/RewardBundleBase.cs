@@ -1,4 +1,4 @@
-﻿using Sanctuary.Core.IO;
+using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet.Common;
 
@@ -42,7 +42,6 @@ public class RewardBundleBase : ISerializableType
 
         writer.Write(NameId);
 
-        // TODO Entries
         writer.Write(0);
 
         writer.Write(Unknown15);

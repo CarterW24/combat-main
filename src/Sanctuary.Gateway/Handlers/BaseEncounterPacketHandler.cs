@@ -16,21 +16,14 @@ using Sanctuary.Packet.Common.Attributes;
 
 namespace Sanctuary.Gateway.Handlers;
 
-// INSTANCE WIP (Frostfang Fury): the C2S dispatcher for BaseEncounterPacket (op41). Previously NOTHING routed
-// op41 inbound — clicking GO! on the adventure offer popup fell through unhandled. This reads the sub-opcode and
-// dispatches. It also OBSERVE-LOGS every sub-opcode (like BaseAbilityPacketHandler) so we can see exactly what
-// the offer popup's buttons send (sub108 EncounterParticipantRequestEntrance = GO!; sub109 RequestExit; etc.)
-// and reconstruct their wire formats from the live bytes.
 [PacketHandler]
 public static class BaseEncounterPacketHandler
 {
-    // op41 sub-opcodes (from exports/packet-opcode-map.tsv).
-    private const short EncounterParticipantRequestEntrance = 108; // C2S = the GO! / "Press to Teleport" button.
-    private const short EncounterRequestExit = 109;                // C2S = the "Leave" button on the encounter UI.
-    private const short EncounterParticipantResume = 122;          // C2S = the "Revive" button on the respawn window.
-    private const short EncounterCancelPending = 124;              // C2S = closing the dungeon start/offer panel.
+    private const short EncounterParticipantRequestEntrance = 108;
+    private const short EncounterRequestExit = 109;
+    private const short EncounterParticipantResume = 122;
+    private const short EncounterCancelPending = 124;
 
-    // "Revive here" coin cost (matches the window's displayed 100).
     private const int ReviveHereCost = 100;
 
     private static ILogger _logger = null!;
@@ -63,17 +56,10 @@ public static class BaseEncounterPacketHandler
             EncounterRequestExit => HandleRequestExit(connection),
             EncounterParticipantResume => HandleResume(connection, reader),
             EncounterCancelPending => HandleCancelPending(connection),
-            // observe-only: don't hard-fail unknown/unmapped encounter sub-opcodes while we reverse them
             _ => true
         };
     }
 
-    // CLOSE START PANEL (op41/sub124): closing the dungeon offer/start panel without pressing GO! leaves the
-    // client in the encounter/minigame LOBBY state the offer put it in (EncounterState 2..5), which gates the
-    // HUD + input. QuestDialogComplete alone only restored the camera — the game stayed input-locked until the
-    // player pressed Escape. Tear the lobby down the same way a clean encounter exit does
-    // (EncounterArenaZone.EndEncounterForPlayer): MiniGameStateRemove + the default encounter data drop the
-    // gate so the player is free the instant they close the panel.
     private static bool HandleCancelPending(GatewayConnection connection)
     {
         _logger.LogInformation("Dungeon start panel closed by {name} — tearing down the encounter lobby.", connection.Player.Name);
@@ -84,20 +70,16 @@ public static class BaseEncounterPacketHandler
         return true;
     }
 
-    // REVIVE BUTTONS (op41/sub122 Resume): the overworld pay/safe respawn window. Wire format (live capture):
-    //   [op41][sub122][int][int][byte option]  — option 1 = "Revive here" (paid), 0 = "Revive at safe" (free).
     private static bool HandleResume(GatewayConnection connection, PacketReader reader)
     {
-        reader.TryRead(out int _);          // header int 1 (encounter id / unused for overworld)
-        reader.TryRead(out int _);          // header int 2
-        reader.TryRead(out byte option);    // 1 = Revive here (paid) · 0 = Revive at safe location (free)
+        reader.TryRead(out int _);
+        reader.TryRead(out int _);
+        reader.TryRead(out byte option);
 
         var player = connection.Player;
         if (!player.IsDead)
             return true;
 
-        // In a combat instance the Revive button just revives you at your spot (no pay/safe choice) — that
-        // flow lives in the zone's OnPlayerRespawn (revive at death position + FX).
         if (player.Zone is EncounterArenaZone or FrostfangArenaZone or TormentedSpiritsArenaZone)
         {
             _logger.LogInformation("Revive button in {zone} for {name}.", player.Zone.GetType().Name, player.Name);
@@ -105,8 +87,6 @@ public static class BaseEncounterPacketHandler
             return true;
         }
 
-        // "Revive here" (paid): charge the coins and come back at the exact death spot. If they can't
-        // afford it, fall back to the free safe revive rather than leaving them stuck.
         if (option == 1)
         {
             if (player.Coins >= ReviveHereCost && TrySpendCoins(connection, ReviveHereCost))
@@ -120,7 +100,6 @@ public static class BaseEncounterPacketHandler
             _logger.LogInformation("Revive here declined (insufficient coins) for {name} — safe revive instead.", player.Name);
         }
 
-        // "Revive at safe location" (free): back at the nearest town/warpstone.
         var safe = NearestTownSpawn(player.DeathPosition);
         _logger.LogInformation("Revive at SAFE location (free) for {name}.", player.Name);
         player.Respawn();
@@ -128,8 +107,6 @@ public static class BaseEncounterPacketHandler
         return true;
     }
 
-    // Nearest town/warpstone POI (NotificationType 7) spawn to the given spot; falls back to the
-    // spot itself if none are loaded.
     private static Vector4 NearestTownSpawn(Vector4 from)
     {
         var best = from;
@@ -151,8 +128,6 @@ public static class BaseEncounterPacketHandler
         return best;
     }
 
-    // Seamless in-world teleport (server position + client UpdateLocation), same recipe as atlas
-    // fast-travel.
     private static void TeleportTo(Game.Entities.Player player, Vector4 target)
     {
         player.UpdatePosition(target, player.Rotation);
@@ -164,7 +139,6 @@ public static class BaseEncounterPacketHandler
         });
     }
 
-    // Deduct coins (DB + player + client counter). Returns false if the character row is missing.
     private static bool TrySpendCoins(GatewayConnection connection, int coins)
     {
         using var dbContext = _dbContextFactory.CreateDbContext();
@@ -180,11 +154,6 @@ public static class BaseEncounterPacketHandler
         return true;
     }
 
-    // LEAVE BUTTON (op41/sub109 RequestExit): bail out of a combat instance back to the overworld. Uses
-    // LeaveEncounter, NOT UseExitDoor — the latter is the VICTORY door and now raises a "You Win!" card, which
-    // would be flat wrong for a quit. LeaveEncounter tears down immediately when no card is up, and when one IS
-    // up (the client also fires RequestExit as it closes the result panel) it exits exactly as closing the card
-    // does. No-ops when the player isn't in an encounter (e.g. this fires again once they're already home).
     private static bool HandleRequestExit(GatewayConnection connection)
     {
         var player = connection.Player;

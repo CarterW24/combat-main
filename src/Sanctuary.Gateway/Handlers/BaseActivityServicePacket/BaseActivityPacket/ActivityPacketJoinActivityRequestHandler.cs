@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -38,7 +38,6 @@ public static class ActivityPacketJoinActivityRequestHandler
         if (!_resourceManager.ClientActivityDefinitions.TryGetValue(packet.ActivityId, out var clientActivityDefinition))
             return true;
 
-        // Free Realms Trading Card Game Lobby
         if (packet.ActivityId == 7)
         {
             var miniGameInfo = new MiniGameInfo()
@@ -48,7 +47,7 @@ public static class ActivityPacketJoinActivityRequestHandler
                 DescriptionId = clientActivityDefinition.DisplayDescriptionId,
                 Difficulty = clientActivityDefinition.Difficulty,
                 ProfileType = 0,
-                Type = 16, // Trading Card Game
+                Type = 16,
                 PreselectedGameId = 7
             };
 
@@ -64,8 +63,8 @@ public static class ActivityPacketJoinActivityRequestHandler
 
             miniGameInfo.Serialize(writer);
 
-            writer.Write(0); // Unused
-            writer.Write(0); // Unused
+            writer.Write(0);
+            writer.Write(0);
 
             writer.Write(miniGameGroupInfo.Serialize());
 
@@ -112,7 +111,6 @@ public static class ActivityPacketJoinActivityRequestHandler
 
             connection.SendTunneled(miniGameInfoPacket);
         }
-        // Mining Practice
         else if (packet.ActivityId == 1113)
         {
             var miniGameInfo = new MiniGameInfo()
@@ -122,7 +120,7 @@ public static class ActivityPacketJoinActivityRequestHandler
                 DescriptionId = clientActivityDefinition.DisplayDescriptionId,
                 Difficulty = clientActivityDefinition.Difficulty,
                 ProfileType = 1,
-                Type = 3, // Client Flash
+                Type = 3,
                 PreselectedGameId = 1113,
                 Unknown11 = true,
                 Unknown13 = "game_hidden.gfx"
@@ -189,12 +187,6 @@ public static class ActivityPacketJoinActivityRequestHandler
 
             connection.SendTunneled(miniGameInfoPacket);
         }
-        // ★ COMBAT DUNGEONS: pressing Play on a dungeon in the minigames menu's "Battles" section (and
-        // clicking its marker on the atlas) sends JoinActivityRequest with its activity id. Don't drop the
-        // player straight into the instance — open the dungeon START PANEL first (name/description/difficulty
-        // + reward preview + the green GO!), exactly like clicking the dungeon's overworld entrance does.
-        // GO! then routes back through EncounterParticipantRequestEntranceHandler -> EnterEncounterArena
-        // (which is what actually transfers the player, and pulls their party in for co-op).
         else if (Sanctuary.Game.Dungeons.DungeonCatalog.ByActivity.TryGetValue(packet.ActivityId, out var dungeon))
         {
             _logger.LogInformation("Battles/atlas join -> dungeon start panel for activity {id} ({name}).",

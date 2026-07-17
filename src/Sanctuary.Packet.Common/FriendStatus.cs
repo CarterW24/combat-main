@@ -1,11 +1,9 @@
-﻿using Sanctuary.Core.IO;
+using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet.Common;
 
 public class FriendStatus : ISerializableType
 {
-    // 110 - Online
-    // 111 - Offline
     public int Status;
 
     public int CurrentMiniGameType;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -24,15 +24,12 @@ public class ZoneManager : IZoneManager
     private const int StartingZoneDefinitionId = 1;
     public StartingZone StartingZone { get; private set; } = null!;
 
-    // INSTANCE (Frostfang Fury): lazily-created shared arena zone (per-party instancing later).
     private FrostfangArenaZone? _frostfangArena;
     private readonly object _frostfangArenaLock = new();
 
-    // INSTANCE (Tormented Spirits!): the Blackspore graveyard arena, same lazy pattern.
     private TormentedSpiritsArenaZone? _spiritArena;
     private readonly object _spiritArenaLock = new();
 
-    // Data-driven combat dungeons (DungeonCatalog): one cached EncounterArenaZone instance per activity id.
     private readonly Dictionary<int, EncounterArenaZone> _encounterArenas = [];
     private readonly object _encounterArenaLock = new();
 
@@ -160,8 +157,6 @@ public class ZoneManager : IZoneManager
         {
             Id = _uniqueId++
         };
-
-        // zone.OnStart();
 
         return _zones.TryAdd(zone.Id, zone);
     }

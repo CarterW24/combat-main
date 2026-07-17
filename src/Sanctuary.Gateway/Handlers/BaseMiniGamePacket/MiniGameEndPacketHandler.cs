@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -34,11 +34,6 @@ public static class MiniGameEndPacketHandler
 
         connection.SendTunneled(miniGameLeavePacket);
 
-        // LEAVE BUTTON: this op39/sub6 is the minigame UI's "Leave" button. In a combat dungeon/encounter it
-        // must also take the player back to the overworld — otherwise the button just closed the panel and
-        // left them stuck in the instance. LeaveEncounter (NOT UseExitDoor, which is the victory door and
-        // raises a "You Win!" card): bails out with no card, or, if a result card is already up, treats this
-        // as the player dismissing it and exits the same way.
         var player = connection.Player;
 
         if (player.Zone is CombatEncounterZone encounter)

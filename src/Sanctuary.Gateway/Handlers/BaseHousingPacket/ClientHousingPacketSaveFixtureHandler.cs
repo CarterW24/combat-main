@@ -42,7 +42,6 @@ public static class ClientHousingPacketSaveFixtureHandler
 
         using var dbContext = _dbContextFactory.CreateDbContext();
 
-        // Find the fixture
         var dbFixture = dbContext.HouseFixtures
             .FirstOrDefault(f => f.Id == packet.FixtureGuid && f.HouseId == connection.Player.CurrentHouseGuid);
 
@@ -53,7 +52,6 @@ public static class ClientHousingPacketSaveFixtureHandler
             return false;
         }
 
-        // Update position, rotation, and scale
         dbFixture.PositionX = packet.Position.X;
         dbFixture.PositionY = packet.Position.Y;
         dbFixture.PositionZ = packet.Position.Z;

@@ -7,7 +7,6 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
-// Ninja kit — surface over NinjaWeaponAbilities (traits + weapon-driven Attack/Special columns).
 public sealed class NinjaJobKit : IJobKit
 {
     public int ProfileId => NinjaWeaponAbilities.NinjaProfileId;

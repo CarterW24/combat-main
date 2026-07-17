@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Text.Json.Serialization;
 
 using Sanctuary.Core.IO;
@@ -13,11 +13,9 @@ public abstract class BaseZoneDefinition
 
     public float TileSize { get; set; }
 
-    // X axies
     public int StartLongitude { get; set; }
     public int EndLongitude { get; set; }
 
-    // Z axies
     public int StartLatitude { get; set; }
     public int EndLatitude { get; set; }
 

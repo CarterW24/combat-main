@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -46,7 +46,7 @@ public static class CoinStoreSellToClientRequestPacketHandler
         {
             TransactionRecord =
             {
-                Type = 1 // Buy
+                Type = 1
             }
         };
 
@@ -61,7 +61,6 @@ public static class CoinStoreSellToClientRequestPacketHandler
             return true;
         }
 
-        // TODO: Implement other item types
         if (clientItemDefinition.Type != 1 &&
             clientItemDefinition.Type != 12)
         {
@@ -198,7 +197,7 @@ public static class CoinStoreSellToClientRequestPacketHandler
 
         coinStoreTransactionCompletePacket.ItemGuid = clientItem.Id;
 
-        coinStoreTransactionCompletePacket.TransactionRecord.Type = 1; // Buy
+        coinStoreTransactionCompletePacket.TransactionRecord.Type = 1;
 
         coinStoreTransactionCompletePacket.TransactionRecord.Id = connection.Player.CoinStoreTransactions.Count + 1;
 

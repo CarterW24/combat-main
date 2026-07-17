@@ -6,8 +6,6 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
-// Registry of the combat job kits, keyed by profile id. Add a job here (one line) and the shared systems
-// (toolbar, ability resolution, traits, item-def seeding) pick it up automatically.
 public static class JobKits
 {
     private static readonly Dictionary<int, IJobKit> ByProfileId = new IJobKit[]
@@ -26,8 +24,6 @@ public static class JobKits
 
     public static bool Has(int profileId) => ByProfileId.ContainsKey(profileId);
 
-    // Fill the profile's Traits section + Attack/Special column slots from the active kit. No-op for a job that
-    // hasn't data'd its screen (BuildTraitEntries returns null), leaving the profile's default list alone.
     public static void ConfigureAbilitiesScreen(IJobKit kit, ClientPcProfile profile, int equippedWeaponDefId)
     {
         var traits = kit.BuildTraitEntries(profile.Rank);
@@ -39,8 +35,6 @@ public static class JobKits
         var (basicName, _, basicIcon) = kit.SlotNameIcon(equippedWeaponDefId, 0);
         var (specialName, _, specialIcon) = kit.SlotNameIcon(equippedWeaponDefId, 1);
 
-        // A kit with no ability-name data (0) has traits but no Attack/Special column data yet — leave the
-        // ability slots as the generic combat fill.
         if (basicName == 0)
             return;
 

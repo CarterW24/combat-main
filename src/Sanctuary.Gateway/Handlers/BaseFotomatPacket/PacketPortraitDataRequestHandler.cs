@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -35,10 +35,6 @@ public static class PacketPortraitDataRequestHandler
 
         _logger.LogTrace("Received {name} packet. ( {packet} )", nameof(PacketPortraitDataRequest), packet);
 
-        // The client requests a portrait for an arbitrary character guid (self OR a party/group member).
-        // Resolve the TARGET whose appearance we must serialize — NOT the requester. Sending the requester's
-        // own appearance made every member's headshot look like the requester (and the missing-PNG bail-out
-        // dropped the response entirely, leaving a silhouette).
         Player? target = packet.Guid == connection.Player.Guid
             ? connection.Player
             : (_zoneManager.TryGetPlayer(packet.Guid, out var found) ? found : null);
@@ -49,9 +45,6 @@ public static class PacketPortraitDataRequestHandler
             return true;
         }
 
-        // Don't answer with an EMPTY PngPayload. A reply with no PNG doesn't merely fail to render — it fills
-        // the client's portrait slot with nothing and BLANKS it. The client asks us for its OWN headshot on
-        // load; if we have no file, stay quiet and let it keep the copy it renders locally.
         if (!HasHeadshot(target))
         {
             _logger.LogInformation("FOTOMAT: no headshot on disk for {name} (guid {guid}, provider {provider}) — not replying (an empty payload would blank the slot).",
@@ -64,28 +57,8 @@ public static class PacketPortraitDataRequestHandler
         return true;
     }
 
-    // Builds the S2C PacketPlayerImageData (Fotomat op156/sub3) that fills the
-    // client's portrait cache for target. The client renders another player's headshot
-    // from the served PNG (appearance fields alone render blank — verified), so the party roster needs a
-    // real headshot.png on disk for each character.
-    // ★★ REQUIRES A HARVESTER (still needs to be written) ★★
-    // Party MEMBER headshots only render once each player's 70x70 headshot.png exists under
-    // Images/<characterId>/. The end-to-end pipeline is PROVEN working (request/response +
-    // this push both deliver the PNG and the client renders it — tested with a real PNG). The ONLY missing
-    // piece is the UPLOAD: this client build renders each player's own headshot locally
-    // (client FUN_00bd4930 -> a clean 70x70 PNG) but NEVER transmits it — not via the WebAPI /image POST,
-    // not via a game packet — for ANY trigger (login, job/appearance change, character creation, or a
-    // server-sent PortraitDataRequest). Its upload code is dormant. So a HARVESTER must supply that upload:
-    // hook the client's headshot render (FUN_00bd4930), grab the PNG, and POST it to WebAPI /image
-    // (multipart, boundary "AaBb432101234bBaA", imageType=portrait, characterId, thumbnailFile=headshot.png).
-    // To scale to many players it should be a launcher-injected client DLL so every player self-uploads
-    // automatically. Until that harvester is written, member portraits fall back to the client's default
-    // silhouette; SELF portraits always work (the client renders its own locally).
     public static PacketPlayerImageData BuildImageData(Player target, string? provider, bool includeAttachments = true)
     {
-        // The harvester uploads the headshot under Images/<characterId>/, but callers key by the entity guid
-        // (guid = charId<<4 | 1). Look under BOTH so a captured portrait is found regardless of which id was
-        // used for the upload.
         var png = ReadHeadshot(GuidHelper.GetPlayerId(target.Guid)) ?? ReadHeadshot(target.Guid) ?? Array.Empty<byte>();
 
         return new PacketPlayerImageData
@@ -100,8 +73,6 @@ public static class PacketPortraitDataRequestHandler
 
                 ModelId = target.Model,
 
-                // Attachments (weapons/equipment) balloon the packet to ~800+ bytes and aren't needed for a
-                // headshot; the roster push skips them so op156 stays a small, reliably-delivered packet.
                 Attachments = includeAttachments ? target.GetAttachments() : new(),
 
                 Head = target.Head,
@@ -123,11 +94,6 @@ public static class PacketPortraitDataRequestHandler
         };
     }
 
-    // True when a real headshot PNG exists on disk for this player (Images/<charId>/headshot.png
-    // or Images/<guid>/headshot.png). Callers MUST check this before pushing a
-    // PacketPlayerImageData: pushing one with an EMPTY PngPayload doesn't just fail to render —
-    // it fills the client's Headshot slot with nothing, blanking it. With no PNG, trigger a client-side
-    // render (PacketGeneratePortraitRequest) instead of pushing an empty payload.
     public static bool HasHeadshot(Player target) =>
         ReadHeadshot(GuidHelper.GetPlayerId(target.Guid)) is not null || ReadHeadshot(target.Guid) is not null;
 

@@ -12,15 +12,12 @@ public class Pet : Npc
     public Player Owner { get; init; }
     public Resources.Definitions.PetDefinition Definition { get; init; }
 
-    // Id of the owning player's DbPet row this instance was spawned from, used to persist rename requests.
     public int PetId { get; set; }
 
     public new string Name { get; set; } = string.Empty;
 
-    // Last position sent to the client for this pet
     public System.Numerics.Vector4 LastSentPosition { get; set; } = System.Numerics.Vector4.Zero;
 
-    // Last known owner position to detect if owner is moving
     public System.Numerics.Vector4 OwnerLastPosition { get; set; } = System.Numerics.Vector4.Zero;
 
     public Pet(IZone zone, Player owner, PetDefinition definition) : base(zone)
@@ -31,7 +28,6 @@ public class Pet : Npc
 
     public override void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation)
     {
-        // Alert/Remove visible entities
         foreach (var visiblePlayer in VisiblePlayers)
             visiblePlayer.Value.OnRemoveVisibleNpcs([this]);
 
@@ -41,11 +37,7 @@ public class Pet : Npc
 
         Zone.TryRemoveNpc(Guid);
 
-        // Add to new zone/zonetile
-
         zone.TryAddPet(this);
-
-        // Teleport to new zone
 
         Visible = false;
 
@@ -59,9 +51,6 @@ public class Pet : Npc
     public override PlayerUpdatePacketAddNpc GetAddNpcPacket()
     {
         var packet = base.GetAddNpcPacket();
-
-        // Pets don't have a rider - they follow their owner
-        // The PetActivePacket tells the client which pet is active and should follow
 
         return packet;
     }

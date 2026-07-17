@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -61,7 +61,6 @@ public class GatewayService : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        // Check we can connect to the database and apply migrations.
         using var dbContext = _dbContextFactory.CreateDbContext();
 
         try
@@ -77,7 +76,6 @@ public class GatewayService : BackgroundService
             return Task.CompletedTask;
         }
 
-        // Load resources.
         if (!_resourceManager.Load())
         {
             _logger.LogCritical("Cannot start {server}, failed to load resources.", nameof(GatewayServer));
@@ -87,7 +85,6 @@ public class GatewayService : BackgroundService
             return Task.CompletedTask;
         }
 
-        // Load zones.
         if (!_zoneManager.Load())
         {
             _logger.LogCritical("Cannot start {server}, failed to load zones.", nameof(GatewayServer));
@@ -97,7 +94,6 @@ public class GatewayService : BackgroundService
             return Task.CompletedTask;
         }
 
-        // Load interactions.
         if (!_interactionManager.Load())
         {
             _logger.LogCritical("Cannot start {server}, failed to load interactions.", nameof(GatewayServer));
@@ -107,10 +103,7 @@ public class GatewayService : BackgroundService
             return Task.CompletedTask;
         }
 
-        // Register services on static packet handlers.
         _serviceProvider.ConfigurePacketHandlers();
-
-        // Connect to the Login Server.
 
         var clientConnection = _client.EstablishConnection(_options.LoginGatewayAddress);
 
@@ -127,7 +120,6 @@ public class GatewayService : BackgroundService
 
         _server.OnStarted();
 
-        // Main server loop.
         while (!cancellationToken.IsCancellationRequested && clientConnection.Status != Status.Disconnected)
         {
             var hadData = false;
