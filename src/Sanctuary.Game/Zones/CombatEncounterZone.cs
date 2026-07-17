@@ -297,21 +297,10 @@ public abstract class CombatEncounterZone : BaseZone
 
     public override void OnPlayerRespawn(Player player)
     {
-        var pos = player.DeathPosition;
+        // Revive IN PLACE, wire-exact to the play-verified build: state clear + get-up + heals from
+        // Respawn(), then the op41/126 window hide (header (0,0)). NO location teleport — the player
+        // never moved, and the verified flow sent none.
         player.Respawn();
-
-        // Header (0,0) — matches the play-verified 125 -> 122 -> 126 loop bytes.
         player.SendTunneled(new EncounterHideRespawnWindowPacket());
-
-        if (player.Zone == this)
-        {
-            player.UpdatePosition(pos, player.Rotation);
-            player.SendTunneled(new ClientUpdatePacketUpdateLocation
-            {
-                Position = pos,
-                Rotation = player.Rotation,
-                Teleport = true,
-            });
-        }
     }
 }

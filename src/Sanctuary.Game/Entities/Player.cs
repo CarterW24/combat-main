@@ -368,22 +368,33 @@ public sealed class Player : ClientPcData, IEntity
 
         _worldCombatActive = false;
         _lastWorldCombatTicks = 0;
-        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+
+        // In-encounter revive is WIRE-EXACT to the play-verified build: state clear + get-up + heals
+        // ONLY. The world-combat flag clears, the revive FX burst and the chat line are OVERWORLD
+        // flourishes — extra packets the verified dungeon flow never sent.
+        var inEncounter = Zone is Zones.CombatEncounterZone;
+        if (!inEncounter)
+        {
+            SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+            SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        }
 
         SendTunneledToVisible(new PlayerUpdatePacketSetAnimation
         {
             Guid = Guid,
             AnimationId = GetUpAnimId,
         }, sendToSelf: true);
-        SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
-        {
-            Guid = Guid,
-            CompositeEffectId = ReviveEffectId,
-            Position = Position,
-        }, sendToSelf: true);
 
-        SendSystemMessage("You have been revived!");
+        if (!inEncounter)
+        {
+            SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
+            {
+                Guid = Guid,
+                CompositeEffectId = ReviveEffectId,
+                Position = Position,
+            }, sendToSelf: true);
+            SendSystemMessage("You have been revived!");
+        }
     }
 
     public void TakeDamage(int amount, CombatNpc source) => TakeDamage(amount);
@@ -511,7 +522,8 @@ public sealed class Player : ClientPcData, IEntity
             AnimationId = KnockdownAnimId,
         }, sendToSelf: true);
 
-        SendSystemMessage("You have been knocked out!");
+        if (Zone is not Zones.CombatEncounterZone)
+            SendSystemMessage("You have been knocked out!");
 
         Zone.OnPlayerKnockedOut(this);
     }
