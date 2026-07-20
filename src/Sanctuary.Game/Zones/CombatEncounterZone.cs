@@ -30,6 +30,16 @@ public abstract class CombatEncounterZone : BaseZone
     {
     }
 
+    public override void OnClientFinishedLoading(Player player)
+    {
+        // A stale op41/132 (m_bIsFighting=true from overworld fighting) flips the knockout window
+        // to the paid overworld variant. Clears sent during the zone transition are lost with the
+        // old zone state, so the flag drop must go out AFTER the client reports loaded (play-test
+        // 2026-07-17: !ko showed the countdown, dying to wolves after overworld combat showed the
+        // paid panel — same build).
+        player.ClearWorldCombatState();
+    }
+
     protected const int KnockoutLimit = 5;
 
     private readonly object _knockoutLock = new();
@@ -52,7 +62,7 @@ public abstract class CombatEncounterZone : BaseZone
             player.SendTunneled(new MiniGameGameOverPacket(won: true));
         player.SendTunneled(new MiniGameStateRemovePacket());
         player.SendTunneled(PacketEncounterDataCommon.CreateDefault());
-        player.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+        player.SendTunneled(new EncounterOverworldCombatPacket { IsFighting = false });
         player.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
         player.SendTunneled(new UiObjectiveClearPacket());
         _logger.LogInformation("{label}: encounter released for {name}.", EncounterLogName, player.Name);
@@ -229,12 +239,7 @@ public abstract class CombatEncounterZone : BaseZone
     {
         var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
 
-        if (player.TryDodgeIncomingAttack(attacker.Guid))
-        {
-            if (CombatNpc.ExplicitAttackAnimByModel.TryGetValue(attacker.ModelId, out var missAnim))
-                Broadcast(new PlayerUpdatePacketSetAnimation { Guid = attacker.Guid, AnimationId = missAnim });
-            return;
-        }
+        // No dodge/miss roll — mob attacks always land (user design call 2026-07-19).
 
         var crit = Random.Shared.Next(100) < MobAttackCritPercent;
         var dmg = player.ReduceIncomingDamage(crit ? MobAttackCritDamage : MobAttackDamage);
@@ -246,6 +251,7 @@ public abstract class CombatEncounterZone : BaseZone
             Damage = dmg,
             MaxHealth = maxHp,
             CompositeEffectId = crit ? MobAttackCritFxId : MobAttackFxId,
+            IsCriticalHit = crit,
             CurrentHealth = player.CurrentHitpoints,
         });
         if (CombatNpc.ExplicitAttackAnimByModel.TryGetValue(attacker.ModelId, out var swingAnimId))
@@ -292,6 +298,8 @@ public abstract class CombatEncounterZone : BaseZone
         // (2026-07-15). Nonzero encounter/instance header ints here showed the PAID overworld
         // window instead of the dungeon countdown (play-test 2026-07-16).
         player.SendTunneled(new EncounterShowRespawnWindowPacket(0, 0));
+        if (Combat.CombatDebug.Verbose)
+            player.SendSystemMessage("dbg KO: encounter COUNTDOWN variant (10s, header 0,0)");
         ScheduleAutoRevive(player);
     }
 
@@ -301,6 +309,9 @@ public abstract class CombatEncounterZone : BaseZone
         // Respawn(), then the op41/126 window hide (header (0,0)). NO location teleport — the player
         // never moved, and the verified flow sent none.
         player.Respawn();
+        // Full energy on recovery (wiki: recover at full health AND energy) — the play-verified
+        // local build sent this; it was lost in the merge.
+        player.SendTunneled(new ClientUpdatePacketMana { CurrentMana = 100, MaxMana = 100 });
         player.SendTunneled(new EncounterHideRespawnWindowPacket());
     }
 }

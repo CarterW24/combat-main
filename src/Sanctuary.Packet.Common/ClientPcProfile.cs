@@ -36,17 +36,7 @@ public class ClientPcProfile : ISerializableType
 
     public int Unknown21;
 
-    public List<Ability> Abilities = new()
-    {
-        new Ability(),
-        new Ability(),
-        new Ability(),
-        new Ability(),
-        new Ability(),
-        new Ability(),
-        new Ability(),
-        new Ability()
-    };
+    public AbilitySet AbilitySet = new();
 
     public List<AbilityExperience> AbilityExperiences = new()
     {
@@ -83,7 +73,7 @@ public class ClientPcProfile : ISerializableType
 
         writer.Write(Unknown21);
 
-        writer.Write(Abilities);
+        AbilitySet.Serialize(writer);
 
         foreach (var abilityExperience in AbilityExperiences)
         {

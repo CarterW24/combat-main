@@ -8,9 +8,9 @@ public class PlayerUpdatePacketUpdateMana : BasePlayerUpdatePacket, ISerializabl
 
     public ulong Guid;
 
-    public int CurrentMana = 100;
+    public int BossMana = 100;
     public int MaxMana = 800;
-    public int Unknown3 = 800;
+    public int Mana = 800;
 
     public PlayerUpdatePacketUpdateMana() : base(OpCode)
     {
@@ -23,9 +23,9 @@ public class PlayerUpdatePacketUpdateMana : BasePlayerUpdatePacket, ISerializabl
         Write(writer);
 
         writer.Write(Guid);
-        writer.Write(CurrentMana);
+        writer.Write(BossMana);
         writer.Write(MaxMana);
-        writer.Write(Unknown3);
+        writer.Write(Mana);
 
         return writer.Buffer;
     }

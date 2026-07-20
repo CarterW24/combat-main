@@ -19,7 +19,9 @@ public class Ability : ISerializableType
     public int Unknown9;
     public int AbilityDefinitionId;
     public int Unknown11;
-    public bool Unknown12;
+    public bool ForceDismount;
+
+    public static Ability Empty = new();
 
     public void Serialize(PacketWriter writer)
     {
@@ -45,6 +47,6 @@ public class Ability : ISerializableType
         writer.Write(Unknown9);
         writer.Write(AbilityDefinitionId);
         writer.Write(Unknown11);
-        writer.Write(Unknown12);
+        writer.Write(ForceDismount);
     }
 }

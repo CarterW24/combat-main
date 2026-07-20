@@ -10,7 +10,7 @@ public class PlayerUpdatePacketKnockback : BasePlayerUpdatePacket, ISerializable
 
     public ulong Guid;
 
-    public int Unknown;
+    public int Animation;
 
     public Vector4 Position;
 
@@ -29,7 +29,7 @@ public class PlayerUpdatePacketKnockback : BasePlayerUpdatePacket, ISerializable
         Write(writer);
 
         writer.Write(Guid);
-        writer.Write(Unknown);
+        writer.Write(Animation);
         writer.Write(Position);
         writer.Write(Direction);
         writer.Write(Magnitude);

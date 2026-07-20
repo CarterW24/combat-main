@@ -266,6 +266,8 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
     public override void OnClientFinishedLoading(Player player)
     {
+        base.OnClientFinishedLoading(player);
+
         ActivePlayers();
 
         bool first;
@@ -421,9 +423,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 player.SendTunneled(MakeLaunch());
                 player.SendTunneled(ScareWolvesRow());
                 player.SendTunneled(new MiniGameKnockOutPacket(0, KnockoutLimit));
-                // Capture 28075: enable effect-tag composite rendering (live re-sends the login tags
-                // right after — why the buff FX render in-encounter).
-                player.SendTunneled(new PlayerUpdatePacketEffectTagCompositeEffectsEnable { Enable = true });
+                // NOTE: live's op35/43 EffectTagCompositeEffectsEnable(true) (capture 28075) is
+                // deliberately NOT sent — no play-verified build ever sent it, and with it in the
+                // burst the client's tag-FX stops misbehave (infinite heal shower, 2026-07-17/18).
                 // Capture 28116: the PLAYER's character state set to the baseline bit, right before op62.
                 player.SendTunneled(new PlayerUpdatePacketUpdateCharacterState
                 {
@@ -554,20 +556,23 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         if (!TryCreateNpc(out var npc))
             return null;
 
+        // Live AddNpc recipe (04-01 capture, video-confirmed — harness-1 verbatim): pack wolves
+        // have NO overhead UI (plate hidden, no bar; NameId still feeds the click-target frame).
+        // Only the Alpha flips showPlate -> floating red name + bar.
         npc.ModelId = modelId;
-        npc.NameId = showPlate ? nameId : 0;
+        npc.NameId = nameId;
         npc.Name = null;
         npc.TextureAlias = textureAlias;
         npc.TintAlias = tintAlias;
-        npc.HideNamePlate = false;
-        npc.ShowHealthBar = true;
+        npc.HideNamePlate = !showPlate;
+        npc.ShowHealthBar = showPlate;
         npc.Scale = scale;
         npc.Disposition = 0;
         npc.ActiveProfile = activeProfile;
         npc.CompositeEffectId = spawnFx;
         npc.MaxHealth = health;
         npc.Health = health;
-        npc.IsInteractable = false;
+        npc.IsInteractable = true;
         npc.InteractRange = 100;
         npc.Visible = true;
         npc.CursorId = 11;
@@ -841,7 +846,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                     return;
                 _fleeingAlpha = null;
             }
-            Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { alpha.Guid } });
+            Broadcast(new PlayerUpdatePacketRemoveNotifications { Entries = { new() { Guid = alpha.Guid } } });
             alpha.GracefulRemoval = (false, 0, 0, DeathPoofFxId, 1000);
             alpha.Dispose();
             _logger.LogInformation("Frostfang arena: the fled Alpha reached the fog -> despawned.");
@@ -943,7 +948,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             {
                 Guid = player.Guid,
                 Guid2 = player.Guid,
-                Unknown = true,
+                ShowFloatingText = true,
                 Unknown2 = maxHp,
                 Unknown3 = player.CurrentHitpoints,
                 Unknown4 = HeartHeal,
@@ -1189,6 +1194,9 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             }
         }
 
+        if (CombatDebug.Verbose)
+            player.SendSystemMessage($"dbg powerup AoE r{radius}: {victims.Count} wolves in range");
+
         foreach (var wolf in victims)
         {
             var killed = wolf.ApplyDamage(damage);
@@ -1196,10 +1204,11 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             {
                 Guid = player.Guid,
                 Guid2 = wolf.Guid,
-                Unknown = true,
+                ShowFloatingText = true,
                 Unknown2 = wolf.MaxHealth,
                 Unknown3 = wolf.Health,
                 Unknown4 = -damage,
+                IsCriticalHit = false, // powerup bursts have no crit roll
             });
             if (killed)
                 OnNpcKilled(player, wolf);
@@ -1253,7 +1262,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
     private void SendPowerupSlot(Player player)
     {
-        AbilityPacketSetDefinition.Slot? slot = null;
+        Sanctuary.Packet.Common.Ability? slot = null;
         lock (_stateLock)
         {
             slot = _heldPowerup switch
@@ -1300,7 +1309,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
             }
         }
 
-        Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } });
+        Broadcast(new PlayerUpdatePacketRemoveNotifications { Entries = { new() { Guid = npc.Guid } } });
 
         if (!alphaDown)
         {
@@ -1365,7 +1374,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         }
         foreach (var straggler in stragglers)
         {
-            Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { straggler.Guid } });
+            Broadcast(new PlayerUpdatePacketRemoveNotifications { Entries = { new() { Guid = straggler.Guid } } });
             straggler.GracefulRemoval = (true, WolfDeathHoldMs, 0, DeathPoofFxId, 1000);
             straggler.Dispose();
         }

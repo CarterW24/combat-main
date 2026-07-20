@@ -59,6 +59,13 @@ public static class CommandRouter
 
         var verb = parts[0].Substring(1).ToLowerInvariant();
 
+        if (verb is "combatdbg" or "dbg" || (verb == "combat" && parts.Length > 1 && parts[1].Equals("dbg", StringComparison.OrdinalIgnoreCase)))
+        {
+            Sanctuary.Game.Combat.CombatDebug.Verbose = !Sanctuary.Game.Combat.CombatDebug.Verbose;
+            SendSystem(conn, $"combat debug {(Sanctuary.Game.Combat.CombatDebug.Verbose ? "ON" : "OFF")}");
+            return true;
+        }
+
         switch (verb)
         {
             case "help":
@@ -133,6 +140,12 @@ public static class CommandRouter
                 return HandleGiveItem(conn, parts);
             case "lua":
                 return HandleLua(conn, message);
+            case "proj":
+                return HandleProj(conn, parts);
+            case "trail":
+                return HandleTrail(conn, parts, 1);
+            case "trails":
+                return HandleTrailList(conn);
 
             case "paccept":
                 BaseGroupPacketHandler.AcceptInvite(conn.Player);
@@ -164,8 +177,10 @@ public static class CommandRouter
                 return true;
 
             default:
-                SendSystem(conn, $"Unknown command '{verb}'. Try /help.");
-                return true;
+                // NOT handled here — fall through so the legacy probe commands in
+                // PacketChatHandler (!pufx, !pu, !puspawn, !status, !dmg, !give, !ko, ...) still
+                // work. Returning true here silently killed the whole probe toolkit.
+                return false;
         }
     }
 
@@ -1356,6 +1371,173 @@ public static class CommandRouter
         {
             _logger.LogError(ex, "Failed to spawn house structure");
         }
+    }
+
+    private static bool HandleProj(GatewayConnection conn, string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            SendSystem(conn,
+                $"proj {(Sanctuary.Game.Combat.ProjectileProbe.Enabled ? "ON" : "OFF")}: model={Sanctuary.Game.Combat.ProjectileProbe.Model} " +
+                $"speed={Sanctuary.Game.Combat.ProjectileProbe.Speed} accel={Sanctuary.Game.Combat.ProjectileProbe.Acceleration} " +
+                $"type={Sanctuary.Game.Combat.ProjectileProbe.FlightType} spin={Sanctuary.Game.Combat.ProjectileProbe.SpinRate} " +
+                $"trail={Sanctuary.Game.Combat.ProjectileProbe.TrailEffectId} fx={Sanctuary.Game.Combat.ProjectileProbe.CompositeEffectId} " +
+                $"height={Sanctuary.Game.Combat.ProjectileProbe.MuzzleHeight}");
+            SendSystem(conn, "Usage: !proj <model|on|off|sync> [speed] [type] [spin]");
+            SendSystem(conn, "       !proj speed|accel|type|spin|fx|height <n>");
+            SendSystem(conn, "       !trail = cycle fx, !trail <keyword>, !trail off, !trails = list");
+            SendSystem(conn, "Models: arrow flaming magical green purple laser sonic heart bolt ice icicle bone fish (or any *.adr)");
+            SendSystem(conn, "Types: 1=beam 2=arc 4=seek 7=throw 8=boomerang. Fires on every archer attack.");
+            return true;
+        }
+
+        var arg = parts[1].ToLowerInvariant();
+        switch (arg)
+        {
+            case "on":
+                Sanctuary.Game.Combat.ProjectileProbe.Enabled = true;
+                SendSystem(conn, "proj ON");
+                return true;
+            case "off":
+                Sanctuary.Game.Combat.ProjectileProbe.Enabled = false;
+                SendSystem(conn, "proj OFF");
+                return true;
+            case "sync":
+                Sanctuary.Game.Combat.ProjectileProbe.SyncDamage = !Sanctuary.Game.Combat.ProjectileProbe.SyncDamage;
+                SendSystem(conn, $"proj damage-sync {(Sanctuary.Game.Combat.ProjectileProbe.SyncDamage ? "ON — damage lands with the arrow" : "OFF — old fixed delay")}");
+                return true;
+            case "speed" or "accel" or "type" or "spin" or "fx" or "height":
+            {
+                if (parts.Length < 3 || !float.TryParse(parts[2], out var value))
+                {
+                    SendSystem(conn, $"!proj {arg} <number>");
+                    return true;
+                }
+
+                switch (arg)
+                {
+                    case "speed": Sanctuary.Game.Combat.ProjectileProbe.Speed = value; break;
+                    case "accel": Sanctuary.Game.Combat.ProjectileProbe.Acceleration = value; break;
+                    case "type": Sanctuary.Game.Combat.ProjectileProbe.FlightType = (int)value; break;
+                    case "spin": Sanctuary.Game.Combat.ProjectileProbe.SpinRate = value; break;
+                    case "fx": Sanctuary.Game.Combat.ProjectileProbe.CompositeEffectId = (int)value; break;
+                    case "height": Sanctuary.Game.Combat.ProjectileProbe.MuzzleHeight = value; break;
+                }
+
+                SendSystem(conn, $"proj {arg} = {value}");
+                return true;
+            }
+            case "trail":
+                return HandleTrail(conn, parts, 2);
+            case "trails":
+                return HandleTrailList(conn);
+            default:
+            {
+                Sanctuary.Game.Combat.ProjectileProbe.Model = ResolveProjModel(parts[1]);
+                if (parts.Length >= 3 && float.TryParse(parts[2], out var speed))
+                    Sanctuary.Game.Combat.ProjectileProbe.Speed = speed;
+                if (parts.Length >= 4 && int.TryParse(parts[3], out var flightType))
+                    Sanctuary.Game.Combat.ProjectileProbe.FlightType = flightType;
+                if (parts.Length >= 5 && float.TryParse(parts[4], out var spin))
+                    Sanctuary.Game.Combat.ProjectileProbe.SpinRate = spin;
+                Sanctuary.Game.Combat.ProjectileProbe.Enabled = true;
+
+                SendSystem(conn,
+                    $"proj model={Sanctuary.Game.Combat.ProjectileProbe.Model} speed={Sanctuary.Game.Combat.ProjectileProbe.Speed} " +
+                    $"type={Sanctuary.Game.Combat.ProjectileProbe.FlightType} spin={Sanctuary.Game.Combat.ProjectileProbe.SpinRate} — attack as archer");
+                return true;
+            }
+        }
+    }
+
+    // Shared by `!trail ...` (argIndex 1) and `!proj trail ...` (argIndex 2).
+    // Bare `!trail` = cycle to the next curated FX — shoot, !trail, shoot, !trail.
+    private static bool HandleTrail(GatewayConnection conn, string[] parts, int argIndex)
+    {
+        var candidates = Sanctuary.Game.Combat.ProjectileProbe.TrailCandidates;
+
+        var sub = parts.Length > argIndex ? parts[argIndex].ToLowerInvariant() : "next";
+
+        if (sub is "next" or "prev")
+        {
+            var idx = Sanctuary.Game.Combat.ProjectileProbe.TrailIndex + (sub == "next" ? 1 : -1);
+            if (idx < 0) idx = candidates.Length - 1;
+            if (idx >= candidates.Length) idx = 0;
+            SendSystem(conn, $"trail [{idx + 1}/{candidates.Length}] {Sanctuary.Game.Combat.ProjectileProbe.ApplyTrailEntry(idx)}");
+            return true;
+        }
+
+        if (sub is "off" or "0" or "none")
+        {
+            Sanctuary.Game.Combat.ProjectileProbe.ClearTrail();
+            SendSystem(conn, "trail OFF — plain arrow");
+            return true;
+        }
+
+        if (sub is "list" or "help" or "?")
+            return HandleTrailList(conn);
+
+        var keyIndex = Sanctuary.Game.Combat.ProjectileProbe.FindTrailIndexByKey(sub);
+        if (keyIndex >= 0)
+        {
+            SendSystem(conn, $"trail {Sanctuary.Game.Combat.ProjectileProbe.ApplyTrailEntry(keyIndex)}");
+            return true;
+        }
+
+        if (int.TryParse(sub, out var trailId) && trailId > 0)
+        {
+            var known = Array.FindIndex(candidates, c => c.Id == trailId);
+            if (known >= 0)
+            {
+                SendSystem(conn, $"trail {Sanctuary.Game.Combat.ProjectileProbe.ApplyTrailEntry(known)}");
+            }
+            else
+            {
+                Sanctuary.Game.Combat.ProjectileProbe.TrailEffectId = trailId;
+                Sanctuary.Game.Combat.ProjectileProbe.TrailIndex = -1;
+                SendSystem(conn, $"trail raw fx {trailId}");
+            }
+            return true;
+        }
+
+        SendSystem(conn, $"unknown trail '{parts[argIndex]}' — !trails lists keywords; !trail alone cycles");
+        return true;
+    }
+
+    private static bool HandleTrailList(GatewayConnection conn)
+    {
+        var candidates = Sanctuary.Game.Combat.ProjectileProbe.TrailCandidates;
+
+        SendSystem(conn, $"arrow FX ({candidates.Length}): !trail <keyword> sets it, bare !trail cycles, !trail off clears. ★ = model swap (always visible)");
+        foreach (var c in candidates)
+            SendSystem(conn, $"  {(c.Model.Length > 0 ? "★" : " ")}{c.Key,-14} {c.Name}");
+        return true;
+    }
+
+    private static string ResolveProjModel(string arg)
+    {
+        var shorthand = arg.ToLowerInvariant() switch
+        {
+            "arrow" => "arrow_projectile.adr",
+            "flaming" or "fire" => "arrow_projectile_flaming.adr",
+            "magical" or "magic" => "arrow_projectile_magical.adr",
+            "green" => "arrow_projectile_magical_green.adr",
+            "purple" => "arrow_projectile_magical_purple.adr",
+            "laser" => "arrow_projectile_laser-red.adr",
+            "sonic" => "arrow_projectile_sonic.adr",
+            "heart" => "arrow_projectile_heart.adr",
+            "bolt" => "bolt_projectile.adr",
+            "ice" => "ice_projectile.adr",
+            "icicle" => "icicle_projectile.adr",
+            "bone" => "bone_projectile.adr",
+            "fish" => "fish_projectile.adr",
+            _ => null,
+        };
+
+        if (shorthand is not null)
+            return shorthand;
+
+        return arg.EndsWith(".adr", StringComparison.OrdinalIgnoreCase) ? arg : arg + ".adr";
     }
 
     private static bool HandleTestEffect(GatewayConnection conn, string[] parts)

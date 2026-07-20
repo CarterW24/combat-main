@@ -8,7 +8,25 @@ public class PlayerUpdatePacketRemoveNotifications : BasePlayerUpdatePacket, ISe
 {
     public new const short OpCode = 11;
 
-    public List<ulong> Guids = new();
+    public class Entry : ISerializableType
+    {
+        public ulong Guid;
+
+        public int ThoughtBubbleIconId;
+
+        public int CompositeEffectId;
+
+        public void Serialize(PacketWriter writer)
+        {
+            writer.Write(Guid);
+
+            writer.Write(ThoughtBubbleIconId);
+
+            writer.Write(CompositeEffectId);
+        }
+    }
+
+    public List<Entry> Entries = [];
 
     public PlayerUpdatePacketRemoveNotifications() : base(OpCode)
     {
@@ -20,14 +38,7 @@ public class PlayerUpdatePacketRemoveNotifications : BasePlayerUpdatePacket, ISe
 
         Write(writer);
 
-        writer.Write(Guids.Count);
-
-        foreach (var guid in Guids)
-        {
-            writer.Write(guid);
-            writer.Write(0);
-            writer.Write(0);
-        }
+        writer.Write(Entries);
 
         return writer.Buffer;
     }

@@ -205,29 +205,32 @@ public static class NinjaWeaponAbilities
         var weapon = GetEquippedWeapon(player);
 
         if (weapon is null)
-            return AbilityPacketSetDefinition.CreateEmpty(NinjaProfileId);
+            return new AbilityPacketSetDefinition { ProfileId = NinjaProfileId };
 
         var nameId = 0;
         if (resources.ClientItemDefinitions.TryGetValue(player.GetEquippedWeaponDefinitionId(), out var weaponDef))
             nameId = weaponDef.NameId;
 
-        var def = new AbilityPacketSetDefinition { ProfileId = NinjaProfileId, SlotCount = 8 };
+        var def = new AbilityPacketSetDefinition { ProfileId = NinjaProfileId };
 
-        def.Slots.Add(MakeSlot(MeleeSlotDefId, DebugMeleeIcon ?? weapon.Melee.IconImageId, nameId, manaCost: 0));
-        def.Slots.Add(MakeSlot(SpecialSlotDefId, DebugSpecialIcon ?? weapon.Special.IconImageId, nameId, manaCost: SpecialEnergyCost));
+        def.AbilitySet.Abilities[0] = MakeSlot(MeleeSlotDefId, DebugMeleeIcon ?? weapon.Melee.IconImageId, nameId, manaCost: 0);
+        def.AbilitySet.Abilities[1] = MakeSlot(SpecialSlotDefId, DebugSpecialIcon ?? weapon.Special.IconImageId, nameId, manaCost: SpecialEnergyCost);
 
         return def;
     }
 
     public const int SpecialEnergyCost = 100;
 
-    private static AbilityPacketSetDefinition.Slot MakeSlot(int abilityDefId, int iconId, int nameId, int manaCost) => new()
+    private static Sanctuary.Packet.Common.Ability MakeSlot(int abilityDefId, int iconId, int nameId, int manaCost) => new()
     {
         Type = 3,
         Unknown2 = abilityDefId,
         ManaCost = manaCost,
         IconId = iconId,
         NameId = nameId,
+        Unknown7 = 4,
+        Unknown9 = 1,
         AbilityDefinitionId = abilityDefId,
+        ForceDismount = true,
     };
 }

@@ -101,9 +101,16 @@ public static class PacketChatHandler
         {
             var parts2 = fightMsg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var on = !(parts2.Length > 1 && parts2[1] == "0");
-            connection.SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = on });
+            connection.SendTunneled(new EncounterOverworldCombatPacket { IsFighting = on });
             connection.SendTunneled(new EncounterPacketIsFighting { InWorldCombat = on });
             _logger.LogInformation("!fight -> InWorldCombat + IsFighting = {on}", on);
+            return true;
+        }
+
+        if (packet.Message is { } dbgMsg && dbgMsg.StartsWith("!combatdbg"))
+        {
+            Sanctuary.Game.Combat.CombatDebug.Verbose = !Sanctuary.Game.Combat.CombatDebug.Verbose;
+            connection.Player.SendSystemMessage($"combat debug {(Sanctuary.Game.Combat.CombatDebug.Verbose ? "ON" : "OFF")}");
             return true;
         }
 
@@ -542,8 +549,8 @@ public static class PacketChatHandler
             Damage = dmg,
             MaxHealth = maxHp,
             CompositeEffectId = fx,
-            Bool1 = b1,
-            Bool2 = b2,
+            IsCriticalHit = b1,
+            SuppressHitReaction = b2,
             Int4 = i4,
             CurrentHealth = i5,
         };
@@ -576,11 +583,11 @@ public static class PacketChatHandler
         {
             Guid = connection.Player.Guid,
             Guid2 = npc.Guid,
-            Unknown = u1,
+            ShowFloatingText = u1,
             Unknown2 = u2,
             Unknown3 = u3,
             Unknown4 = u4,
-            Unknown5 = u5,
+            IsCriticalHit = u5,
         };
 
         _logger.LogInformation("!dmg -> HitPointModification npc={guid} u1={u1} u2={u2} u3={u3} u4={u4} u5={u5}",

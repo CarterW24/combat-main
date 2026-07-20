@@ -38,10 +38,10 @@ public static class JobKits
         if (basicName == 0)
             return;
 
-        for (var i = 0; i < profile.Abilities.Count; i++)
-            profile.Abilities[i] = new Ability { Type = 0 };
+        for (var i = 0; i < profile.AbilitySet.Abilities.Length; i++)
+            profile.AbilitySet.Abilities[i] = Ability.Empty;
 
-        profile.Abilities[0] = new Ability { Type = 3, IconId = basicIcon, NameId = basicName, AbilityDefinitionId = kit.SlotAbilityDefIds[0] };
-        profile.Abilities[1] = new Ability { Type = 3, IconId = specialIcon, NameId = specialName, AbilityDefinitionId = kit.SlotAbilityDefIds[1] };
+        profile.AbilitySet.Abilities[0] = new Ability { Type = 3, IconId = basicIcon, NameId = basicName, AbilityDefinitionId = kit.SlotAbilityDefIds[0] };
+        profile.AbilitySet.Abilities[1] = new Ability { Type = 3, IconId = specialIcon, NameId = specialName, AbilityDefinitionId = kit.SlotAbilityDefIds[1] };
     }
 }

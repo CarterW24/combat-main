@@ -225,13 +225,7 @@ public class CombatNpc : Npc
 
         finalDamage = Math.Max(1, finalDamage);
 
-        if (target.TryDodgeIncomingAttack(Guid))
-        {
-            if (ExplicitAttackAnimByModel.TryGetValue(ModelId, out var missAnim))
-                foreach (var p in VisiblePlayers.Values)
-                    p.SendTunneled(new PlayerUpdatePacketSetAnimation { Guid = Guid, AnimationId = missAnim });
-            return;
-        }
+        // No dodge/miss roll — mob attacks always land (user design call 2026-07-19).
 
         finalDamage = target.ReduceIncomingDamage(finalDamage);
 
@@ -271,7 +265,7 @@ public class CombatNpc : Npc
         }
     }
 
-    public void TakeDamage(int amount, Player source)
+    public void TakeDamage(int amount, Player source, bool isCriticalHit = false)
     {
         if (IsDead)
             return;
@@ -282,14 +276,18 @@ public class CombatNpc : Npc
         {
             Guid = source.Guid,
             Guid2 = Guid,
-            Unknown = true,
+            ShowFloatingText = true,
             Unknown2 = MaxHitpoints,
             Unknown3 = CurrentHitpoints,
-            Unknown4 = -amount
+            Unknown4 = -amount,
+            IsCriticalHit = isCriticalHit
         };
 
         foreach (var player in VisiblePlayers.Values)
             player.SendTunneled(hpMod);
+
+        if (Combat.CombatDebug.Verbose)
+            source.SendSystemMessage($"dbg hpMod[CombatNpc.TakeDamage] dmg {amount} crit={hpMod.IsCriticalHit}");
 
         BroadcastHpUpdate();
 

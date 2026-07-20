@@ -49,6 +49,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
     private const int MaxEnergy = 100;
     private const int SpecialEnergyCost = NinjaWeaponAbilities.SpecialEnergyCost;
+
+    // Max enemies a STANDARD attack sweep can clip — all combat jobs (user design call; provisional).
+    private const int MaxSweepTargets = 3;
     private const int EnergyRegenPerSec = 4;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, int> _energy = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, bool> _regenRunning = new();
@@ -86,8 +89,10 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         });
     }
 
-    private static int ApplyArcherTraitDamage(Player player, int baseDamage)
+    private static int ApplyArcherTraitDamage(Player player, int baseDamage, out bool isCriticalHit)
     {
+        isCriticalHit = false;
+
         var dmg = (float)baseDamage;
 
         if (ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.PrecisionLevel))
@@ -103,6 +108,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
             if (ArcherWeaponAbilities.HasTrait(player, ArcherWeaponAbilities.MarksmanshipLevel))
                 critMult += ArcherWeaponAbilities.MarksmanshipCritBonus;
             dmg *= critMult;
+            isCriticalHit = true;
         }
 
         return Math.Max(1, (int)dmg);
@@ -715,7 +721,14 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         {
             var attackReach = JobWeaponAbilities.AutoTargetReach(player);
             var reach2 = attackReach * attackReach;
-            var best2 = reach2;
+
+            // Auto-target prefers enemies IN FRONT (user 2026-07-19: nearest-only let arrows
+            // launch backwards). Facing can go stale when turning in place, so anything behind
+            // still wins when nothing is in front — the lone wolf at your back stays hittable.
+            var forward = Vector3.Transform(new Vector3(0, 0, 1), player.Rotation);
+            Npc? bestFrontNpc = null;
+            var bestFront2 = reach2;
+            var bestAny2 = reach2;
 
             foreach (var n in zone.Npcs)
             {
@@ -725,12 +738,27 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 var dx = n.Position.X - player.Position.X;
                 var dz = n.Position.Z - player.Position.Z;
                 var d2 = dx * dx + dz * dz;
-                if (d2 >= best2)
+                if (d2 >= bestAny2 && d2 >= bestFront2)
                     continue;
 
-                best2 = d2;
-                targetNpc = n;
+                if (forward.X * dx + forward.Z * dz > 0f)
+                {
+                    if (d2 < bestFront2)
+                    {
+                        bestFront2 = d2;
+                        bestFrontNpc = n;
+                    }
+                }
+
+                if (d2 < bestAny2)
+                {
+                    bestAny2 = d2;
+                    targetNpc = n;
+                }
             }
+
+            if (bestFrontNpc is not null)
+                targetNpc = bestFrontNpc;
         }
 
         var targetGuid = targetNpc?.Guid ?? (packet.Guid != 0 ? packet.Guid : player.Guid);
@@ -876,6 +904,74 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 })
                 .ToList();
         }
+        else if (isBasicMelee && targetNpc is not null)
+        {
+            // FRONT-ARC BASIC (play-verified on the pre-merge build): live basics hit EVERYTHING in
+            // front, not one enemy — wiki primary-attack wording + the capture's LaunchAndLand target
+            // lists (multi-hits beyond the special budget). Arc is centered on the direction to the
+            // RESOLVED primary target (never the client's reported facing, which goes stale when
+            // standing still — the old "spotty" cone bug), spans ±60°, sweeps everything in reach.
+            targets = [];
+            var px = player.Position.X;
+            var pz = player.Position.Z;
+            var dirX = targetNpc.Position.X - px;
+            var dirZ = targetNpc.Position.Z - pz;
+            var dirLen = MathF.Sqrt(dirX * dirX + dirZ * dirZ);
+            if (dirLen < 0.01f)
+            {
+                targets.Add(targetNpc); // primary is on top of us — no meaningful arc direction
+            }
+            else
+            {
+                dirX /= dirLen;
+                dirZ /= dirLen;
+                // The multi-hit SWEEP is shallower than the single-shot reach: a 30u bow fan swept
+                // whole packs (play-feel 2026-07-18). 15u = PROVISIONAL (2x the capture-derived
+                // melee envelope) — no live archer data exists; tune against reference footage.
+                var arcReach = MathF.Min(JobWeaponAbilities.AutoTargetReach(player), 15f);
+                var arcReach2 = arcReach * arcReach;
+                foreach (var n in zone.Npcs)
+                {
+                    if (!n.IsHostile || !n.IsDamageable || !n.IsAlive)
+                        continue;
+
+                    var dx = n.Position.X - px;
+                    var dz = n.Position.Z - pz;
+                    var d2 = dx * dx + dz * dz;
+                    if (d2 > arcReach2)
+                        continue;
+
+                    if (d2 < 0.0001f)
+                    {
+                        targets.Add(n); // standing inside us — always in the swing
+                        continue;
+                    }
+
+                    var inv = 1f / MathF.Sqrt(d2);
+                    var dot = dirX * dx * inv + dirZ * dz * inv;
+                    if (dot >= 0.819f) // cos(35°) — a 70° frontal arc (user tune 2026-07-19; was 120°)
+                        targets.Add(n);
+                }
+
+                // EVERY combat job's standard attack clips at most 3 enemies (user design call
+                // 2026-07-19; wiki: "several arrows"/"all enemies in front of you" with the only
+                // explicit cap being the wizard's "up to 3"). The targets nearest the AIM LINE
+                // win, so the count falls off naturally with distance. PROVISIONAL number — tune
+                // against reference footage.
+                if (targets.Count > MaxSweepTargets)
+                {
+                    targets = [.. targets
+                        .OrderByDescending(n =>
+                        {
+                            var tx = n.Position.X - px;
+                            var tz = n.Position.Z - pz;
+                            var len = MathF.Sqrt(tx * tx + tz * tz);
+                            return len < 0.0001f ? 1f : (dirX * tx + dirZ * tz) / len;
+                        })
+                        .Take(MaxSweepTargets)];
+                }
+            }
+        }
         else
         {
             targets = targetNpc is null ? [] : [targetNpc];
@@ -893,8 +989,29 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         _logger.LogInformation("Ability slot {slot} = '{name}' (dmg {dmg}, anim {anim}, fx {fx}, targets {count})",
             packet.Data.Slot, ability.Name, ability.Damage, ability.Animation, ability.EffectId, targets.Count);
 
-        ResolveDamageAfterCast(player, targets, ability.Damage, ability.EffectId, damageDelay,
-            ability.CasterEndEffectId, ability.EnemyExtraEffectId);
+        // PROBE (2026-07-19): arrows in flight — op35/62 per victim, archer only for now. Each
+        // victim's damage lands when ITS arrow does: delay = cast delay + (dist - 2u) / speed.
+        var isArcher = player.ActiveProfileId == ArcherWeaponAbilities.ArcherProfileId;
+        if (isArcher && ProjectileProbe.Enabled)
+        {
+            var casterEndFx = ability.CasterEndEffectId;
+            foreach (var projectileTarget in targets)
+            {
+                ProjectileProbe.FireAt(player, projectileTarget);
+
+                // Arrow launches AT cast, so damage lands at flight time exactly — adding the
+                // cast delay on top made every hit read ~0.15s late (user 2026-07-19).
+                ResolveDamageAfterCast(player, [projectileTarget], ability.Damage, ability.EffectId,
+                    Math.Max(damageDelay, ProjectileProbe.FlightTimeTo(player, projectileTarget)),
+                    casterEndFx, ability.EnemyExtraEffectId);
+                casterEndFx = 0; // caster's own end-FX only once per cast, not per arrow
+            }
+        }
+        else
+        {
+            ResolveDamageAfterCast(player, targets, ability.Damage, ability.EffectId, damageDelay,
+                ability.CasterEndEffectId, ability.EnemyExtraEffectId);
+        }
 
         return true;
     }
@@ -925,7 +1042,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     if (!target.IsAlive)
                         continue;
 
-                    var hitDamage = CombatBuffs.ApplyDamage(player.Guid, ApplyArcherTraitDamage(player, damage));
+                    var hitDamage = CombatBuffs.ApplyDamage(player.Guid, ApplyArcherTraitDamage(player, damage, out var isCriticalHit));
 
                     var killed = target.ApplyDamage(hitDamage);
 
@@ -953,11 +1070,15 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                     {
                         Guid = player.Guid,
                         Guid2 = target.Guid,
-                        Unknown = true,               // player->NPC sample had the leading bool = 01
+                        ShowFloatingText = true,      // player->NPC sample had the leading bool = 01
                         Unknown2 = target.MaxHealth,  // max HP (bar denominator)
                         Unknown3 = target.Health,     // current HP AFTER the hit (bar position)
                         Unknown4 = -hitDamage,        // delta = -damage -> the floating number
+                        IsCriticalHit = isCriticalHit, // the REAL roll (archer traits; other jobs have no roll yet)
                     }, sendToSelf: true);
+
+                    if (Sanctuary.Game.Combat.CombatDebug.Verbose)
+                        player.SendSystemMessage($"dbg hpMod[ability hit] dmg {hitDamage} crit={isCriticalHit}");
 
                     TryLuckyShotEnergy(player);
 

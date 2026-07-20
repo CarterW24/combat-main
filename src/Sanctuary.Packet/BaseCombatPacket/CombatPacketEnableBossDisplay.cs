@@ -7,20 +7,22 @@ namespace Sanctuary.Packet;
 // header is [ulong Guid][bool Enable]. Enable=true sets actor flag 0x80 and calls
 // ClientProxiedCharacterManager::AddBoss(guid) — the red boss NAME + overhead boss health display
 // seen on "Frostfang Alpha" / "Taka the Shadow" in the reference video. Enable=false -> RemoveBoss.
-public class CombatPacketEnableBossDisplay : ISerializablePacket
+public class CombatPacketEnableBossDisplay : BaseCombatPacket, ISerializablePacket
 {
-    public const short OpCode = 32;
-    public const short SubOpCode = 9;
+    public new const short OpCode = 9;
 
     public ulong Guid;
     public bool Enable = true;
+
+    public CombatPacketEnableBossDisplay() : base(OpCode)
+    {
+    }
 
     public byte[] Serialize()
     {
         using var writer = new PacketWriter();
 
-        writer.Write(OpCode);
-        writer.Write(SubOpCode);
+        Write(writer);
 
         writer.Write(Guid);
         writer.Write(Enable);

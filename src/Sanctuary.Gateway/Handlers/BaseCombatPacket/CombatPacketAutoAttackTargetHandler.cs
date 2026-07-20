@@ -67,9 +67,9 @@ public static class CombatPacketAutoAttackTargetHandler
         player.LastCombatTime = DateTime.UtcNow;
         player.CombatTargetGuid = combatNpc.Guid;
 
-        var damage = CalculateMeleeDamage(player);
+        var damage = CalculateMeleeDamage(player, out var isCriticalHit);
 
-        combatNpc.TakeDamage(damage, player);
+        combatNpc.TakeDamage(damage, player, isCriticalHit);
 
         var attackDamage = new CombatPacketAttackTargetDamage
         {
@@ -86,8 +86,10 @@ public static class CombatPacketAutoAttackTargetHandler
         return true;
     }
 
-    private static int CalculateMeleeDamage(Player player)
+    private static int CalculateMeleeDamage(Player player, out bool isCriticalHit)
     {
+        isCriticalHit = false;
+
         var random = Random.Shared;
 
         var weaponDamage = player.Stats[CharacterStatId.EquippedMeleeWeaponDamage].Int;
@@ -109,6 +111,7 @@ public static class CombatPacketAutoAttackTargetHandler
         {
             var effectiveMultiplier = critMultiplier > 0 ? critMultiplier : 2.0f;
             totalDamage = (int)(totalDamage * effectiveMultiplier);
+            isCriticalHit = true;
         }
 
         return Math.Max(1, totalDamage);

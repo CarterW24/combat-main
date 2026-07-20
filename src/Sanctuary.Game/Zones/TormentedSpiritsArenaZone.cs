@@ -157,6 +157,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
 
     public override void OnClientFinishedLoading(Player player)
     {
+        base.OnClientFinishedLoading(player);
+
         ActivePlayers();
 
         bool first;
@@ -422,8 +424,9 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         npc.ModelId = SpiritModelId;
         npc.NameId = 0;
         npc.Name = null;
-        npc.HideNamePlate = false;
-        npc.ShowHealthBar = true;
+        // Common mobs: no overhead plate/bar (live recipe — the target frame shows their health).
+        npc.HideNamePlate = true;
+        npc.ShowHealthBar = false;
         npc.Scale = 1f;
         npc.Disposition = 0;
         npc.ActiveProfile = SpiritActiveProfile;
@@ -683,7 +686,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             {
                 Guid = player.Guid,
                 Guid2 = player.Guid,
-                Unknown = true,
+                ShowFloatingText = true,
                 Unknown2 = 2500,
                 Unknown3 = 2500,
                 Unknown4 = HeartHeal,
@@ -744,7 +747,7 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
             allClear = !_won && _tombstones.Count == 0 && _spirits.Count == 0;
         }
 
-        Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } });
+        Broadcast(new PlayerUpdatePacketRemoveNotifications { Entries = { new() { Guid = npc.Guid } } });
         var deathPos = npc.Position;
 
         if (wasTombstone)

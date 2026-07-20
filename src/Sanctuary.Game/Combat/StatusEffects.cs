@@ -121,7 +121,7 @@ public static class StatusEffects
                     TypeId = 2,
                     Duration = durationMs / 1000,
                     Guid = source?.Guid ?? target.Guid,
-                    CompositeEffectId = meta.FxId,
+                    CompositeEffectId = 0, // FX rides op35/41 -> 35/42 only, never in the tag (see ApplyBuffTag)
                     Unknown16 = 0, // the live in-combat tags (heart) ship 0 here; login-time buffs ship 3
                     IconId = meta.IconId,
                     NameId = unchecked((int)meta.NameId),
@@ -143,12 +143,46 @@ public static class StatusEffects
         });
     }
 
+    private sealed class ActiveBuffTag
+    {
+        public int TagId;
+        public int Seq;
+        public bool HasFx;
+    }
+
+    // Player guid -> buff identity (icon id) -> live tag. ONE buff-bar entry per buff kind:
+    // re-applying (a second heart) reuses the tag id and restarts the duration pie instead of
+    // stacking a new icon. The registry also lets a zone change force-expire everything.
+    private static readonly ConcurrentDictionary<ulong, ConcurrentDictionary<int, ActiveBuffTag>> _activeBuffTags = new();
+
+    // HEART/BUFF FX RECIPE (2026-07-18, decided after the harness mixup): the only PLAY-VERIFIED
+    // recipe is the 2026-07-15 build (fork `combat` branch): FX = op35/41 add + op35/42 stop, and
+    // the FX id NEVER rides inside the 38/16 tag. The tag-era recipe (FX-in-tag, deployed 07-16
+    // 19:20 to BOTH trees) loops the shower forever on the owner's screen — seen on harness 1
+    // itself on 07-18. Tag here = buff-bar icon/label/pie ONLY.
     public static int ApplyBuffTag(Player player, int iconId, uint nameId, int durationMs,
         float magnitude = 0f, int fxId = 0, int abilityId = 0, ulong sourceGuid = 0)
     {
-        var tagId = ++_tagCounter;
+        var buffs = _activeBuffTags.GetOrAdd(player.Guid, _ => new());
+        var isRefresh = buffs.TryGetValue(iconId, out var buff);
+        if (!isRefresh || buff is null)
+        {
+            buff = new ActiveBuffTag { TagId = ++_tagCounter };
+            buffs[iconId] = buff;
+            isRefresh = false;
+        }
 
-        if (fxId > 0)
+        int tagId, seq;
+        lock (buff)
+        {
+            tagId = buff.TagId;
+            seq = ++buff.Seq;
+            buff.HasFx = fxId > 0;
+        }
+
+        // On a refresh the first application's FX loop is still running under this tag id — the
+        // client skips an add for an id it already tracks, so only start it once.
+        if (fxId > 0 && !isRefresh)
         {
             var fx = new PlayerUpdatePacketAddEffectTagCompositeEffect
             {
@@ -161,6 +195,10 @@ public static class StatusEffects
             player.SendTunneledToVisible(fx);
         }
 
+        // Refresh: drop the old bar entry first so the re-add restarts the duration pie.
+        if (isRefresh)
+            player.SendTunneled(new ClientUpdatePacketRemoveEffectTag { InstanceId = tagId });
+
         player.SendTunneled(new ClientUpdatePacketAddEffectTag
         {
             Tag = new EffectTag
@@ -171,7 +209,7 @@ public static class StatusEffects
                 Magnitude = magnitude,
                 Duration = durationMs / 1000,
                 Guid = sourceGuid != 0 ? sourceGuid : player.Guid,
-                CompositeEffectId = fxId,
+                CompositeEffectId = 0,
                 Unknown16 = 0, // live in-combat tag template (heart) ships 0 here
                 IconId = iconId,
                 NameId = unchecked((int)nameId),
@@ -184,7 +222,13 @@ public static class StatusEffects
             try
             {
                 await Task.Delay(durationMs);
-                RemoveBuffTag(player, tagId, fxId > 0);
+                lock (buff)
+                {
+                    // A newer application refreshed this buff — its own task owns the removal now.
+                    if (buff.Seq != seq)
+                        return;
+                }
+                RemoveBuffTag(player, iconId);
             }
             catch {  }
         });
@@ -192,19 +236,32 @@ public static class StatusEffects
         return tagId;
     }
 
-    public static void RemoveBuffTag(Player player, int tagId, bool hadFx = true)
+    public static void RemoveBuffTag(Player player, int buffIconId)
     {
-        player.SendTunneled(new ClientUpdatePacketRemoveEffectTag { InstanceId = tagId });
-        if (hadFx)
+        if (!_activeBuffTags.TryGetValue(player.Guid, out var buffs)
+            || !buffs.TryRemove(buffIconId, out var buff))
+            return;
+
+        player.SendTunneled(new ClientUpdatePacketRemoveEffectTag { InstanceId = buff.TagId });
+        if (buff.HasFx)
         {
-            // The FX stop must reach the tag's OWNER too — visible-only left the loop (the heart
-            // shower) running forever on the player's own screen (play-test 2026-07-16).
             player.SendTunneledToVisible(new PlayerUpdatePacketRemoveEffectTagCompositeEffect
             {
                 Guid = player.Guid,
-                TagId = tagId,
+                TagId = buff.TagId,
             }, sendToSelf: true);
         }
+    }
+
+    // Expire every active buff tag NOW, while the packets can still reach the client — called
+    // before a zone teleport. The scheduled Task.Delay removals still run later but no-op
+    // (already out of the registry, and a duplicate remove is harmless to the client).
+    public static void FlushBuffTags(Player player)
+    {
+        if (!_activeBuffTags.TryGetValue(player.Guid, out var buffs))
+            return;
+        foreach (var key in buffs.Keys)
+            RemoveBuffTag(player, key);
     }
 
     public static void Clear(IEntity target, StatusEffectKind kind)
@@ -307,7 +364,7 @@ public static class StatusEffects
                         {
                             Guid = source?.Guid ?? npc.Guid,
                             Guid2 = npc.Guid,
-                            Unknown = true,
+                            ShowFloatingText = true,
                             Unknown2 = npc.MaxHealth,
                             Unknown3 = npc.Health,
                             Unknown4 = -PoisonTickDamage,

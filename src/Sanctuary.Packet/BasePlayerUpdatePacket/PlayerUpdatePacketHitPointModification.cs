@@ -8,11 +8,14 @@ namespace Sanctuary.Packet;
 // WIRE FORMAT CONFIRMED from IDA (client UnserializePacket sub_8D6C50) + the 2014-04-01 capture:
 //   ulong Guid   (m_llGuid)   SOURCE / attacker      ← (was mislabeled "target"; real order proven 2026-07-03)
 //   ulong Guid2  (m_llGuid2)  VICTIM                 ← (was mislabeled "source")
-//   bool  Unknown  (m_bUnknown)   player->NPC samples carry 01
+//   bool  ShowFloatingText (m_bUnknown)  gates creation of the floating delta event, and only when
+//         the LOCAL player is attacker or victim (BaseClient sub_8D3020: `if (a4 && guid==player||guid2==player)`)
 //   int   Unknown2 (m_nUnknown2)  MAX hp    (health-bar denominator)
 //   int   Unknown3 (m_nUnknown3)  CURRENT hp after the hit (bar position)
 //   int   Unknown4 (m_nUnknown4)  DELTA = -damage  ← the floating number (was wrongly put in Unknown2)
-//   bool  Unknown5 (m_bUnknown5)
+//   bool  IsCriticalHit (m_bUnknown5)  IDA-verified 2026-07-17: PlayerHitpointDeltaEvent exec (0xAE2350)
+//         renders negative deltas as "%d!!" when set (plain "%d" otherwise) + styles the floating text;
+//         heals are always "+%d". NOT the leading bool (old wrong guess).
 // Real NPC->player sample: Guid=NPC, Guid2=player, i2=7828(max), i3=7823(cur-after), i4=-5(delta).
 // A short packet trips m_bReachedEnd and the client rejects it (the previous bug).
 // NOTE: this packet does NOT reset the action-bar melee timer, so it's the correct vehicle for the
@@ -24,13 +27,13 @@ public class PlayerUpdatePacketHitPointModification : BasePlayerUpdatePacket, IS
     public ulong Guid;
     public ulong Guid2;
 
-    public bool Unknown;
+    public bool ShowFloatingText;
 
     public int Unknown2;
     public int Unknown3;
     public int Unknown4;
 
-    public bool Unknown5;
+    public bool IsCriticalHit;
 
     public PlayerUpdatePacketHitPointModification() : base(OpCode)
     {
@@ -45,13 +48,13 @@ public class PlayerUpdatePacketHitPointModification : BasePlayerUpdatePacket, IS
         writer.Write(Guid);
         writer.Write(Guid2);
 
-        writer.Write(Unknown);
+        writer.Write(ShowFloatingText);
 
         writer.Write(Unknown2);
         writer.Write(Unknown3);
         writer.Write(Unknown4);
 
-        writer.Write(Unknown5);
+        writer.Write(IsCriticalHit);
 
         return writer.Buffer;
     }

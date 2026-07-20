@@ -344,8 +344,11 @@ public sealed class StartingZone : BaseZone
             npc.ImageSetId = 0;
             npc.ShowHealthBar = false;
 
-            var pos = new Vector4(202.2f, 34.6f, 504.7f, 1f);
-            npc.UpdatePosition(pos, SpawnRotation);
+            // The REAL Growler stand (user-captured in-game 2026-07-17, Wilds North): the offer
+            // NPC's live spot, ~4u from the current overworld spawn. The old hardcoded test-area
+            // spot (202.2, 34.6, 504.7) was 2100u away from the relocated spawn.
+            var pos = new Vector4(-1908.09f, -39.45f, 413.01f, 1f);
+            npc.UpdatePosition(pos, new Quaternion(-0.989f, 0f, -0.145f, 0f));
 
             _growlerWolf = npc;
         }
@@ -488,7 +491,8 @@ public sealed class StartingZone : BaseZone
         enemy.ActiveProfile = 1;
         enemy.CursorId = 11;
         enemy.IsInteractable = false;
-        enemy.ShowHealthBar = true;
+        // Common mobs carry no overhead health bar (live recipe); the target frame shows it.
+        enemy.ShowHealthBar = false;
         enemy.MovementType = 2;
 
         enemy.InitializeFromLevel(WorldEnemyLevel);
@@ -523,7 +527,8 @@ public sealed class StartingZone : BaseZone
         enemy.ActiveProfile = 1;
         enemy.CursorId = 11;
         enemy.IsInteractable = false;
-        enemy.ShowHealthBar = true;
+        // Common mobs carry no overhead health bar (live recipe); the target frame shows it.
+        enemy.ShowHealthBar = false;
         enemy.MovementType = 2;
 
         enemy.InitializeFromLevel(level);
@@ -739,7 +744,7 @@ public sealed class StartingZone : BaseZone
 
     private static void BroadcastKillSignal(Player killer, Npc npc)
     {
-        var clear = new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } };
+        var clear = new PlayerUpdatePacketRemoveNotifications { Entries = { new() { Guid = npc.Guid } } };
         foreach (var viewer in npc.VisiblePlayers.Values)
             viewer.SendTunneled(clear);
         if (!npc.VisiblePlayers.ContainsKey(killer.Guid))

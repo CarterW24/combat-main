@@ -350,28 +350,31 @@ public static class ArcherWeaponAbilities
         if (weapon is null)
         {
             if (equippedDefId == 0)
-                return AbilityPacketSetDefinition.CreateEmpty(ArcherProfileId);
+                return new AbilityPacketSetDefinition { ProfileId = ArcherProfileId };
 
-            var fallback = new AbilityPacketSetDefinition { ProfileId = ArcherProfileId, SlotCount = 8 };
-            fallback.Slots.Add(MakeSlot(BasicSlotDefId, BareShot.IconImageId, nameId, manaCost: 0));
+            var fallback = new AbilityPacketSetDefinition { ProfileId = ArcherProfileId };
+            fallback.AbilitySet.Abilities[0] = MakeSlot(BasicSlotDefId, BareShot.IconImageId, nameId, manaCost: 0);
             return fallback;
         }
 
-        var def = new AbilityPacketSetDefinition { ProfileId = ArcherProfileId, SlotCount = 8 };
+        var def = new AbilityPacketSetDefinition { ProfileId = ArcherProfileId };
 
-        def.Slots.Add(MakeSlot(BasicSlotDefId, weapon.Basic.IconImageId, nameId, manaCost: 0));
-        def.Slots.Add(MakeSlot(SpecialSlotDefId, weapon.Special.IconImageId, nameId, manaCost: weapon.Special.EnergyCost));
+        def.AbilitySet.Abilities[0] = MakeSlot(BasicSlotDefId, weapon.Basic.IconImageId, nameId, manaCost: 0);
+        def.AbilitySet.Abilities[1] = MakeSlot(SpecialSlotDefId, weapon.Special.IconImageId, nameId, manaCost: weapon.Special.EnergyCost);
 
         return def;
     }
 
-    private static AbilityPacketSetDefinition.Slot MakeSlot(int abilityDefId, int iconId, int nameId, int manaCost) => new()
+    private static Sanctuary.Packet.Common.Ability MakeSlot(int abilityDefId, int iconId, int nameId, int manaCost) => new()
     {
         Type = 3,
         Unknown2 = abilityDefId,
         ManaCost = manaCost,
         IconId = iconId,
         NameId = nameId,
+        Unknown7 = 4,
+        Unknown9 = 1,
         AbilityDefinitionId = abilityDefId,
+        ForceDismount = true,
     };
 }

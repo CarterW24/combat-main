@@ -304,9 +304,9 @@ public class GatewayConnection : UdpConnection
 
             if (profileData.Type == 2)
             {
-                for (var i = 0; i < clientPcProfile.Abilities.Count; i++)
+                for (var i = 0; i < clientPcProfile.AbilitySet.Abilities.Length; i++)
                 {
-                    clientPcProfile.Abilities[i] = new Ability
+                    clientPcProfile.AbilitySet.Abilities[i] = new Ability
                     {
                         Type = i < 4 ? 3 : 0,
                         ManaCost = 0,

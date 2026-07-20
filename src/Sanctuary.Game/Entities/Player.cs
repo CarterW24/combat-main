@@ -286,7 +286,7 @@ public sealed class Player : ClientPcData, IEntity
             SendTunneledToVisible(new PlayerUpdatePacketUpdateMana
             {
                 Guid = Guid,
-                CurrentMana = CurrentMana,
+                Mana = CurrentMana,
                 MaxMana = maxMana
             }, sendToSelf: true);
         }
@@ -354,7 +354,7 @@ public sealed class Player : ClientPcData, IEntity
         {
             Guid = Guid,
             Guid2 = Guid,
-            Unknown = true,
+            ShowFloatingText = true,
             Unknown2 = maxHp,
             Unknown3 = maxHp,
             Unknown4 = maxHp,
@@ -375,7 +375,7 @@ public sealed class Player : ClientPcData, IEntity
         var inEncounter = Zone is Zones.CombatEncounterZone;
         if (!inEncounter)
         {
-            SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
+            SendTunneled(new EncounterOverworldCombatPacket { IsFighting = false });
             SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
         }
 
@@ -473,12 +473,7 @@ public sealed class Player : ClientPcData, IEntity
             // window to the paid overworld variant (the 2026-07-15 wrong-window bug, play-verified —
             // live sends NEITHER flag inside an encounter, so this is the only place to drop it).
             if (_worldCombatActive)
-            {
-                _worldCombatActive = false;
-                _lastWorldCombatTicks = 0;
-                SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = false });
-                SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
-            }
+                ClearWorldCombatState();
             return;
         }
 
@@ -492,8 +487,22 @@ public sealed class Player : ClientPcData, IEntity
             return;
 
         _worldCombatActive = want;
-        SendTunneled(new EncounterOverworldCombatPacket { Unknown3 = want });
+        SendTunneled(new EncounterOverworldCombatPacket { IsFighting = want });
         SendTunneled(new EncounterPacketIsFighting { InWorldCombat = want });
+    }
+
+    // IDA 2026-07-17: the knockout window mode is the client's m_bIsFighting, whose ONLY writer is
+    // the op41/132 handler (BaseClient::SetInWorldCombat) — op41/133 writes a different flag
+    // (m_bInCombatArea, the dock combat indicator). A clear sent while the client is zoning is
+    // lost, so encounter zones re-send this from OnClientFinishedLoading.
+    public void ClearWorldCombatState()
+    {
+        _worldCombatActive = false;
+        _lastWorldCombatTicks = 0;
+        SendTunneled(new EncounterOverworldCombatPacket { IsFighting = false });
+        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = false });
+        if (Combat.CombatDebug.Verbose)
+            SendSystemMessage("dbg: IsFighting cleared (132/133 false)");
     }
 
     public void Knockout()
@@ -744,7 +753,7 @@ public sealed class Player : ClientPcData, IEntity
         SendTunneledToVisible(new PlayerUpdatePacketUpdateMana
         {
             Guid = Guid,
-            CurrentMana = CurrentMana,
+            Mana = CurrentMana,
             MaxMana = maxMana
         }, sendToSelf: true);
     }
@@ -810,6 +819,10 @@ public sealed class Player : ClientPcData, IEntity
 
     public void TeleportToZone(IZone zone, Vector4 position, Quaternion rotation, string? sky, int geometryId)
     {
+        // Buff tags (heart shower etc.) must be expired BEFORE the zoning packets go out — their
+        // timed removal otherwise lands mid-load and the looping FX rides the player forever.
+        Combat.StatusEffects.FlushBuffTags(this);
+
         if (Zone == zone)
         {
             foreach (var visiblePlayer in VisiblePlayers)

@@ -109,10 +109,11 @@ public static class HeldPowerupProbe
                 {
                     Guid = player.Guid,
                     Guid2 = npc.Guid,
-                    Unknown = true,
+                    ShowFloatingText = true,
                     Unknown2 = npc.MaxHealth,
                     Unknown3 = npc.Health,
                     Unknown4 = -damage,
+                    IsCriticalHit = false, // powerup bursts have no crit roll
                 });
             }
         }

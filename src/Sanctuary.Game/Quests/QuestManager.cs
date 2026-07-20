@@ -410,7 +410,7 @@ public sealed class QuestManager : IQuestManager
 
         if (imageId == 0)
         {
-            player.SendTunneled(new PlayerUpdatePacketRemoveNotifications { Guids = [npc.Guid] });
+            player.SendTunneled(new PlayerUpdatePacketRemoveNotifications { Entries = [new() { Guid = npc.Guid }] });
             return;
         }
 

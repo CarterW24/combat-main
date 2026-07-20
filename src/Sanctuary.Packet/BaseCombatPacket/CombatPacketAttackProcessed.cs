@@ -2,10 +2,13 @@ using Sanctuary.Core.IO;
 
 namespace Sanctuary.Packet;
 
-public class CombatPacketAttackProcessed : ISerializablePacket
+// IDA-verified 2026-07-17 (client CombatProcessor 0xA2BA40): this handler resets the melee
+// action-bar timer, then builds its OWN floating-number event — so op32/7 numbers do NOT go
+// through HitPointModification. IsCriticalHit here is what renders "%d!!" for these hits;
+// SuppressHitReaction=true skips the target's hit-react anim (code-anim 8) + camera shake.
+public class CombatPacketAttackProcessed : BaseCombatPacket, ISerializablePacket
 {
-    public const short OpCode = 32;
-    public const short SubOpCode = 7;
+    public new const short OpCode = 7;
 
     public ulong AttackerGuid;
 
@@ -17,20 +20,25 @@ public class CombatPacketAttackProcessed : ISerializablePacket
 
     public int CompositeEffectId;
 
-    public bool Bool1;
-    public bool Bool2;
+    public bool IsCriticalHit;
+    public bool SuppressHitReaction;
 
     public int Int4;
 
     public int CurrentHealth;
 
+    public CombatPacketAttackProcessed() : base(OpCode)
+    {
+    }
+
     public byte[] Serialize()
     {
         using var writer = new PacketWriter();
 
-        writer.Write(OpCode);
-        writer.Write(SubOpCode);
+        Write(writer);
 
+        // The wire carries THREE guids (client unserializer reads 3 qwords); live duplicates the
+        // attacker in the first two slots.
         writer.Write(AttackerGuid);
         writer.Write(AttackerGuid);
         writer.Write(TargetGuid);
@@ -39,8 +47,8 @@ public class CombatPacketAttackProcessed : ISerializablePacket
         writer.Write(MaxHealth);
         writer.Write(CompositeEffectId);
 
-        writer.Write(Bool1);
-        writer.Write(Bool2);
+        writer.Write(IsCriticalHit);
+        writer.Write(SuppressHitReaction);
 
         writer.Write(Int4);
         writer.Write(CurrentHealth);

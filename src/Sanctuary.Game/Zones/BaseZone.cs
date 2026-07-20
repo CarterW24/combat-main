@@ -105,9 +105,11 @@ public abstract class BaseZone : IZone, IDisposable
         // The client's respawn window (DisplayRespawn) only renders the pay/safe buttons while it's in a
         // combat/encounter state; otherwise sub125 shows only the knockout banner/counter. Put the player
         // into the world-combat state first so the full window (with buttons) appears out in the overworld.
-        player.SendTunneled(new Sanctuary.Packet.EncounterOverworldCombatPacket { Unknown3 = true });
+        player.SendTunneled(new Sanctuary.Packet.EncounterOverworldCombatPacket { IsFighting = true });
         player.SendTunneled(new Sanctuary.Packet.EncounterPacketIsFighting { InWorldCombat = true });
         player.SendTunneled(new Sanctuary.Packet.EncounterShowRespawnWindowPacket(0, 0, reviveHereCostRaw: ReviveHereCostRaw));
+        if (Combat.CombatDebug.Verbose)
+            player.SendSystemMessage($"dbg KO: BaseZone OVERWORLD variant (paid window) zone={Name}");
         ScheduleAutoRevive(player);
     }
 

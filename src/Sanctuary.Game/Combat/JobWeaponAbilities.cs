@@ -86,31 +86,28 @@ public static class JobWeaponAbilities
     }
 
     public static AbilityPacketSetDefinition BuildToolbar(Player player, IResourceManager resources,
-        AbilityPacketSetDefinition.Slot? heldPowerup)
+        Sanctuary.Packet.Common.Ability? heldPowerup)
     {
         var def = BuildToolbar(player, resources)
-                  ?? AbilityPacketSetDefinition.CreateEmpty(player.ActiveProfileId);
+                  ?? new AbilityPacketSetDefinition { ProfileId = player.ActiveProfileId };
 
+        // The held powerup rides the toolbar PINNED at slot index 2 (the "3" key).
         if (heldPowerup is not null)
-        {
-            while (def.Slots.Count < 2)
-                def.Slots.Add(null);
-            if (def.Slots.Count == 2)
-                def.Slots.Add(heldPowerup);
-            else
-                def.Slots[2] = heldPowerup;
-        }
+            def.AbilitySet.Abilities[2] = heldPowerup;
 
         return def;
     }
 
-    public static AbilityPacketSetDefinition.Slot MakePowerupSlot(int iconId, int nameId) => new()
+    public static Sanctuary.Packet.Common.Ability MakePowerupSlot(int iconId, int nameId) => new()
     {
         Type = 3,
         Unknown2 = NinjaWeaponAbilities.MeleeAbilityDefId,
         ManaCost = 0,
         IconId = iconId,
         NameId = nameId,
+        Unknown7 = 4,
+        Unknown9 = 1,
         AbilityDefinitionId = NinjaWeaponAbilities.MeleeAbilityDefId,
+        ForceDismount = true,
     };
 }

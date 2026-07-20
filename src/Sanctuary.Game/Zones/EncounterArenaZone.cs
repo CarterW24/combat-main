@@ -47,10 +47,25 @@ public sealed class EncounterArenaZone : CombatEncounterZone
     private const int DoorBadgeType = 7;
     private const int DoorBadgeUnknown3 = 102;
 
+    private const int HeartModelId = 736;
+    private const int HeartHeal = 125;
+    private const float HeartPickupRange = 2.6f;
+    private const int HeartDropPercent = 12;
+    private const int HeartPickupFxId = 15032;
+    private const int HealShowerFxId = 15921;
+    private const int HealShowerMs = 15000;
+    private const int HeartNameId = 5102381;
+    private const int HeartActiveProfile = 8;
+    private const int HeartBuffIconId = 17348;
+    private const uint HeartBuffNameId = 5102381;
+    private const int HeartBuffAbilityId = 6211;
+    private const float HeartBuffMult = 1.33f;
+
     private sealed class MobState : EncounterMobState { }
 
     private readonly object _stateLock = new();
     private readonly List<Npc> _mobs = [];
+    private readonly List<Npc> _hearts = [];
     private readonly Dictionary<ulong, MobState> _mobStates = [];
     private int _killed;
     private bool _won;
@@ -111,6 +126,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
 
     public override void OnClientFinishedLoading(Player player)
     {
+        base.OnClientFinishedLoading(player);
+
         ActivePlayers();
 
         bool first;
@@ -182,6 +199,9 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                 old.Dispose();
             _mobs.Clear();
             _mobStates.Clear();
+            foreach (var h in _hearts)
+                h.Dispose();
+            _hearts.Clear();
             ExitDoor?.Dispose();
             SetExitDoor(null);
             _killed = 0;
@@ -388,18 +408,20 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         if (!TryCreateNpc(out var npc))
             return null;
 
+        // Live overhead-UI recipe (harness-1/capture): common mobs get NO plate and NO bar (the
+        // click-target frame shows their health); only the BOSS gets the floating name + bar.
         npc.ModelId = group.ModelId;
         npc.NameId = group.Boss ? Dungeon.TitleNameId : 0;
         npc.Name = null;
-        npc.HideNamePlate = false;
-        npc.ShowHealthBar = true;
+        npc.HideNamePlate = !group.Boss;
+        npc.ShowHealthBar = group.Boss;
         npc.Scale = group.Scale;
         npc.Disposition = 0;
         npc.ActiveProfile = MobActiveProfile;
         npc.CompositeEffectId = 0;
         npc.MaxHealth = group.Health;
         npc.Health = group.Health;
-        npc.IsInteractable = false;
+        npc.IsInteractable = true;
         npc.InteractRange = 100;
         npc.Visible = true;
         npc.CursorId = 11;
@@ -460,6 +482,9 @@ public sealed class EncounterArenaZone : CombatEncounterZone
                     var players = ActivePlayers();
                     if (players.Length == 0)
                         return;
+
+                    foreach (var p in players)
+                        CollectHearts(p);
 
                     Npc[] pack;
                     lock (_stateLock)
@@ -550,14 +575,102 @@ public sealed class EncounterArenaZone : CombatEncounterZone
             allClear = !_won && _mobs.Count == 0;
         }
 
-        Broadcast(new PlayerUpdatePacketRemoveNotifications { Guids = { npc.Guid } });
+        Broadcast(new PlayerUpdatePacketRemoveNotifications { Entries = { new() { Guid = npc.Guid } } });
         var deathPos = npc.Position;
 
         npc.GracefulRemoval = (true, DeathHoldMs, 0, DeathPoofFxId, 1000);
         npc.Dispose();
 
+        if (_rng.Next(100) < HeartDropPercent)
+            SpawnHeart(deathPos);
+
         if (allClear)
             WinEncounter(killer, deathPos);
+    }
+
+    private void SpawnHeart(Vector4 pos)
+    {
+        if (!TryCreateNpc(out var heart))
+            return;
+
+        heart.ModelId = HeartModelId;
+        heart.Name = null;
+        heart.NameId = HeartNameId;
+        heart.Disposition = 1;
+        heart.Scale = 1f;
+        heart.IsInteractable = false;
+        heart.InteractRange = 0;
+        heart.Visible = true;
+        heart.MaxHealth = 0;
+        heart.ShowHealthBar = false;
+        heart.HideNamePlate = true;
+        heart.ActiveProfile = HeartActiveProfile;
+        heart.WalkAnimId = -1;
+        heart.RunAnimId = -1;
+        heart.StandAnimId = -1;
+        heart.MovementType = MovementTypePhysics;
+        heart.RiderGuid = ulong.MaxValue;
+        heart.UpdatePosition(pos, Quaternion.Identity);
+
+        foreach (var p in ActivePlayers())
+        {
+            p.OnAddVisibleNpcs(heart);
+            heart.OnAddVisiblePlayers(p);
+        }
+
+        lock (_stateLock)
+            _hearts.Add(heart);
+    }
+
+    private void CollectHearts(Player player)
+    {
+        List<Npc>? collected = null;
+        lock (_stateLock)
+        {
+            for (var i = _hearts.Count - 1; i >= 0; i--)
+            {
+                var h = _hearts[i];
+                var dx = player.Position.X - h.Position.X;
+                var dz = player.Position.Z - h.Position.Z;
+                if (dx * dx + dz * dz > HeartPickupRange * HeartPickupRange)
+                    continue;
+                _hearts.RemoveAt(i);
+                (collected ??= []).Add(h);
+            }
+        }
+
+        if (collected is null)
+            return;
+
+        foreach (var h in collected)
+        {
+            var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
+            player.CurrentHitpoints = Math.Min(maxHp, player.CurrentHitpoints + HeartHeal);
+            player.SendTunneled(new ClientUpdatePacketHitpoints
+            {
+                CurrentHitpoints = player.CurrentHitpoints,
+                MaxHitpoints = maxHp,
+            });
+            player.SendTunneled(new PlayerUpdatePacketHitPointModification
+            {
+                Guid = player.Guid,
+                Guid2 = player.Guid,
+                ShowFloatingText = true,
+                Unknown2 = maxHp,
+                Unknown3 = player.CurrentHitpoints,
+                Unknown4 = HeartHeal,
+            });
+
+            StatusEffects.ApplyBuffTag(player, HeartBuffIconId, HeartBuffNameId, HealShowerMs,
+                magnitude: HeartBuffMult, fxId: HealShowerFxId, abilityId: HeartBuffAbilityId,
+                sourceGuid: h.Guid);
+
+            if (CombatDebug.Verbose)
+                player.SendSystemMessage($"dbg heart[{Dungeon.Comment}] +{HeartHeal} -> {player.CurrentHitpoints}/{maxHp}");
+
+            h.GracefulRemoval = (false, 0, 5000, HeartPickupFxId, 1000);
+            h.Dispose();
+        }
     }
 
     protected override int FailEncounterId => EncounterId;
