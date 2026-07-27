@@ -19,6 +19,7 @@ namespace Sanctuary.Gateway.Handlers;
 [PacketHandler]
 public static class BaseEncounterPacketHandler
 {
+    private const short EncounterInvitationResponse = 103;
     private const short EncounterParticipantRequestEntrance = 108;
     private const short EncounterRequestExit = 109;
     private const short EncounterParticipantResume = 122;
@@ -52,6 +53,7 @@ public static class BaseEncounterPacketHandler
 
         return subOpCode switch
         {
+            EncounterInvitationResponse => EncounterParticipantRequestEntranceHandler.HandleInvitationResponse(connection, reader),
             EncounterParticipantRequestEntrance => EncounterParticipantRequestEntranceHandler.HandlePacket(connection, reader),
             EncounterRequestExit => HandleRequestExit(connection),
             EncounterParticipantResume => HandleResume(connection, reader),
@@ -62,6 +64,12 @@ public static class BaseEncounterPacketHandler
 
     private static bool HandleCancelPending(GatewayConnection connection)
     {
+        // Kill any queued offer follow-ups (zone-ready/state 5) so a fast X can't reopen the panel.
+        connection.Player.EncounterOfferGeneration++;
+
+        if (EncounterParticipantRequestEntranceHandler.TryHandleInviteDecline(connection))
+            return true;
+
         _logger.LogInformation("Dungeon start panel closed by {name} — tearing down the encounter lobby.", connection.Player.Name);
         var player = connection.Player;
         player.SendTunneled(new CommandPacketQuestDialogComplete());

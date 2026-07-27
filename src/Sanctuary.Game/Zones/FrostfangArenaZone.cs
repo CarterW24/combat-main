@@ -26,6 +26,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
     public const int EncounterId = 174;
     public const int EncounterInstanceId = 1;
+    public const int TitleNameId = 93276;
 
     private const int CombatMiniGameType = 4;
 
@@ -375,7 +376,7 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
                 {
                     Unknown = EncounterId,          // live header ints = [encounterId][instanceId]
                     Unknown2 = EncounterInstanceId,
-                    NameId = 93276,
+                    NameId = TitleNameId,
                     DescriptionId = 104171,
                     Difficulty = 1,
                     IconId = 1345,
@@ -935,6 +936,8 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
         if (collected is null)
             return;
 
+        player.PlayPowerupPickupSound();
+
         foreach (var h in collected)
         {
             var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;
@@ -1027,6 +1030,8 @@ public sealed class FrostfangArenaZone : CombatEncounterZone
 
         if (collected is null)
             return;
+
+        player.PlayPowerupPickupSound();
 
         foreach (var (pu, kind) in collected)
         {

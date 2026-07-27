@@ -43,7 +43,14 @@ public static class CommandPacketSetProfileHandler
         if (profile is null)
             return true;
 
-        connection.Player.ActiveProfileId = packet.Id;
+        ActivateProfile(connection, profile);
+
+        return true;
+    }
+
+    public static void ActivateProfile(GatewayConnection connection, Sanctuary.Packet.Common.ClientPcProfile profile)
+    {
+        connection.Player.ActiveProfileId = profile.Id;
 
         connection.Player.RecalculateStats(refill: true);
 
@@ -97,7 +104,5 @@ public static class CommandPacketSetProfileHandler
 
             friendPlayer.SendTunneled(friendStatusPacket);
         }
-
-        return true;
     }
 }

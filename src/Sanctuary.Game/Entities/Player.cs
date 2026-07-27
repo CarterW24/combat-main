@@ -28,12 +28,30 @@ public sealed class Player : ClientPcData, IEntity
 
     public bool Visible { get; set; }
     public DateTime? SpawnedAt { get; set; }
+
+    // Rotation on this wire packs the facing vector as (x, 0, z, 0) — it is NOT a true
+    // quaternion. Vector3.Transform by it doubles the heading angle (the backwards-arrow
+    // bug); the packed X/Z IS the forward direction.
+    public Vector3 Forward
+    {
+        get
+        {
+            var len = MathF.Sqrt(Rotation.X * Rotation.X + Rotation.Z * Rotation.Z);
+            return len < 0.001f
+                ? new Vector3(0f, 0f, 1f)
+                : new Vector3(Rotation.X / len, 0f, Rotation.Z / len);
+        }
+    }
     public ulong LastInteractNpcGuid { get; set; }
     public DateTime LastInteractAt { get; set; }
 
     public DateTime LastQuestAcceptedAt { get; set; }
 
     public DateTime LastPartyInviteAt { get; set; }
+
+    // Bumped when the pending-encounter panel is closed (op41/124) so queued offer follow-up
+    // packets from an already-dismissed offer are dropped instead of reopening the panel.
+    public int EncounterOfferGeneration;
 
     public bool LoginBurstSent { get; set; }
 
@@ -780,6 +798,22 @@ public sealed class Player : ClientPcData, IEntity
         {
             Guid = Guid,
             CompositeEffectId = LevelUpCompositeEffect,
+            Position = Position
+        }, sendToSelf: true);
+    }
+
+    // 15509 = SFX_PowerUp_Pickup, the client's walk-over pickup sound.
+    private const int PowerupPickupSoundEffect = 15509;
+
+    public void PlayPowerupPickupSound()
+    {
+        if (!Visible)
+            return;
+
+        SendTunneledToVisible(new PlayerUpdatePacketPlayCompositeEffect
+        {
+            Guid = Guid,
+            CompositeEffectId = PowerupPickupSoundEffect,
             Position = Position
         }, sendToSelf: true);
     }
