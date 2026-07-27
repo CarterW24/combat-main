@@ -7,30 +7,34 @@ using Sanctuary.Packet.Common;
 
 namespace Sanctuary.Game.Combat;
 
+// Brawler kit — surface over BrawlerWeaponAbilities. Drives the equipped-weapon toolbar + traits + gameplay,
+// and seeds the equipped weapon's item-def Abilities (the AbilitiesScreen Attack/Special columns). The first
+// pass left this empty because the seeded icon was a wrong stand-in (a ninja sword on hammers), which looked
+// broken on the shared coin-shop weapons; now the icons AND names are the real abil_brawler_* ids, so seeding
+// is safe (same as the archer/ninja kits).
 public sealed class BrawlerJobKit : IJobKit
 {
     public int ProfileId => BrawlerWeaponAbilities.BrawlerProfileId;
     public bool UsesCombatEnergy => true;
-    public float AutoTargetReach => 7f;
-    public IReadOnlyList<int> SlotAbilityDefIds { get; } = new[] { NinjaWeaponAbilities.MeleeAbilityDefId, NinjaWeaponAbilities.SpecialAbilityDefId };
-    public IReadOnlyList<int> WeaponDefIds => Array.Empty<int>();
+    public float AutoTargetReach => 7f; // melee reach
+    public IReadOnlyList<int> SlotAbilityDefIds { get; } = new[] { 4895, 4899 };
+
+    public IReadOnlyList<int> WeaponDefIds => BrawlerWeaponAbilities.AllWeaponDefIds;
 
     public AbilityPacketSetDefinition? BuildToolbar(Player player, IResourceManager resources) =>
-        GenericWeaponToolbar.Build(player, resources, BrawlerWeaponAbilities.GetEquippedWeapon(player));
+        BrawlerWeaponAbilities.BuildToolbar(player, resources);
 
-    public WeaponAbility ResolveAbility(Player player, int slot)
-    {
-        var weapon = BrawlerWeaponAbilities.GetEquippedWeapon(player);
-        if (weapon is null)
-            return NinjaWeaponAbilities.BareMelee;
-        return slot <= 0 ? weapon.Melee : weapon.Special;
-    }
+    public WeaponAbility ResolveAbility(Player player, int slot) =>
+        BrawlerWeaponAbilities.ResolveAbility(player, slot);
 
-    public (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId) => null;
+    public (int NameId, int DescId, int IconId)? ResolveDefinition(Player player, int abilityDefId) =>
+        BrawlerWeaponAbilities.ResolveDefinition(player, abilityDefId);
 
-    public List<ItemDefinition.ItemAbilityEntry> BuildItemAbilityEntries(int weaponDefId) => [];
+    public List<ItemDefinition.ItemAbilityEntry> BuildItemAbilityEntries(int weaponDefId) =>
+        BrawlerWeaponAbilities.BuildItemAbilityEntries(weaponDefId);
 
-    public List<AbilityExperience>? BuildTraitEntries(int rank) => null;
+    public List<AbilityExperience>? BuildTraitEntries(int rank) => BrawlerWeaponAbilities.BuildTraitEntries(rank);
 
-    public (int NameId, int DescId, int IconId) SlotNameIcon(int weaponDefId, int slot) => (0, 0, 0);
+    public (int NameId, int DescId, int IconId) SlotNameIcon(int weaponDefId, int slot) =>
+        BrawlerWeaponAbilities.SlotNameIcon(weaponDefId, slot);
 }

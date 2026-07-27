@@ -490,7 +490,7 @@ public sealed class StartingZone : BaseZone
         enemy.EnemyStatus = true;
         enemy.ActiveProfile = 1;
         enemy.CursorId = 11;
-        enemy.IsInteractable = false;
+        enemy.IsInteractable = true;
         // Common mobs carry no overhead health bar (live recipe); the target frame shows it.
         enemy.ShowHealthBar = false;
         enemy.MovementType = 2;
@@ -526,7 +526,7 @@ public sealed class StartingZone : BaseZone
         enemy.EnemyStatus = true;
         enemy.ActiveProfile = 1;
         enemy.CursorId = 11;
-        enemy.IsInteractable = false;
+        enemy.IsInteractable = true;
         // Common mobs carry no overhead health bar (live recipe); the target frame shows it.
         enemy.ShowHealthBar = false;
         enemy.MovementType = 2;

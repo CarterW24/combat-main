@@ -92,7 +92,7 @@ public static class NinjaWeaponAbilities
         new(420950, 420974, 11646, InstigationLevel),
     ];
 
-    public static List<AbilityExperience> BuildTraitEntries(int rank) => JobTraits.Build(TraitData, rank);
+    public static List<AbilityExperience> BuildTraitEntries(int rank) => JobTraits.Build(TraitData, rank, NinjaProfileId);
 
     public static bool HasTrait(Player player, int traitLevel) =>
         player.ActiveProfileId == NinjaProfileId && player.ActiveProfile.Rank >= traitLevel;

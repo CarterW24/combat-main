@@ -426,7 +426,7 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         cakeNpc.IsInteractable = true;
         cakeNpc.CursorId = (byte)cakeDefinition.CursorId;
 
-        var forwardDirection = Vector3.Transform(new Vector3(0, 0, 1), connection.Player.Rotation);
+        var forwardDirection = connection.Player.Forward;
         var spawnPosition = new Vector4(
             connection.Player.Position.X + forwardDirection.X * 1.5f,
             connection.Player.Position.Y + forwardDirection.Y * 1.5f,
@@ -534,7 +534,8 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         boomboxNpc.HideNamePlate = true;
         boomboxNpc.IsInteractable = false;
 
-        var leftDirection = Vector3.Transform(new Vector3(-1, 0, 0), connection.Player.Rotation);
+        var playerForward = connection.Player.Forward;
+        var leftDirection = new Vector3(-playerForward.Z, 0f, playerForward.X);
         var spawnPosition = new Vector4(
             connection.Player.Position.X + leftDirection.X * 2.0f,
             connection.Player.Position.Y + leftDirection.Y * 2.0f,
@@ -713,22 +714,23 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         Npc? targetNpc = null;
 
-        if (packet.Guid != 0 && zone.TryGetNpc(packet.Guid, out var selected) && selected.IsDamageable && selected.IsAlive)
+        // Attacks NEVER resolve backwards (user 2026-07-21): an explicit selection behind the
+        // player is ignored, auto-target only scans the frontal half-plane, and with nothing
+        // in front the shot flies straight ahead untargeted (retail no-target behavior) instead
+        // of swiveling to a mob at the player's back.
+        var forward = player.Forward;
+
+        if (packet.Guid != 0 && zone.TryGetNpc(packet.Guid, out var selected)
+            && selected.IsDamageable && selected.IsAlive
+            && forward.X * (selected.Position.X - player.Position.X)
+             + forward.Z * (selected.Position.Z - player.Position.Z) > 0f)
         {
             targetNpc = selected;
         }
         else
         {
             var attackReach = JobWeaponAbilities.AutoTargetReach(player);
-            var reach2 = attackReach * attackReach;
-
-            // Auto-target prefers enemies IN FRONT (user 2026-07-19: nearest-only let arrows
-            // launch backwards). Facing can go stale when turning in place, so anything behind
-            // still wins when nothing is in front — the lone wolf at your back stays hittable.
-            var forward = Vector3.Transform(new Vector3(0, 0, 1), player.Rotation);
-            Npc? bestFrontNpc = null;
-            var bestFront2 = reach2;
-            var bestAny2 = reach2;
+            var best2 = attackReach * attackReach;
 
             foreach (var n in zone.Npcs)
             {
@@ -738,27 +740,15 @@ public static class AbilityPacketClientRequestStartAbilityHandler
                 var dx = n.Position.X - player.Position.X;
                 var dz = n.Position.Z - player.Position.Z;
                 var d2 = dx * dx + dz * dz;
-                if (d2 >= bestAny2 && d2 >= bestFront2)
+                if (d2 >= best2)
                     continue;
 
-                if (forward.X * dx + forward.Z * dz > 0f)
-                {
-                    if (d2 < bestFront2)
-                    {
-                        bestFront2 = d2;
-                        bestFrontNpc = n;
-                    }
-                }
+                if (forward.X * dx + forward.Z * dz <= 0f)
+                    continue;
 
-                if (d2 < bestAny2)
-                {
-                    bestAny2 = d2;
-                    targetNpc = n;
-                }
+                best2 = d2;
+                targetNpc = n;
             }
-
-            if (bestFrontNpc is not null)
-                targetNpc = bestFrontNpc;
         }
 
         var targetGuid = targetNpc?.Guid ?? (packet.Guid != 0 ? packet.Guid : player.Guid);
@@ -979,6 +969,9 @@ public static class AbilityPacketClientRequestStartAbilityHandler
 
         if (targets.Count == 0)
         {
+            if (player.ActiveProfileId == ArcherWeaponAbilities.ArcherProfileId)
+                ArcherProjectiles.FireForward(player);
+
             _logger.LogInformation("StartAbility: no damageable target found (slot {slot}, aoe {radius}).",
                 packet.Data.Slot, ability.AoeRadius);
             return true;
@@ -989,20 +982,20 @@ public static class AbilityPacketClientRequestStartAbilityHandler
         _logger.LogInformation("Ability slot {slot} = '{name}' (dmg {dmg}, anim {anim}, fx {fx}, targets {count})",
             packet.Data.Slot, ability.Name, ability.Damage, ability.Animation, ability.EffectId, targets.Count);
 
-        // PROBE (2026-07-19): arrows in flight — op35/62 per victim, archer only for now. Each
-        // victim's damage lands when ITS arrow does: delay = cast delay + (dist - 2u) / speed.
+        // Arrows in flight — op35/62 per victim, archer only for now. Each victim's damage
+        // lands when ITS arrow does.
         var isArcher = player.ActiveProfileId == ArcherWeaponAbilities.ArcherProfileId;
-        if (isArcher && ProjectileProbe.Enabled)
+        if (isArcher)
         {
             var casterEndFx = ability.CasterEndEffectId;
             foreach (var projectileTarget in targets)
             {
-                ProjectileProbe.FireAt(player, projectileTarget);
+                ArcherProjectiles.FireAt(player, projectileTarget);
 
                 // Arrow launches AT cast, so damage lands at flight time exactly — adding the
-                // cast delay on top made every hit read ~0.15s late (user 2026-07-19).
+                // cast delay on top made every hit read late.
                 ResolveDamageAfterCast(player, [projectileTarget], ability.Damage, ability.EffectId,
-                    Math.Max(damageDelay, ProjectileProbe.FlightTimeTo(player, projectileTarget)),
+                    Math.Max(damageDelay, ArcherProjectiles.FlightTimeTo(player, projectileTarget)),
                     casterEndFx, ability.EnemyExtraEffectId);
                 casterEndFx = 0; // caster's own end-FX only once per cast, not per arrow
             }

@@ -680,6 +680,8 @@ public sealed class TormentedSpiritsArenaZone : CombatEncounterZone
         if (collected is null)
             return;
 
+        player.PlayPowerupPickupSound();
+
         foreach (var h in collected)
         {
             player.SendTunneled(new PlayerUpdatePacketHitPointModification

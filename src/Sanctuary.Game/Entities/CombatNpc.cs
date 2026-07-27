@@ -231,6 +231,9 @@ public class CombatNpc : Npc
 
         target.TakeDamage(finalDamage, this);
 
+        if (Combat.CombatDebug.Verbose)
+            target.SendSystemMessage($"dbg mobAtk[CombatNpc.PerformAttack] {Name} ({Guid}) dmg {finalDamage} hp {target.CurrentHitpoints}");
+
         var attack = new CombatPacketAttackProcessed
         {
             AttackerGuid = Guid,

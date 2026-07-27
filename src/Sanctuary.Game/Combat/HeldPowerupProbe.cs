@@ -191,6 +191,7 @@ public static class HeldPowerupProbe
                             continue;
 
                         Grant(player, kind, resources);
+                        player.PlayPowerupPickupSound();
                         pu.GracefulRemoval = (false, 0, 5000, PickupFxId, 1000);
                         pu.Dispose();
                         pickups.RemoveAt(i);

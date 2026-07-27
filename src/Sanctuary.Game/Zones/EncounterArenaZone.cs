@@ -642,6 +642,8 @@ public sealed class EncounterArenaZone : CombatEncounterZone
         if (collected is null)
             return;
 
+        player.PlayPowerupPickupSound();
+
         foreach (var h in collected)
         {
             var maxHp = player.Stats.TryGetValue(CharacterStatId.MaxHealth, out var mh) ? mh.Int : 2500;

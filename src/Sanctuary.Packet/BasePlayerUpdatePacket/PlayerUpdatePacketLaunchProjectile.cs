@@ -1,6 +1,7 @@
 using System.Numerics;
 
 using Sanctuary.Core.IO;
+using Sanctuary.Packet.Common;
 using Sanctuary.Packet.Common.Targets;
 
 namespace Sanctuary.Packet;
@@ -9,11 +10,11 @@ public class PlayerUpdatePacketLaunchProjectile : BasePlayerUpdatePacket, ISeria
 {
     public new const short OpCode = 62;
 
-    public const int FlightTypeBeam = 1;
-    public const int FlightTypeArc = 2;
-    public const int FlightTypeSeek = 4;
-    public const int FlightTypeThrowCatch = 7;
-    public const int FlightTypeBoomerang = 8;
+    public const int FlightTypeBeam = ProjectileParameters.FlightTypeBeam;
+    public const int FlightTypeArc = ProjectileParameters.FlightTypeArc;
+    public const int FlightTypeSeek = ProjectileParameters.FlightTypeSeek;
+    public const int FlightTypeThrowCatch = ProjectileParameters.FlightTypeThrowCatch;
+    public const int FlightTypeBoomerang = ProjectileParameters.FlightTypeBoomerang;
 
     public int ActorId;
 
@@ -67,57 +68,46 @@ public class PlayerUpdatePacketLaunchProjectile : BasePlayerUpdatePacket, ISeria
     {
     }
 
+    // The shared ProjectileParameters blob (0x8E8910) + the op35/62-only trailing effect int.
+    private ProjectileParameters ToParameters() => new()
+    {
+        ActorId = ActorId,
+        ProjectileId = ProjectileId,
+        Speed = Speed,
+        Acceleration = Acceleration,
+        FlightType = FlightType,
+        FireForward = FireForward,
+        Direction = Direction,
+        StartPosition = StartPosition,
+        ModelFileName = ModelFileName,
+        Source = Source,
+        Destination = Destination,
+        SpinAxis = SpinAxis,
+        SpinRate = SpinRate,
+        VolleyGroupMode = VolleyGroupMode,
+        ScaleStart = ScaleStart,
+        ScaleEnd = ScaleEnd,
+        TrailCompositeEffectId = TrailCompositeEffectId,
+        Unknown18 = Unknown18,
+        Unknown19 = Unknown19,
+        LaunchDelay = LaunchDelay,
+        MaxLifetime = MaxLifetime,
+        Unknown22 = Unknown22,
+        Unknown23 = Unknown23,
+        Unknown24 = Unknown24,
+        Unknown25 = Unknown25,
+        Unknown26 = Unknown26,
+        Unknown27 = Unknown27,
+        Unknown28 = Unknown28,
+    };
+
     public byte[] Serialize()
     {
         using var writer = new PacketWriter();
 
         base.Write(writer);
 
-        writer.Write(ActorId);
-
-        writer.Write(ProjectileId);
-
-        writer.Write(Speed);
-        writer.Write(Acceleration);
-
-        writer.Write(FlightType);
-
-        writer.Write(FireForward);
-
-        writer.Write(Direction);
-        writer.Write(StartPosition);
-
-        writer.Write(ModelFileName);
-
-        Source.Serialize(writer);
-        Destination.Serialize(writer);
-
-        writer.Write(SpinAxis);
-        writer.Write(SpinRate);
-
-        writer.Write(VolleyGroupMode);
-
-        writer.Write(ScaleStart);
-        writer.Write(ScaleEnd);
-
-        writer.Write(TrailCompositeEffectId);
-
-        writer.Write(Unknown18);
-        writer.Write(Unknown19);
-
-        writer.Write(LaunchDelay);
-
-        writer.Write(MaxLifetime);
-
-        writer.Write(Unknown22);
-        writer.Write(Unknown23);
-
-        writer.Write(Unknown24);
-        writer.Write(Unknown25);
-        writer.Write(Unknown26);
-        writer.Write(Unknown27);
-
-        writer.Write(Unknown28);
+        ToParameters().Serialize(writer);
 
         writer.Write(CompositeEffectId);
 
