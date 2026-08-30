@@ -18,6 +18,7 @@ public static class InventoryPacketEquippedRemoveHandler
 {
     private static ILogger _logger = null!;
     private static IResourceManager _resourceManager = null!;
+    private static ICombatManager _combatManager = null!;
     private static IDbContextFactory<DatabaseContext> _dbContextFactory = null!;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
@@ -26,6 +27,7 @@ public static class InventoryPacketEquippedRemoveHandler
         _logger = loggerFactory.CreateLogger(nameof(InventoryPacketEquippedRemoveHandler));
 
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
+        _combatManager = serviceProvider.GetRequiredService<ICombatManager>();
         _dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<DatabaseContext>>();
     }
 
@@ -120,9 +122,11 @@ public static class InventoryPacketEquippedRemoveHandler
 
         playerUpdatePacketEquipItemChange.ProfileId = packet.ProfileId;
 
-        playerUpdatePacketEquipItemChange.WieldType = itemClass.WieldType;
+        playerUpdatePacketEquipItemChange.WieldType = _combatManager.ResolveWieldType(connection.Player, itemClass.WieldType);
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange);
+
+        _combatManager.SendToolbar(connection.Player);
 
         // Update the Weapon composite effect if we have a Flair Shard equipped.
         if (packet.Slot == 13)
@@ -150,7 +154,7 @@ public static class InventoryPacketEquippedRemoveHandler
                     if (!_resourceManager.ItemClasses.TryGetValue(clientItemDefinition.Class, out itemClass))
                         return true;
 
-                    playerUpdatePacketEquipItemChange.WieldType = itemClass.WieldType;
+                    playerUpdatePacketEquipItemChange.WieldType = _combatManager.ResolveWieldType(connection.Player, itemClass.WieldType);
 
                     connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange, true);
                 }

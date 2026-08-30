@@ -16,6 +16,7 @@ public static class CommandPacketSetProfileHandler
 {
     private static ILogger _logger = null!;
     private static IZoneManager _zoneManager = null!;
+    private static ICombatManager _combatManager = null!;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
     {
@@ -23,6 +24,7 @@ public static class CommandPacketSetProfileHandler
         _logger = loggerFactory.CreateLogger(nameof(CommandPacketSetProfileHandler));
 
         _zoneManager = serviceProvider.GetRequiredService<IZoneManager>();
+        _combatManager = serviceProvider.GetRequiredService<ICombatManager>();
     }
 
     public static bool HandlePacket(GatewayConnection connection, ReadOnlySpan<byte> data)
@@ -64,6 +66,28 @@ public static class CommandPacketSetProfileHandler
         playerUpdatePacketEquippedItemsChange.Attachments = clientUpdatePacketActivateProfile.Attachments;
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquippedItemsChange);
+
+        _combatManager.SendToolbar(connection.Player);
+
+        const int PrimaryWeaponSlot = 7;
+
+        if (connection.Player.ActiveProfile.Items.TryGetValue(PrimaryWeaponSlot, out var weaponItem))
+        {
+            var weaponAttachment = connection.Player.GetAttachment(PrimaryWeaponSlot);
+
+            if (weaponAttachment is not null)
+            {
+                var playerUpdatePacketEquipItemChange = new PlayerUpdatePacketEquipItemChange();
+
+                playerUpdatePacketEquipItemChange.Guid = connection.Player.Guid;
+                playerUpdatePacketEquipItemChange.Id = weaponItem.Id;
+                playerUpdatePacketEquipItemChange.Attachment = weaponAttachment;
+                playerUpdatePacketEquipItemChange.ProfileId = connection.Player.ActiveProfileId;
+                playerUpdatePacketEquipItemChange.WieldType = connection.Player.ResolveWieldType();
+
+                connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange, sendToSelf: true);
+            }
+        }
 
         var friendStatusPacket = new FriendStatusPacket
         {

@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 
 using Sanctuary.Core.IO;
 
@@ -9,13 +9,13 @@ public class PlayerUpdatePacketPlayCompositeEffect : BasePlayerUpdatePacket, ISe
     public new const short OpCode = 16;
 
     public ulong Guid;
-    public ulong Unknown2;
+    public ulong SourceGuid;
 
     public int CompositeEffectId;
 
-    public int Unknown4;
+    public int DelayMs;
 
-    public int EffectDelay;
+    public int LifetimeMs;
 
     public Vector4 Position;
 
@@ -32,13 +32,13 @@ public class PlayerUpdatePacketPlayCompositeEffect : BasePlayerUpdatePacket, ISe
         base.Write(writer);
 
         writer.Write(Guid);
-        writer.Write(Unknown2);
+        writer.Write(SourceGuid);
 
         writer.Write(CompositeEffectId);
 
-        writer.Write(Unknown4);
+        writer.Write(DelayMs);
 
-        writer.Write(EffectDelay);
+        writer.Write(LifetimeMs);
 
         writer.Write(Position);
 

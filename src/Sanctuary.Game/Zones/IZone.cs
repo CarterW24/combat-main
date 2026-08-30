@@ -32,6 +32,8 @@ public interface IZone : IScriptableZone
     bool TryGetPlayer(ulong guid, [MaybeNullWhen(false)] out Player player);
     bool TryGetEntity(ulong guid, [MaybeNullWhen(false)] out IEntity entity);
 
+    void SendNpcHealth(Player player, Npc npc);
+
     bool TryAddMount(Mount mount);
     bool TryAddPlayer(Player player);
 

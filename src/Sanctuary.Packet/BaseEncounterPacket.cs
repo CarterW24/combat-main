@@ -20,5 +20,8 @@ public class BaseEncounterPacket
     {
         writer.Write(OpCode);
         writer.Write(SubOpCode);
+
+        writer.Write(Unknown);
+        writer.Write(Unknown2);
     }
 }

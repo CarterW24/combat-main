@@ -19,6 +19,7 @@ public static class InventoryPacketEquipByItemRecordHandler
 {
     private static ILogger _logger = null!;
     private static IResourceManager _resourceManager = null!;
+    private static ICombatManager _combatManager = null!;
     private static IDbContextFactory<DatabaseContext> _dbContextFactory = null!;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
@@ -27,6 +28,7 @@ public static class InventoryPacketEquipByItemRecordHandler
         _logger = loggerFactory.CreateLogger(nameof(InventoryPacketEquipByItemRecordHandler));
 
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
+        _combatManager = serviceProvider.GetRequiredService<ICombatManager>();
         _dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<DatabaseContext>>();
     }
 
@@ -155,9 +157,11 @@ public static class InventoryPacketEquipByItemRecordHandler
             return true;
         }
 
-        playerUpdatePacketEquipItemChange.WieldType = itemClass.WieldType;
+        playerUpdatePacketEquipItemChange.WieldType = _combatManager.ResolveWieldType(connection.Player, itemClass.WieldType);
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange);
+
+        _combatManager.SendToolbar(connection.Player);
 
         return true;
     }

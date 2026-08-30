@@ -41,5 +41,9 @@ public interface IResourceManager
 
     RewardTableDefinitionCollection RewardTables { get; }
 
+    AbilityDefinitionCollection CombatAbilities { get; }
+    JobKitDefinitionCollection CombatJobs { get; }
+    MobArchetypeDefinitionCollection CombatArchetypes { get; }
+
     bool Load();
 }

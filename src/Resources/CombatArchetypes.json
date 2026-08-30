@@ -1,0 +1,42 @@
+[
+  {
+    "Id": 1,
+    "Comment": "Snow wolf - the Frostfang common mob. Model 176 wolf.adr; attack anim 1001 com_h2h_attack_01 (model's own table); bite fx 5409 = retail's op32/7 CompositeEffectId (crit variant 5622, unused). HP/damage are PROVISIONAL placeholders - retail samples show chip damage vs a high-level pool; no wiki table for mob stats.",
+    "Name": "Snow Wolf",
+    "NameId": 103604,
+    "ModelId": 176,
+    "Scale": 1.0,
+    "MaxHealth": 500,
+    "AttackDamage": 50,
+    "AttackIntervalMs": 2400,
+    "AggroRange": 15.0,
+    "LeashRange": 40.0,
+    "AttackRange": 5.0,
+    "Speed": 6.0,
+    "AttackAnimationId": 1001,
+    "AttackHitEffectId": 5409,
+    "ShowHealthBar": false,
+    "IsBoss": false,
+    "RespawnSeconds": 30
+  },
+  {
+    "Id": 2,
+    "Comment": "Evil wolf - tougher Frostfang variant. Model 177 wolf_evil.adr; same anim table and bite fx as wolf.adr. Stats PROVISIONAL (see Snow Wolf).",
+    "Name": "Evil Wolf",
+    "NameId": 0,
+    "ModelId": 177,
+    "Scale": 1.1,
+    "MaxHealth": 950,
+    "AttackDamage": 80,
+    "AttackIntervalMs": 2200,
+    "AggroRange": 15.0,
+    "LeashRange": 40.0,
+    "AttackRange": 5.0,
+    "Speed": 6.5,
+    "AttackAnimationId": 1001,
+    "AttackHitEffectId": 5409,
+    "ShowHealthBar": false,
+    "IsBoss": false,
+    "RespawnSeconds": 30
+  }
+]

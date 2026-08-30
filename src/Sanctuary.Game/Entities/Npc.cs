@@ -63,8 +63,42 @@ public class Npc : IScriptableNpc, IEntity
 
     public int CompositeEffectId { get; set; }
 
+    public int WieldType { get; set; }
+
     public int InteractRange { get; set; } = 100;
     public bool IsInteractable { get; set; } = true;
+
+    public int MaxHealth { get; set; }
+    public int Health { get; set; }
+    public bool ShowHealthBar { get; set; }
+    public bool Invulnerable { get; set; }
+
+    public bool RestoreOnDeath { get; set; }
+
+    public bool IsHostile => Disposition == 0;
+    public bool IsDamageable => MaxHealth > 0 && !Invulnerable;
+    public bool IsAlive => MaxHealth == 0 || Health > 0;
+
+    private readonly object _damageLock = new();
+
+    public bool ApplyDamage(int amount)
+    {
+        lock (_damageLock)
+        {
+            if (!IsAlive)
+                return false;
+
+            Health -= amount;
+
+            if (Health <= 0)
+            {
+                Health = 0;
+                return true;
+            }
+
+            return false;
+        }
+    }
 
     public int MovementType => 2;
 
@@ -224,7 +258,7 @@ public class Npc : IScriptableNpc, IEntity
 
             CompositeEffectId = CompositeEffectId,
 
-            WieldType = default,
+            WieldType = WieldType,
 
             Name = Name,
 
@@ -259,7 +293,7 @@ public class Npc : IScriptableNpc, IEntity
             Unknown38 = default,
             Unknown39 = default,
             Unknown40 = default,
-            Unknown41 = default,
+            Unknown41 = ShowHealthBar,
             Unknown42 = default,
 
             HasTilt = default,

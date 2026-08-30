@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +19,7 @@ public static class InventoryPacketEquipByGuidHandler
 {
     private static ILogger _logger = null!;
     private static IResourceManager _resourceManager = null!;
+    private static ICombatManager _combatManager = null!;
     private static IDbContextFactory<DatabaseContext> _dbContextFactory = null!;
 
     public static void ConfigureServices(IServiceProvider serviceProvider)
@@ -27,6 +28,7 @@ public static class InventoryPacketEquipByGuidHandler
         _logger = loggerFactory.CreateLogger(nameof(InventoryPacketEquipByGuidHandler));
 
         _resourceManager = serviceProvider.GetRequiredService<IResourceManager>();
+        _combatManager = serviceProvider.GetRequiredService<ICombatManager>();
         _dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<DatabaseContext>>();
     }
 
@@ -151,9 +153,11 @@ public static class InventoryPacketEquipByGuidHandler
             return true;
         }
 
-        playerUpdatePacketEquipItemChange.WieldType = itemClass.WieldType;
+        playerUpdatePacketEquipItemChange.WieldType = _combatManager.ResolveWieldType(connection.Player, itemClass.WieldType);
 
         connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange);
+
+        _combatManager.SendToolbar(connection.Player);
 
         // Update the Weapon composite effect if we have a Flair Shard equipped.
         if (packet.Slot == 13)
@@ -185,7 +189,7 @@ public static class InventoryPacketEquipByGuidHandler
                     if (!_resourceManager.ItemClasses.TryGetValue(weaponClientItemDefinition.Class, out itemClass))
                         return true;
 
-                    playerUpdatePacketEquipItemChange.WieldType = itemClass.WieldType;
+                    playerUpdatePacketEquipItemChange.WieldType = _combatManager.ResolveWieldType(connection.Player, itemClass.WieldType);
 
                     connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange, true);
                 }
@@ -220,7 +224,7 @@ public static class InventoryPacketEquipByGuidHandler
                     if (!_resourceManager.ItemClasses.TryGetValue(clientItemDefinition.Class, out itemClass))
                         return true;
 
-                    playerUpdatePacketEquipItemChange.WieldType = itemClass.WieldType;
+                    playerUpdatePacketEquipItemChange.WieldType = _combatManager.ResolveWieldType(connection.Player, itemClass.WieldType);
 
                     connection.Player.SendTunneledToVisible(playerUpdatePacketEquipItemChange, true);
                 }

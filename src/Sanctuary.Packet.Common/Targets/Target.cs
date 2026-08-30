@@ -24,6 +24,15 @@ public class Target : ISerializableType, IDeserializable<Target>
         };
     }
 
+    public static Target CreateCharacterGuid(long guid)
+    {
+        return new Target
+        {
+            Type = TargetType.CharacterGuid,
+            TargetBase = new TargetCharacterGuid { Guid = guid }
+        };
+    }
+
     public virtual void Serialize(PacketWriter writer)
     {
         writer.Write(Type);

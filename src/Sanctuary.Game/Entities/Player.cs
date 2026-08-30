@@ -67,6 +67,76 @@ public sealed class Player : ClientPcData, IEntity
     public Vector4 StartingZonePosition { get; set; }
     public Quaternion StartingZoneRotation { get; set; }
 
+    #region Combat
+
+    private const int OutOfCombatSeconds = 6;
+
+    private long _lastWorldCombatTicks;
+    private bool _worldCombatActive;
+
+    public Vector3 Forward
+    {
+        get
+        {
+            var len = MathF.Sqrt(Rotation.X * Rotation.X + Rotation.Z * Rotation.Z);
+            return len < 0.0001f
+                ? new Vector3(0f, 0f, 1f)
+                : new Vector3(Rotation.X / len, 0f, Rotation.Z / len);
+        }
+    }
+
+    public int GetEquippedWeaponDefinitionId()
+    {
+        const int PrimaryWeaponSlot = 7;
+
+        if (!ActiveProfile.Items.TryGetValue(PrimaryWeaponSlot, out var profileItem))
+            return 0;
+
+        var clientItem = Items.FirstOrDefault(x => x.Id == profileItem.Id);
+
+        return clientItem?.Definition ?? 0;
+    }
+
+    public int ResolveWieldType()
+    {
+        if (_resourceManager.ClientItemDefinitions.TryGetValue(GetEquippedWeaponDefinitionId(), out var weaponDefinition)
+            && _resourceManager.ItemClasses.TryGetValue(weaponDefinition.Class, out var itemClass)
+            && itemClass.WieldType != 0)
+        {
+            return itemClass.WieldType;
+        }
+
+        return _resourceManager.CombatJobs.TryGetValue(ActiveProfileId, out var kit) ? kit.WieldType : 0;
+    }
+
+    public void EnterWorldCombat()
+    {
+        _lastWorldCombatTicks = Environment.TickCount64;
+
+        if (_worldCombatActive)
+            return;
+
+        _worldCombatActive = true;
+        SendWorldCombatState(true);
+    }
+
+    private void WorldCombatStateTick()
+    {
+        if (!_worldCombatActive || Environment.TickCount64 - _lastWorldCombatTicks < OutOfCombatSeconds * 1000L)
+            return;
+
+        _worldCombatActive = false;
+        SendWorldCombatState(false);
+    }
+
+    private void SendWorldCombatState(bool fighting)
+    {
+        SendTunneled(new EncounterOverworldCombatPacket { InWorldCombat = fighting });
+        SendTunneled(new EncounterPacketIsFighting { InWorldCombat = fighting });
+    }
+
+    #endregion
+
     public Player(BaseZone zone, UdpConnection connection, IResourceManager resourceManager)
     {
         Zone = zone;
@@ -179,6 +249,71 @@ public sealed class Player : ClientPcData, IEntity
 
     public void UpdateEverySecond()
     {
+        WorldCombatStateTick();
+        EnergyRegenTick();
+    }
+
+    public int MaxHealth { get; private set; } = 2500;
+    public int Health { get; private set; } = 2500;
+
+    public void SetHealth(int health)
+    {
+        Health = Math.Clamp(health, 0, MaxHealth);
+
+        SendTunneled(new ClientUpdatePacketHitpoints
+        {
+            CurrentHitpoints = Health,
+            MaxHitpoints = MaxHealth
+        });
+
+        SendTunneledToVisible(new PlayerUpdatePacketUpdateHitpoints
+        {
+            Guid = Guid,
+            Hitpoints = Health,
+            MaxHitpoints = MaxHealth
+        }, sendToSelf: false);
+    }
+
+    public void Heal(int amount, ulong sourceGuid)
+    {
+        if (amount <= 0 || Health >= MaxHealth)
+            return;
+
+        SetHealth(Health + amount);
+
+        SendTunneledToVisible(new PlayerUpdatePacketHitPointModification
+        {
+            Guid = sourceGuid,
+            Guid2 = Guid,
+            ShowFloatingText = true,
+            Unknown2 = MaxHealth,
+            Unknown3 = Health,
+            Unknown4 = amount
+        }, sendToSelf: true);
+    }
+
+    public int Energy { get; private set; } = 100;
+
+    public void SetEnergy(int energy, int maxEnergy)
+    {
+        Energy = energy;
+
+        SendTunneled(new ClientUpdatePacketMana
+        {
+            CurrentMana = Energy,
+            MaxMana = maxEnergy
+        });
+    }
+
+    private void EnergyRegenTick()
+    {
+        if (!_resourceManager.CombatJobs.TryGetValue(ActiveProfileId, out var kit))
+            return;
+
+        if (Energy >= kit.Energy.Max)
+            return;
+
+        SetEnergy(Math.Min(kit.Energy.Max, Energy + kit.Energy.RegenPerSecond), kit.Energy.Max);
     }
 
     public void UpdatePosition(Vector4 position, Quaternion rotation, bool updateZoneArea = true)
@@ -322,6 +457,9 @@ public sealed class Player : ClientPcData, IEntity
                 continue;
 
             SendTunneled(npc.GetAddNpcPacket());
+
+            if (npc.IsHostile)
+                SendTunneled(new PlayerUpdatePacketUpdateDisposition { Guid = npc.Guid, Disposition = npc.Disposition });
         }
 
         var playerUpdatePacketNpcRelevance = new PlayerUpdatePacketNpcRelevance();
@@ -552,6 +690,8 @@ public sealed class Player : ClientPcData, IEntity
             Rotation = Rotation,
 
             Attachments = GetAttachments(),
+
+            WieldType = ResolveWieldType(),
 
             Head = Head,
             Hair = Hair,

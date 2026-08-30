@@ -16,6 +16,8 @@ using Sanctuary.Core.Collections;
 using Sanctuary.Game.Entities;
 using Sanctuary.Game.Resources.Definitions;
 using Sanctuary.Game.Resources.Definitions.Zones;
+using Sanctuary.Packet;
+using Sanctuary.Packet.Common;
 using Sanctuary.Scripting;
 using Sanctuary.UdpLibrary;
 using Sanctuary.Game.Pathfinding;
@@ -214,6 +216,23 @@ public abstract class BaseZone : IZone, IDisposable
     public bool TryGetPlayer(ulong guid, [MaybeNullWhen(false)] out Player player)
     {
         return _players.TryGetValue(guid, out player);
+    }
+
+    public void SendNpcHealth(Player player, Npc npc)
+    {
+        if (!npc.IsDamageable || !npc.ShowHealthBar)
+            return;
+
+        var updateStat = new ClientUpdatePacketUpdateStat { Guid = npc.Guid };
+        updateStat.Stats.Add(new CharacterStat(CharacterStatId.MaxHealth, npc.MaxHealth));
+        player.SendTunneled(updateStat);
+
+        player.SendTunneled(new PlayerUpdatePacketUpdateHitpoints
+        {
+            Guid = npc.Guid,
+            Hitpoints = npc.Health,
+            MaxHitpoints = npc.MaxHealth
+        });
     }
 
     public bool TryGetEntity(ulong guid, [MaybeNullWhen(false)] out IEntity entity)
